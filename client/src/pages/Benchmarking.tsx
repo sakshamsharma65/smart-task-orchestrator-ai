@@ -40,7 +40,7 @@ type BenchmarkingData = {
 
 const Benchmarking: React.FC = () => {
   const { user } = useCurrentUserRoleAndTeams();
-  const [currentDate, setCurrentDate] = useState(new Date());
+  const [currentDate, setCurrentDate] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
   const [viewType, setViewType] = useState<'weekly' | 'monthly'>('monthly');
 
   // Fetch organization settings
@@ -114,7 +114,7 @@ const Benchmarking: React.FC = () => {
         }
         
         // For non-time-managed completed tasks, check if they were completed on this day
-        if (!task.is_time_managed && task.status === 'completed' && task.estimated_hours > 0) {
+        if (!task.is_time_managed && task.status === 'Completed' && task.estimated_hours > 0) {
           const completionDate = task.actual_completion_date ? parseISO(task.actual_completion_date) : parseISO(task.updated_at);
           return isSameDay(completionDate, day);
         }
@@ -124,18 +124,21 @@ const Benchmarking: React.FC = () => {
 
       const totalTasks = dayTasks.length;
       const totalHours = dayTasks.reduce((sum, task) => {
-        // For time-managed tasks, use actual time spent
-        if (task.is_time_managed && task.time_spent_minutes > 0) {
-          return sum + task.time_spent_minutes / 60;
-        }
-        
-        // For non-time-managed completed tasks, use estimated hours as effort
-        if (!task.is_time_managed && task.status === 'completed' && task.estimated_hours > 0) {
-          return sum + task.estimated_hours;
-        }
-        
-        return sum;
-      }, 0);
+  const isManaged = Boolean(task.is_time_managed);
+  const timeSpent = Number(task.time_spent_minutes || 0) / 60;
+  const estHours = Number(task.estimated_hours || 0);
+
+  if (isManaged && timeSpent > 0) {
+    return sum + timeSpent;
+  }
+
+  if (!isManaged && task.status === "Completed" && estHours > 0) {
+    return sum + estHours;
+  }
+
+  return sum; // <-- ALWAYS return valid number
+}, 0);
+
 
       let status: 'below' | 'within' | 'above' = 'within';
       if (totalHours < settings.min_hours_per_day) {
@@ -253,7 +256,9 @@ const Benchmarking: React.FC = () => {
               <div className="text-sm text-muted-foreground">Total Hours</div>
             </div>
             <div className="text-center">
-              <Badge variant={getStatusBadgeVariant(periodTotals.periodStatus)}>
+          <Badge 
+    className={`border shadow-none ${getStatusColor(periodTotals.periodStatus)}`}
+  >
                 {periodTotals.periodStatus === 'below' && 'Below Target'}
                 {periodTotals.periodStatus === 'within' && 'On Target'}
                 {periodTotals.periodStatus === 'above' && 'Above Target'}
@@ -272,7 +277,20 @@ const Benchmarking: React.FC = () => {
               {format(currentDate, viewType === 'weekly' ? "'Week of' MMM dd, yyyy" : "MMMM yyyy")}
             </CardTitle>
             <div className="flex items-center gap-2">
-              <Tabs value={viewType} onValueChange={(value) => setViewType(value as 'weekly' | 'monthly')}>
+              {/* <Tabs value={viewType} onValueChange={(value) => setViewType(value as 'weekly' | 'monthly')}> */}
+              <Tabs value={viewType} onValueChange={(value) => {
+  const newViewType = value as 'weekly' | 'monthly';
+  setViewType(newViewType);
+  
+  // Reset currentDate to the start of the new period type
+  if (newViewType === 'weekly') {
+    // Go to the Monday of the current week
+    setCurrentDate(startOfWeek(new Date(), { weekStartsOn: 1 }));
+  } else {
+    // Go to the first of the current month
+    setCurrentDate(startOfMonth(new Date()));
+  }
+}}>
                 <TabsList>
                   <TabsTrigger value="weekly">Weekly</TabsTrigger>
                   <TabsTrigger value="monthly">Monthly</TabsTrigger>
@@ -296,36 +314,52 @@ const Benchmarking: React.FC = () => {
               </div>
             ))}
             
-            {/* Calendar cells */}
-            {benchmarkingData.map((dayData, index) => {
-              const date = new Date(dayData.date);
-              const isToday = isSameDay(date, new Date());
-              
-              return (
-                <div
-                  key={dayData.date}
-                  className={`
-                    min-h-[100px] border rounded-lg p-2 space-y-1
-                    ${getStatusColor(dayData.status)}
-                    ${isToday ? 'ring-2 ring-primary' : ''}
-                  `}
-                >
-                  <div className="font-semibold text-sm">
-                    {format(date, 'd')}
-                  </div>
-                  <div className="space-y-1 text-xs">
-                    <div className="flex items-center gap-1">
-                      <span className="font-medium">{dayData.totalTasks}</span>
-                      <span>tasks</span>
-                    </div>
-                    <div className="flex items-center gap-1">
-                      <span className="font-medium">{dayData.totalHours}h</span>
-                      <span>logged</span>
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
+          {/* Calendar cells */}
+{(() => {
+  const firstDayOfRange = new Date(benchmarkingData[0]?.date);
+  const weekdayIndex = (firstDayOfRange.getDay() + 6) % 7; 
+  // Converts Sunday(0) → 6, Monday(1) → 0 … for weekStartsOn: 1 (Monday start)
+
+  const emptyCells = Array.from({ length: weekdayIndex }).map((_, i) => (
+    <div key={`empty-${i}`} className="min-h-[100px]" />
+  ));
+
+  return (
+    <>
+      {emptyCells}
+      {benchmarkingData.map((dayData) => {
+        const date = new Date(dayData.date);
+        const isToday = isSameDay(date, new Date());
+
+        return (
+          <div
+            key={dayData.date}
+            className={`
+              min-h-[100px] border rounded-lg p-2 space-y-1
+              ${getStatusColor(dayData.status)}
+              ${isToday ? 'ring-2 ring-primary' : ''}
+            `}
+          >
+            <div className="font-semibold text-sm">
+              {format(date, 'd')}
+            </div>
+            <div className="space-y-1 text-xs">
+              <div className="flex items-center gap-1">
+                <span className="font-medium">{dayData.totalTasks}</span>
+                <span>tasks</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <span className="font-medium">{dayData.totalHours}h</span>
+                <span>logged</span>
+              </div>
+            </div>
+          </div>
+        );
+      })}
+    </>
+  );
+})()}
+
           </div>
         </CardContent>
       </Card>

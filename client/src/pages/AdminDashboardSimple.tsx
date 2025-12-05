@@ -55,7 +55,7 @@ const AdminDashboard = () => {
 
     const totalTasks = tasks.length;
     const completedTasks = tasks.filter(task => task.status.toLowerCase() === "completed").length;
-    const newTasks = tasks.filter(task => task.status.toLowerCase() === "new").length;
+    const newTasks = tasks.filter(task => task.status.toLowerCase() === "to do").length;
     const overdueTasks = tasks.filter(task => 
       task.due_date && 
       new Date(task.due_date) < new Date() && 
@@ -160,28 +160,28 @@ const AdminDashboard = () => {
           label="Total Users" 
           value={users.length} 
           icon={Users}
-          bgColor="bg-gray-50"
-          borderColor="border-gray-200"
+             bgColor="bg-indigo-50"
+          borderColor="border-indigo-200"
         />
         <StatCard 
           label="Total Teams" 
           value={teams.length} 
           icon={Building2}
-          bgColor="bg-slate-50"
-          borderColor="border-slate-200"
+            bgColor="bg-emerald-50"
+          borderColor="border-emerald-200"
         />
         <StatCard 
           label="Total Tasks" 
           value={stats.totalTasks} 
           icon={ClipboardList}
-          bgColor="bg-zinc-50"
+            bgColor="bg-red-100"
           borderColor="border-zinc-200"
         />
         <StatCard 
           label="Completed Tasks" 
           value={stats.completedTasks} 
           icon={CheckCircle}
-          bgColor="bg-stone-50"
+          bgColor="bg-red-100"
           borderColor="border-stone-200"
         />
       </div>
@@ -192,28 +192,28 @@ const AdminDashboard = () => {
           label="New Tasks" 
           value={stats.newTasks} 
           icon={ClipboardList}
-          bgColor="bg-gray-100"
-          borderColor="border-gray-300"
+          bgColor="bg-amber-50"
+          borderColor="border-amber-200"
         />
         <StatCard 
           label="Overdue Tasks" 
           value={stats.overdueTasks} 
           icon={CheckCircle}
-          bgColor="bg-red-50"
-          borderColor="border-red-200"
+          bgColor="bg-rose-50"
+          borderColor="border-rose-200"
         />
         <StatCard 
           label="Completion Rate" 
           value={`${stats.totalTasks > 0 ? Math.round((stats.completedTasks / stats.totalTasks) * 100) : 0}%`} 
           icon={CheckCircle}
-          bgColor="bg-green-50"
-          borderColor="border-green-200"
+          bgColor="bg-teal-50"
+          borderColor="border-teal-200"
         />
       </div>
 
       {/* Tasks Due Today Section */}
       <div className="mb-8">
-        <Card>
+        <Card >
           <CardHeader className="flex flex-row items-center justify-between">
             <CardTitle className="flex items-center gap-2">
               <Calendar className="h-5 w-5 text-blue-600" />
@@ -349,19 +349,19 @@ const AdminDashboard = () => {
           <CardContent>
             <div className="space-y-4">
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Active Users</span>
+                <span className="text-sm text-gray-900">Active Users</span>
                 <span className="font-medium">{users.filter(u => u.is_active).length}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Active Teams</span>
+                <span className="text-sm text-gray-900">Active Teams</span>
                 <span className="font-medium">{teams.length}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Tasks This Month</span>
+                <span className="text-sm text-gray-900">Tasks of This Month</span>
                 <span className="font-medium">{stats.totalTasks}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-600">Pending Tasks</span>
+                <span className="text-sm text-gray-900">Pending Tasks</span>
                 <span className="font-medium">{stats.totalTasks - stats.completedTasks}</span>
               </div>
               {stats.overdueTasks > 0 && (

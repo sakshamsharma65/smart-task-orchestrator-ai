@@ -1,14 +1,5 @@
 import React, { useState, useEffect, useMemo } from "react";
-import {
-  Sheet,
-  SheetContent,
-  SheetHeader,
-  SheetTitle,
-  SheetDescription,
-  SheetFooter,
-  SheetClose,
-  SheetTrigger,
-} from "@/components/ui/sheet";
+import {Sheet,SheetContent,SheetHeader,SheetTitle, SheetDescription,SheetFooter,SheetClose,SheetTrigger} from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -24,11 +15,13 @@ import { useCurrentUserRoleAndTeams } from "@/hooks/useCurrentUserRoleAndTeams";
 
 // Additional statuses for select
 const statusOptions = [
-  { label: "New", value: "new" },
-  { label: "Pending", value: "pending" },
-  { label: "Assigned", value: "assigned" },
-  { label: "In Progress", value: "in_progress" },
-  { label: "Completed", value: "completed" },
+  // { label: "New", value: "new" },
+  // { label: "Pending", value: "pending" },
+  // { label: "Assigned", value: "assigned" },
+   { label: "To Do", value: "To Do" },
+   { label: "In Progress", value: "In Progress" },
+   { label: "Review", value: "Review" },
+   { label: "Completed", value: "Completed" },
 ];
 
 type Props = {
@@ -62,6 +55,7 @@ const EditTaskSheet: React.FC<Props> = ({
     status: task?.status || "",
     estimated_hours: task?.estimated_hours || "",
     actual_completion_date: task?.actual_completion_date || "",
+    is_time_managed: task?.is_time_managed || false,
   });
   const [loading, setLoading] = useState(false);
 
@@ -130,6 +124,7 @@ const EditTaskSheet: React.FC<Props> = ({
         status: task.status && statuses.length > 0 && statuses.some(s => s.name === task.status) ? task.status : (statuses[0]?.name || ""),
         estimated_hours: task.estimated_hours || "",
         actual_completion_date: task.actual_completion_date || "",
+        is_time_managed: task.is_time_managed || false,
       });
     }
   }, [open, statuses, task]);
@@ -220,7 +215,7 @@ const EditTaskSheet: React.FC<Props> = ({
         due_date: form.due_date || null,
         status: form.status,
         estimated_hours: form.estimated_hours ? Number(form.estimated_hours) : null,
-        actual_completion_date: form.status === "completed"
+        actual_completion_date: form.status === "Completed"
           ? (form.actual_completion_date || new Date().toISOString().slice(0, 10))
           : null,
       };
@@ -341,12 +336,12 @@ const EditTaskSheet: React.FC<Props> = ({
                 type="number"
                 min="0"
                 step="0.1"
-                disabled={isUser}
+                disabled={isUser || form.is_time_managed} 
                 required
               />
             </div>
             {/* Show field for completion date only if status is completed */}
-            {form.status === 'completed' && (
+            {form.status === 'Completed' && (
               <div>
                 <label className="block mb-1 font-medium">Completion Date</label>
                 <Input

@@ -41,7 +41,7 @@ const getDynamicCardStyling = (statusColor?: string) => {
 
 // Utility to determine if overdue/in time
 function getTimeIndicator(task: Task) {
-  if (!task || task.status === "completed") return null;
+  if (!task || task.status === "Completed") return null;
   if (!task.due_date) return "in_time";
   const todayStr = new Date().toISOString().slice(0, 10);
   if (todayStr <= task.due_date) return "in_time";
@@ -63,29 +63,45 @@ export default function TaskCard({ task, onTaskUpdated, canDelete, statusColor, 
   // Unique identifier for confirmation dialog if desired in the future
   // const [openDeleteConfirm, setOpenDeleteConfirm] = React.useState(false);
 
-  async function handleDeleteTask(id: string) {
-    if (!window.confirm("Delete this task?")) return;
-    try {
-      await deleteTask(id);
-      onTaskUpdated();
-      toast({ title: "Task deleted" });
-    } catch (err: any) {
-      toast({ title: "Delete failed", description: err.message });
-    }
-  }
+function handleDeleteTask(id: string) {
+  toast({
+    title: "Confirm Deletion",
+    description: "Are you sure you want to delete this task?",
+    action: (
+      <Button
+        variant="destructive"
+        onClick={async () => {
+          try {
+            await deleteTask(id);
+            onTaskUpdated();
+            toast({ title: "Task deleted" });
+          } catch (err: any) {
+            toast({
+              title: "Delete failed",
+              description: err.message || "Something went wrong"
+            });
+          }
+        }}
+      >
+        Delete
+      </Button>
+    ),
+  });
+}
+
 
   async function handleCompleteTask(task: Task) {
-    if (task.status === "completed") {
-      toast({ title: "Task is already completed" });
+    if (task.status === "Completed") {
+      toast({ title: "Task is already Completed" });
       return;
     }
 
-    // Check if direct transition to "completed" is allowed
-    if (!isTransitionAllowed(task.status, "completed")) {
+    // Check if direct transition to "Completed" is allowed
+    if (!isTransitionAllowed(task.status, "Completed")) {
       const allowedStatuses = getAllowedNextStatuses(task.status);
       toast({ 
         title: "Cannot Complete Task", 
-        description: `Cannot move directly from "${task.status}" to "completed". Allowed next statuses: ${allowedStatuses.join(", ")}`,
+        description: `Cannot move directly from "${task.status}" to "Completed". Allowed next statuses: ${allowedStatuses.join(", ")}`,
         variant: "destructive"
       });
       return;
@@ -93,11 +109,11 @@ export default function TaskCard({ task, onTaskUpdated, canDelete, statusColor, 
 
     try {
       await updateTask(task.id, {
-        status: "completed",
+        status: "Completed",
         actual_completion_date: new Date().toISOString().slice(0, 10),
       });
       onTaskUpdated();
-      toast({ title: "Task marked as completed" });
+      toast({ title: "Task marked as Completed" });
     } catch (err: any) {
       toast({ title: "Completion failed", description: err.message });
     }
@@ -117,19 +133,19 @@ export default function TaskCard({ task, onTaskUpdated, canDelete, statusColor, 
   const isSubTask = !!(task.group_ids && Array.isArray(task.group_ids) && task.group_ids.length > 0);
   const isDependent = !!task.is_dependent;
 
-  // Check if task is completed for blue left border
-  const isCompleted = task.status === "completed";
+  // Check if task is Completed for blue left border
+  const isCompleted = task.status === "Completed";
 
   return (
     <Card 
-      className={`relative group transition hover:shadow-lg ${isCompleted ? 'border-l-4 border-l-blue-500' : ''}`}
+      className={`relative group transition hover:shadow-lg ${isCompleted ? 'border-l-4 border-l-blue-900' : ''}`}
       style={dynamicCardStyling}
     >
       {/* Floating top/center actions visible on hover */}
       <div className="absolute left-1/2 top-2 -translate-x-1/2 z-10 flex gap-2 sm:gap-4 opacity-0 group-hover:opacity-100 transition-all">
         {/* Edit icon always present */}
-        <EditTaskSheet task={task} onUpdated={onTaskUpdated}>
-          <Button size="icon" variant="ghost" className="text-gray-400 hover:text-blue-600 h-8 w-8 sm:h-10 sm:w-10" title="Edit Task">
+        <EditTaskSheet task={task} onUpdated={onTaskUpdated} >
+          <Button  disabled={isCompleted} size="icon" variant="ghost" className="text-gray-700 hover:text-blue-900 h-8 w-8 sm:h-10 sm:w-10" title="Edit Task">
             <Edit size={16} className="sm:w-5 sm:h-5" />
           </Button>
         </EditTaskSheet>
@@ -137,7 +153,7 @@ export default function TaskCard({ task, onTaskUpdated, canDelete, statusColor, 
         <Button
           size="icon"
           variant="ghost"
-          className={`text-gray-400 h-8 w-8 sm:h-10 sm:w-10 ${canDelete(task.status) ? "hover:text-red-600" : "opacity-60 cursor-not-allowed"}`}
+          className={`text-gray-400 h-8 w-8 sm:h-10 sm:w-10 ${canDelete(task.status) ? "hover:text-red-900" : "opacity-60 cursor-not-allowed"}`}
           title={canDelete(task.status) ? "Delete Task" : "Cannot delete tasks with this status"}
           onClick={() => canDelete(task.status) && handleDeleteTask(task.id)}
           disabled={!canDelete(task.status)}
@@ -148,10 +164,10 @@ export default function TaskCard({ task, onTaskUpdated, canDelete, statusColor, 
         <Button
           size="icon"
           variant="ghost"
-          className={`text-gray-400 hover:text-green-700 h-8 w-8 sm:h-10 sm:w-10`}
-          title={task.status === "completed" ? "Already completed" : "Mark as Complete"}
+          className={`text-gray-400 hover:text-green-900 h-8 w-8 sm:h-10 sm:w-10`}
+          title={task.status === "Completed" ? "Already Completed" : "Mark as Complete"}
           onClick={() => handleCompleteTask(task)}
-          disabled={task.status === "completed"}
+          disabled={task.status === "Completed" ||task.status === "To Do" ||task.status === "In Progress"}
         >
           <Check size={16} className="sm:w-5 sm:h-5" />
         </Button>
@@ -162,11 +178,11 @@ export default function TaskCard({ task, onTaskUpdated, canDelete, statusColor, 
         <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-2">
           <div className="flex items-center gap-2 min-w-0">
             {task.task_number && (
-              <span className="text-xs font-mono bg-gray-100 dark:bg-gray-800 px-2 py-1 rounded border flex-shrink-0">
+              <span className="text-xs font-mono bg-gray-100 dark:bg-gray-900 px-2 py-1 rounded border flex-shrink-0">
                 #{task.task_number}
               </span>
             )}
-            <h2 className="font-semibold text-base sm:text-lg truncate cursor-pointer hover:text-blue-600 transition-colors" 
+            <h2 className="font-semibold text-base sm:text-lg truncate cursor-pointer hover:text-blue-900 transition-colors" 
                 onClick={(e) => {
                   e.stopPropagation();
                   if (onOpenDetails) {
@@ -187,12 +203,12 @@ export default function TaskCard({ task, onTaskUpdated, canDelete, statusColor, 
             </span>
             {/* In Time/Overdue badge */}
             {timeStatus === "in_time" && (
-              <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-700 font-medium">
+              <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-900 font-medium">
                 In Time
               </span>
             )}
             {timeStatus === "overdue" && (
-              <span className="text-xs px-2 py-1 rounded-full bg-red-100 text-red-700 font-medium">
+              <span className="text-xs px-2 py-1 rounded-full bg-red-100 text-red-900 font-medium">
                 Overdue
               </span>
             )}
@@ -218,6 +234,15 @@ export default function TaskCard({ task, onTaskUpdated, canDelete, statusColor, 
             <span className="capitalize">{task.status}</span>
           </div>
           <div>
+            <span className="font-semibold">Start Date:</span>{" "}
+            {task.due_date ? (
+              <span>{formatOrgDate(task.start_date)}</span>
+            ) : (
+              <span className="text-muted-foreground">No due date</span>
+            )}
+          </div>
+
+          <div>
             <span className="font-semibold">Due:</span>{" "}
             {task.due_date ? (
               <span>{formatOrgDate(task.due_date)}</span>
@@ -237,7 +262,7 @@ export default function TaskCard({ task, onTaskUpdated, canDelete, statusColor, 
               ? getUserName(task.assigned_to)
               : "-"}
           </div>
-          {task.status === "completed" && task.actual_completion_date && (
+          {task.status === "Completed" && task.actual_completion_date && (
             <div>
               <span className="font-semibold">Completion Date:</span>{" "}
               {formatOrgDate(task.actual_completion_date)}

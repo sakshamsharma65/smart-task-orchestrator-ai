@@ -170,7 +170,7 @@ export default function TaskReport() {
         };
         
         // Initialize status counts
-        statusNames.forEach((status) => {
+        statusNames.forEach((status: string) => {
           userMap[userId][status] = 0;
         });
       }
@@ -228,12 +228,14 @@ export default function TaskReport() {
       />
 
       {/* Export Button */}
-      <div className="mb-4">
-        <button className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700">
-          Export to CSV
-        </button>
-      </div>
-
+      {/* Export Button */}
+      <div className="mb-4 mt-2" >
+        <TaskReportExportButton 
+          report={report}
+          statusNames={statusNames}
+          disabled={report.length === 0}
+        />
+      </div>
       {/* Report Table */}
       <div className="bg-white rounded-lg border shadow-sm">
         <div className="p-4">

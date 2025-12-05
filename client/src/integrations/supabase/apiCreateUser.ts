@@ -1,5 +1,6 @@
 
-// Creates a user via API endpoint instead of edge function
+// NOTE: This helper is deprecated in favor of the centralized `apiClient` which
+// injects the required authentication headers (eg. x-user-id) automatically.
 export async function apiCreateUser(payload: {
   email: string;
   password: string;
@@ -9,22 +10,9 @@ export async function apiCreateUser(payload: {
   manager?: string;
   roles?: string[];
 }) {
-  try {
-    const response = await fetch('/api/users', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${localStorage.getItem('auth_token')}`,
-      },
-      body: JSON.stringify(payload),
-    });
-    
-    if (!response.ok) {
-      throw new Error(`Failed to create user: ${response.statusText}`);
-    }
-    
-    return await response.json();
-  } catch (error: any) {
-    throw new Error(error.message ?? "Failed to create user");
-  }
+  // Forward to the shared api client so headers and base URL are consistent.
+  // Importing here dynamically to avoid circular import issues during module
+  // initialization in some build setups.
+  const { apiClient } = await import("@/lib/api");
+  return apiClient.createUser(payload);
 }

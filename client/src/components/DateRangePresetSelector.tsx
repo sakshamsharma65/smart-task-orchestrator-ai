@@ -1,8 +1,8 @@
-// Fix: Remove local startOfDay/endOfDay and use date-fns version
-
 import React from "react";
 import {
   addDays,
+  addMonths,
+  addWeeks,
   startOfWeek,
   endOfWeek,
   startOfMonth,
@@ -12,6 +12,8 @@ import {
   subMonths,
   startOfDay,
   endOfDay,
+  parse,
+  format,
 } from "date-fns";
 
 const presets = [
@@ -24,57 +26,82 @@ const presets = [
   { key: "custom", label: "Custom" },
 ];
 
+type DateRange = { from: Date | null; to: Date | null };
+
 type DateRangePresetSelectorProps = {
-  dateRange: { from: Date | null; to: Date | null };
+  dateRange: DateRange;
   preset: string;
-  onChange: (range: { from: Date | null; to: Date | null }, preset: string) => void;
+  onChange: (range: DateRange, preset: string) => void;
 };
 
-// Fix: today/yesterday preset correctly returns [00:00:00, 23:59:59.999]
-function computeRange(key: string): { from: Date | null; to: Date | null } {
+// computeRange unchanged except using date-fns startOfDay/endOfDay already imported
+function computeRange(key: string): DateRange {
   const now = new Date();
+
   switch (key) {
-    case "today": {
+      case "today": {
+      // From: Start of Today
       const from = startOfDay(now);
-      const to = endOfDay(now);
+      // To: Start of TOMORROW (Covers all of today)
+      const to = startOfDay(addDays(now, 1)); 
       return { from, to };
     }
     case "yesterday": {
       const yd = subDays(now, 1);
+      // From: Start of Yesterday
       const from = startOfDay(yd);
-      const to = endOfDay(yd);
+      // To: Start of TODAY (Covers all of yesterday)
+      const to = startOfDay(now); 
       return { from, to };
     }
-    case "this_week":
-      return {
-        from: startOfDay(startOfWeek(now, { weekStartsOn: 1 })),
-        to: endOfDay(endOfWeek(now, { weekStartsOn: 1 })),
-      };
-    case "last_week":
+    case "this_week": {
+      // From: Start of Monday
+      const from = startOfDay(startOfWeek(now, { weekStartsOn: 1 }));
+      // To: End of Sunday (23:59:59)
+      const to = endOfWeek(now, { weekStartsOn: 1 });
+      return { from, to };
+    }
+    case "last_week": {
       const prevW = subWeeks(now, 1);
-      return {
-        from: startOfDay(startOfWeek(prevW, { weekStartsOn: 1 })),
-        to: endOfDay(endOfWeek(prevW, { weekStartsOn: 1 })),
-      };
-    case "this_month":
-      return { from: startOfDay(startOfMonth(now)), to: endOfDay(endOfMonth(now)) };
-    case "last_month":
+      const from = startOfDay(startOfWeek(prevW, { weekStartsOn: 1 }));
+      // To: End of last Sunday (23:59:59)
+      const to = endOfWeek(prevW, { weekStartsOn: 1 });
+      return { from, to };
+    }
+    case "this_month": {
+      const from = startOfDay(startOfMonth(now));
+      // To: Last millisecond of current month
+      const to = endOfMonth(now);
+      return { from, to };
+    }
+    case "last_month": {
       const prevM = subMonths(now, 1);
-      return {
-        from: startOfDay(startOfMonth(prevM)),
-        to: endOfDay(endOfMonth(prevM)),
-      };
+      const from = startOfDay(startOfMonth(prevM));
+      // To: Last millisecond of previous month
+      const to = endOfMonth(prevM);
+      return { from, to };
+    }
     default:
-      // Custom, just pass-through
       return { from: null, to: null };
   }
 }
 
+/**
+ * NOTE about timezone handling:
+ * - HTML date inputs produce values like "2025-12-01".
+ * - `new Date("2025-12-01")` is parsed as UTC midnight and can become the previous day
+ *   in local time depending on the timezone offset.
+ * - To avoid that we parse the string using date-fns `parse(..., 'yyyy-MM-dd', new Date())`
+ *   which produces a Date at local timezone midnight for the selected day.
+ */
 export default function DateRangePresetSelector({
   dateRange,
   preset,
   onChange,
 }: DateRangePresetSelectorProps) {
+  // helper to convert Date -> yyyy-MM-dd for input value
+  const toInputValue = (d: Date | null) => (d ? format(d, "yyyy-MM-dd") : "");
+
   return (
     <div className="space-y-3">
       {/* Preset buttons */}
@@ -82,7 +109,7 @@ export default function DateRangePresetSelector({
         {presets.map((opt) => (
           <button
             key={opt.key}
-            className={`px-2 py-1 rounded text-xs font-medium border 
+            className={`px-2 py-1 rounded text-xs font-medium border
               ${preset === opt.key ? "bg-primary text-white border-primary" : "bg-muted border-muted-foreground/20"}
               hover:bg-muted-foreground/10 transition`}
             type="button"
@@ -94,6 +121,7 @@ export default function DateRangePresetSelector({
                 onChange(range, opt.key);
               }
             }}
+            aria-pressed={preset === opt.key}
           >
             {opt.label}
           </button>
@@ -110,12 +138,16 @@ export default function DateRangePresetSelector({
               <label className="block text-xs text-gray-600 mb-1">From Date</label>
               <input
                 type="date"
-                value={dateRange.from ? dateRange.from.toISOString().split('T')[0] : ''}
+                value={toInputValue(dateRange.from)}
                 onChange={(e) => {
-                  const newDate = e.target.value ? new Date(e.target.value) : null;
+                  const dateValue = e.target.value; // "yyyy-MM-dd"
+                  const parsed = dateValue ? parse(dateValue, "yyyy-MM-dd", new Date()) : null;
+                  // set start of day in local timezone
+                  const newDate = parsed ? startOfDay(parsed) : null;
                   onChange({ from: newDate, to: dateRange.to }, "custom");
                 }}
                 className="px-3 py-1 border rounded text-sm"
+                aria-label="From date"
               />
             </div>
 
@@ -124,22 +156,42 @@ export default function DateRangePresetSelector({
               <label className="block text-xs text-gray-600 mb-1">To Date</label>
               <input
                 type="date"
-                value={dateRange.to ? dateRange.to.toISOString().split('T')[0] : ''}
+                value={toInputValue(dateRange.to)}
                 onChange={(e) => {
-                  const newDate = e.target.value ? new Date(e.target.value) : null;
+                  const dateValue = e.target.value;
+                  const parsed = dateValue ? parse(dateValue, "yyyy-MM-dd", new Date()) : null;
+                  // include the entire day
+                  const newDate = parsed ? endOfDay(parsed) : null;
                   onChange({ from: dateRange.from, to: newDate }, "custom");
                 }}
-                min={dateRange.from ? dateRange.from.toISOString().split('T')[0] : undefined}
+                min={dateRange.from ? format(dateRange.from, "yyyy-MM-dd") : undefined}
                 className="px-3 py-1 border rounded text-sm"
+                aria-label="To date"
               />
             </div>
-            
-            {/* Selected range display */}
-            {dateRange.from && dateRange.to && (
-              <div className="text-xs text-green-600 font-medium">
-                {`${dateRange.from.toLocaleDateString()} - ${dateRange.to.toLocaleDateString()}`}
-              </div>
-            )}
+
+            {/* Optional quick apply/reset controls */}
+            <div className="flex gap-2 items-end mt-[18px]" >
+              <button
+                type="button"
+                onClick={() => {
+                  // If both from & to exist, keep them; otherwise no-op
+                  onChange(dateRange, "custom");
+                }}
+                className="px-3 py-1 rounded border text-sm"
+              >
+                Apply
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  onChange({ from: null, to: null }, "custom");
+                }}
+                className="px-3 py-1 rounded border text-sm"
+              >
+                Reset
+              </button>
+            </div>
           </div>
         </div>
       )}

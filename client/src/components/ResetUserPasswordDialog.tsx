@@ -5,6 +5,8 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { apiClient } from "@/lib/api";
+import { useNavigate } from "react-router-dom";
+
 
 interface ResetUserPasswordDialogProps {
   open: boolean;
@@ -21,6 +23,11 @@ const ResetUserPasswordDialog: React.FC<ResetUserPasswordDialogProps> = ({
 }) => {
   const [password, setPassword] = useState("");
   const [saving, setSaving] = useState(false);
+  const navigate = useNavigate(); 
+  // const navigateToLogin = () => {
+  //   navigate("/auth");
+  // }
+
 
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();

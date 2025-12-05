@@ -1,5 +1,5 @@
 
-import { supabase } from "@/integrations/supabase/client";
+import { apiClient } from "@/lib/api";
 
 export type TaskActivity = {
   id: string;
@@ -28,11 +28,11 @@ export async function fetchTaskActivity(task_id: string): Promise<TaskActivity[]
 
 // Create an activity log entry (status change, comment, or assignment)
 export async function createTaskActivity(log: Omit<TaskActivity, "id" | "created_at">) {
-  const { data, error } = await supabase
-    .from("task_activity")
-    .insert([log])
-    .select()
-    .single();
-  if (error) throw error;
-  return data as TaskActivity;
+  // We're using our server API (PostgreSQL) instead of the old Supabase shim.
+  // Server endpoint: POST /api/tasks/:id/activity
+  const taskId = (log as any).task_id;
+  if (!taskId) throw new Error("task_id is required to create activity");
+
+  // The server will return the created activity object
+  return await apiClient.post(`/tasks/${taskId}/activity`, log);
 }

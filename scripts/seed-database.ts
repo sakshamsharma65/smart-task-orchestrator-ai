@@ -46,26 +46,31 @@ async function seedDatabase() {
 
     // 3. Create sample users
     console.log('👥 Creating sample users...');
-    const sampleUsers = [
-      {
-        id: '22222222-2222-2222-2222-222222222222',
-        email: 'john.doe@example.com',
-        user_name: 'John Doe',
-        department: 'Engineering',
-        manager: 'admin@example.com',
-        phone: '+1-555-0101',
-        is_admin: false,
-      },
-      {
-        id: '33333333-3333-3333-3333-333333333333',
-        email: 'jane.smith@example.com',
-        user_name: 'Jane Smith',
-        department: 'Design',
-        manager: 'admin@example.com',
-        phone: '+1-555-0102',
-        is_admin: false,
-      }
-    ];
+const sampleUsers = Array.from({ length: 34 }, (_, i) => {
+  const userNumber = i + 3; // since user1 and user2 already exist
+  return {
+    id: crypto.randomUUID(),
+    email: `user${userNumber}@example.com`,
+    user_name: `User ${userNumber}`,
+    department: 'IT',
+    manager: 'admin@example.com',
+    phone: `+1-555-${(1000 + userNumber).toString().padStart(4, '0')}`,
+    is_admin: false,
+  };
+});
+
+for (const user of sampleUsers) {
+  try {
+    const password = await bcrypt.hash('test@123', 10);
+    await storage.createUser({
+      ...user,
+      password_hash: password,
+    });
+    console.log(`✓ Created user: ${user.email} / test@123`);
+  } catch (error) {
+    console.log(`⚠️  User ${user.email} already exists`);
+  }
+}
 
     for (const user of sampleUsers) {
       try {

@@ -129,9 +129,54 @@ const GeneralSettings: React.FC = () => {
     }
   });
 
-  const handleSave = () => {
-    saveSettingsMutation.mutate(formData);
-  };
+const handleSave = () => {
+  // Validation checks
+  if (formData.benchmarking_enabled) {
+    if (formData.max_hours_per_day < formData.min_hours_per_day) {
+      toast({
+        title: "Invalid Input",
+        description: "Maximum hours per day cannot be less than minimum hours per day.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (formData.max_hours_per_week < formData.min_hours_per_week) {
+      toast({
+        title: "Invalid Input",
+        description: "Maximum hours per week cannot be less than minimum hours per week.",
+        variant: "destructive",
+      });
+      return;
+    }
+
+    if (formData.max_hours_per_month < formData.min_hours_per_month) {
+      toast({
+        title: "Invalid Input",
+        description: "Maximum hours per month cannot be less than minimum hours per month.",
+        variant: "destructive",
+      });
+      return;
+    }
+  }
+
+  // Daily limit validation
+  if (
+    formData.daily_hour_limit_enabled &&
+    (formData.max_daily_hours_limit <= 0 || formData.max_daily_hours_limit > 24)
+  ) {
+    toast({
+      title: "Invalid Input",
+      description: "Daily hour limit must be between 1 and 24 hours.",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  // If all validations pass
+  saveSettingsMutation.mutate(formData);
+};
+
 
   const formatPreview = (format: string) => {
     const now = new Date();

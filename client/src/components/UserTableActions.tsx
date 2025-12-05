@@ -1,5 +1,6 @@
 import React from "react";
 import { MoreVertical, User, Edit, UserCheck, UserX, Trash2, AlertTriangle } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
 import { useMutation } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
 import EditUserDialog from "./EditUserDialog";
@@ -50,6 +51,21 @@ const UserTableActions: React.FC<UserTableActionsProps> = ({ user, onEdit, onRef
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
 
   const { toast } = useToast();
+  const { data: licenseInfo, isLoading: licenseLoading, refetch: refetchLicense } = useQuery({
+    queryKey: ['license-user-limits'],
+    queryFn: async () => {
+      const response = await fetch('/api/license/user-limits', {
+        headers: {
+          'x-user-id': user?.id || '',
+        },
+      });
+      if (!response.ok) {
+        throw new Error('Failed to fetch license info');
+      }
+      return response.json();
+    },
+    enabled: !!user?.id,
+  });
 
   // Deactivate user mutation
   const deactivateUserMutation = useMutation({
@@ -124,6 +140,20 @@ const UserTableActions: React.FC<UserTableActionsProps> = ({ user, onEdit, onRef
   }
 
   function handleActivateUser() {
+        // Check license limits before opening create dialog
+    if (licenseInfo && licenseInfo.hasLicense && licenseInfo.userLimits) {
+      const { maximum } = licenseInfo.userLimits;
+      const currentUsers = licenseInfo.currentUsers;
+      
+      if (currentUsers >= maximum) {
+        toast({
+          title: "License Limit Reached",
+          description: `Cannot create or activate user. License limit reached (${currentUsers}/${maximum} users). Please upgrade your license or deactivate existing users.`,
+          variant: "destructive"
+        });
+        return;
+      }
+    }
     setActivateDialogOpen(true);
   }
 

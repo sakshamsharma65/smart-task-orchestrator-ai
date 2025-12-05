@@ -110,7 +110,7 @@ export function usePaginatedTasks(options: {
   // Modified paginated search with stable dependencies
   const handleSearch = useCallback(async () => {
     setSearched(true);
-
+    console.log("Handle search triggered");
     setLoading(true);
     setShowTooManyWarning(false);
 
@@ -126,7 +126,7 @@ export function usePaginatedTasks(options: {
     if (options.isHistorical) {
       // For historical tasks, ALWAYS filter by completed status and date
       if (statusFilter === "all") {
-        input.status = "completed";
+        input.status = "Completed";
       }
       
       if (dateRange.from && dateRange.to) {

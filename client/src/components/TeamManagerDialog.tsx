@@ -5,7 +5,17 @@ import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { apiClient } from "@/lib/api";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogFooter, AlertDialogTitle, AlertDialogDescription, AlertDialogAction, AlertDialogCancel } from "@/components/ui/alert-dialog";
+import {
+  AlertDialog,
+  AlertDialogTrigger,
+  AlertDialogContent,
+  AlertDialogHeader,
+  AlertDialogFooter,
+  AlertDialogTitle,
+  AlertDialogDescription,
+  AlertDialogAction,
+  AlertDialogCancel
+} from "@/components/ui/alert-dialog";
 
 interface User {
   id: string;
@@ -21,7 +31,7 @@ interface Team {
 }
 
 interface TeamMember {
-  id: string;     // membership id
+  id: string;
   user_id: string;
   role_within_team: string | null;
   joined_at: string | null;
@@ -35,10 +45,6 @@ interface TeamManagerDialogProps {
   onTeamUpdated?: () => void;
 }
 
-/**
- * Admin dialog for creating or editing a Team,
- * assigning/removing users and setting manager.
- */
 const TeamManagerDialog: React.FC<TeamManagerDialogProps> = ({
   open,
   onOpenChange,
@@ -46,88 +52,65 @@ const TeamManagerDialog: React.FC<TeamManagerDialogProps> = ({
   onTeamUpdated,
 }) => {
   const isEdit = Boolean(team);
+
   const [saving, setSaving] = useState(false);
   const [teamName, setTeamName] = useState("");
   const [teamDesc, setTeamDesc] = useState("");
   const [members, setMembers] = useState<TeamMember[]>([]);
   const [allUsers, setAllUsers] = useState<User[]>([]);
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
-  const [managerId, setManagerId] = useState<string>(""); // <--- this line remains the same
+  const [managerId, setManagerId] = useState<string>("");
   const [deleteOpen, setDeleteOpen] = useState(false);
 
-  // Update managerId whenever members data changes
-  React.useEffect(() => {
+  // Reload manager when members change
+  useEffect(() => {
     if (!open) return;
-    if (members.length > 0) {
-      const managerEntry = members.find((m) => m.role_within_team === "manager");
-      if (managerEntry?.user_id) {
-        setManagerId(managerEntry.user_id);
-      }
-    }
-    // If team changed and there are no members, reset manager
-    if (members.length === 0) {
+
+    const currentManager = members.find(m => m.role_within_team === "manager");
+    if (currentManager) {
+      setManagerId(currentManager.user_id);
+    } else {
       setManagerId("");
     }
   }, [members, open]);
 
-  // Keep form state in sync with team prop and dialog open state.
+  // Reset when closing dialog
   useEffect(() => {
-    if (open && team) {
-      setTeamName(team.name || "");
-      setTeamDesc(team.description || "");
-    } else if (!open) {
+    if (!open) {
       setTeamName("");
       setTeamDesc("");
-      setManagerId("");
       setSelectedUserIds([]);
       setMembers([]);
+      setManagerId("");
+    } else if (open && team) {
+      setTeamName(team.name || "");
+      setTeamDesc(team.description || "");
     }
   }, [open, team]);
 
-  // Load all users for assignment
+  // Load all users
   useEffect(() => {
     if (!open) return;
-    apiClient.getUsers().then((data) => {
-      setAllUsers(data || []);
-    }).catch((error) => {
-      console.error('Failed to fetch users:', error);
+
+    apiClient.getUsers().then(setAllUsers).catch(() => {
       toast({ title: "Failed to load users" });
-      setAllUsers([]);
     });
   }, [open]);
 
-  // If editing: fetch team members + manager
+  // Load team members when editing
   useEffect(() => {
-    if (!open || !team) {
-      setMembers([]);
-      setSelectedUserIds([]);
-      // setManagerId(""); <--- Leave to be set by the managerId/members effect
-      return;
-    }
+    if (!open || !team) return;
 
-    async function fetchMembers() {
+    async function loadMembers() {
       try {
-        // Fetch team members using API client
         const teamMembers = await apiClient.getTeamMembers(team.id);
-        
-        if (!teamMembers || teamMembers.length === 0) {
-          setMembers([]);
-          setSelectedUserIds([]);
-          return;
-        }
+        if (!teamMembers) return;
 
-        // Gather all user ids for later join
-        const memberUserIds: string[] = teamMembers.map((m: any) => m.user_id);
-
-        // Fetch user metadata for those IDs
-        const allUsers = await apiClient.getUsers();
+        const users = await apiClient.getUsers();
         const usersById: Record<string, User> = {};
-        allUsers.forEach((u: any) => {
-          usersById[u.id] = u;
-        });
+        users.forEach((u) => (usersById[u.id] = u));
 
-        // Build full members, filtering out any memberships where no user found
-        const enrichedMembers: TeamMember[] = (teamMembers || [])
+        const enriched = teamMembers
           .filter((m: any) => usersById[m.user_id])
           .map((m: any) => ({
             id: m.id,
@@ -137,215 +120,178 @@ const TeamManagerDialog: React.FC<TeamManagerDialogProps> = ({
             user: usersById[m.user_id],
           }));
 
-        setMembers(enrichedMembers);
-        setSelectedUserIds(enrichedMembers.map(m => m.user_id));
-      } catch (error: any) {
-        console.error('Failed to fetch team members:', error);
-        toast({ title: "Failed to load team members", description: error.message });
-        setMembers([]);
-        setSelectedUserIds([]);
+        setMembers(enriched);
+        setSelectedUserIds(enriched.map(m => m.user_id));
+      } catch (err) {
+        toast({ title: "Failed to load team members" });
       }
     }
-    
-    fetchMembers();
+
+    loadMembers();
   }, [open, team]);
 
-  // When user selection changes, ensure manager is in member list
-  useEffect(() => {
-    if (!selectedUserIds.includes(managerId)) setManagerId("");
-  }, [selectedUserIds, managerId]);
+  // -----------------------------
+  // IMPORTANT NEW LOGIC
+  // -----------------------------
 
-  // Ensure inputs are updated if dialog is opened for another team
+  const currentManagerRemoved =
+    isEdit &&
+    managerId &&
+    !selectedUserIds.includes(managerId);
+
   useEffect(() => {
-    if (team && isEdit && open) {
-      setTeamName(team.name || "");
-      setTeamDesc(team.description || "");
+    // If manager removed from selected members → clear managerId
+    if (managerId && !selectedUserIds.includes(managerId)) {
+      setManagerId("");
     }
-  }, [team, isEdit, open]);
+  }, [selectedUserIds]);
 
-  // Handle Save/Update
+  // -----------------------------
+  // SAVE handler
+  // -----------------------------
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setSaving(true);
 
-    if (!teamName.trim()) {
-      toast({ title: "Team name is required." });
-      setSaving(false);
+    if (currentManagerRemoved) {
+      toast({
+        title: "Manager invalid",
+        description: "Select a valid manager before updating."
+      });
       return;
     }
+
     if (!managerId) {
       toast({ title: "Please select a team manager." });
-      setSaving(false);
       return;
     }
+
+    setSaving(true);
+
     let teamId = team?.id;
-    // If new team, first create it
+
+    // Create new team
     if (!teamId) {
-      try {
-        const newTeam = await apiClient.createTeam({
-          name: teamName,
-          description: teamDesc,
-        });
-        teamId = newTeam.id;
-      } catch (error: any) {
-        toast({ title: "Failed to create team", description: error.message });
-        setSaving(false);
-        return;
-      }
+      const newTeam = await apiClient.createTeam({
+        name: teamName,
+        description: teamDesc,
+      });
+      teamId = newTeam.id;
     } else {
-      // Update team name/desc
-      try {
-        await apiClient.updateTeam(teamId, {
-          name: teamName,
-          description: teamDesc,
-        });
-      } catch (error: any) {
-        toast({ title: "Failed to update team", description: error.message });
-        setSaving(false);
-        return;
-      }
+      // Update existing team basics
+      await apiClient.updateTeam(teamId, {
+        name: teamName,
+        description: teamDesc,
+      });
     }
 
-    // Get current memberships for this team
-    let currentMemberships: any[] = [];
-    try {
-      currentMemberships = await apiClient.getTeamMembers(teamId!);
-    } catch (error: any) {
-      toast({ title: "Failed to load memberships", description: error.message });
-      setSaving(false);
-      return;
+    // Sync memberships
+    const existing = await apiClient.getTeamMembers(teamId);
+    const existingIds = existing.map((m: any) => m.user_id);
+
+    const toAdd = selectedUserIds.filter(id => !existingIds.includes(id));
+    const toRemove = existingIds.filter(id => !selectedUserIds.includes(id));
+
+    // Prevent removing current manager
+    for (const userId of toRemove) {
+      if (userId === managerId) continue;
+      await apiClient.removeTeamMember(teamId, userId);
     }
 
-    const currentUserIds = currentMemberships.map((m: any) => m.user_id);
-
-    // Add/Remove members as needed
-    const usersToAdd = selectedUserIds.filter(id => !currentUserIds.includes(id));
-    const usersToRemove = currentUserIds.filter(id => !selectedUserIds.includes(id));
-
-    // Remove memberships
-    for (const userId of usersToRemove) {
-      try {
-        await apiClient.removeTeamMember(teamId!, userId);
-      } catch (error: any) {
-        console.error(`Failed to remove user ${userId}:`, error);
-      }
-    }
-    
-    // Add memberships
-    for (const userId of usersToAdd) {
-      try {
-        await apiClient.addTeamMember(teamId!, userId);
-      } catch (error: any) {
-        console.error(`Failed to add user ${userId}:`, error);
-      }
+    for (const userId of toAdd) {
+      await apiClient.addTeamMember(teamId, userId);
     }
 
-    // Set manager role - update team with manager_id
-    if (teamId && managerId) {
-      try {
-        await apiClient.updateTeam(teamId, {
-          manager_id: managerId,
-        });
-        
-        // Also set role_within_team for the manager
-        // Clear all existing manager roles first
-        const allMembers = await apiClient.getTeamMembers(teamId);
-        for (const member of allMembers) {
-          if (member.role_within_team === "manager" && member.user_id !== managerId) {
-            await apiClient.addTeamMember(teamId, member.user_id, null);
-          }
-        }
-        
-        // Set the new manager's role
-        if (selectedUserIds.includes(managerId)) {
-          await apiClient.addTeamMember(teamId, managerId, "manager");
-        }
-      } catch (error: any) {
-        console.error("Failed to assign manager:", error);
-        toast({ title: "Failed to assign manager", description: error.message });
-      }
-    }
+    // Assign manager
+    await apiClient.updateTeam(teamId, { manager_id: managerId });
+    await apiClient.addTeamMember(teamId, managerId, "manager");
+
     toast({ title: isEdit ? "Team updated!" : "Team created!" });
+
     setSaving(false);
     onOpenChange(false);
-    if (onTeamUpdated) onTeamUpdated();
+    onTeamUpdated?.();
   }
 
-  // Handle Delete
+  // -----------------------------
+  // DELETE handler
+  // -----------------------------
+
   async function handleDeleteTeam() {
-    if (!team || !team.id) return;
+    if (!team) return;
+
     setSaving(true);
-    
-    try {
-      await apiClient.deleteTeam(team.id);
-      toast({ title: "Team deleted" });
-      setSaving(false);
-      setDeleteOpen(false);
-      onOpenChange(false);
-      if (onTeamUpdated) onTeamUpdated();
-    } catch (error: any) {
-      toast({ title: "Failed to delete team", description: error.message });
-      setSaving(false);
-    }
+    await apiClient.deleteTeam(team.id);
+    toast({ title: "Team deleted" });
+
+    setSaving(false);
+    setDeleteOpen(false);
+    onOpenChange(false);
+    onTeamUpdated?.();
   }
 
-  // UI: member assignment as a big select with checkboxes
+  // -----------------------------
+  // UI
+  // -----------------------------
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
           <DialogTitle>{isEdit ? "Edit Team" : "Create Team"}</DialogTitle>
         </DialogHeader>
+
         <form onSubmit={handleSubmit} className="space-y-4 mt-2">
+
+          {/* TEAM NAME */}
           <div>
-            <label className="block text-xs mb-1 font-medium text-muted-foreground">Team Name</label>
-            <Input
-              value={teamName}
-              onChange={e => setTeamName(e.target.value)}
-              required
-              autoFocus
-            />
+            <label className="block text-xs mb-1 text-muted-foreground">Team Name</label>
+            <Input value={teamName} onChange={e => setTeamName(e.target.value)} required />
           </div>
+
+          {/* TEAM DESC */}
           <div>
-            <label className="block text-xs mb-1 font-medium text-muted-foreground">Description</label>
-            <Input
-              value={teamDesc}
-              onChange={e => setTeamDesc(e.target.value)}
-            />
+            <label className="block text-xs mb-1 text-muted-foreground">Description</label>
+            <Input value={teamDesc} onChange={e => setTeamDesc(e.target.value)} />
           </div>
+
+          {/* USERS CHECKBOX */}
           <div>
-            <label className="block text-xs mb-1 font-medium text-muted-foreground">Assign Users</label>
+            <label className="block text-xs mb-1 text-muted-foreground">Assign Users</label>
             <div className="max-h-40 overflow-y-auto border rounded p-2">
-              {allUsers.length === 0 ? (
-                <span className="text-sm text-muted-foreground">No users found.</span>
-              ) : (
-                allUsers.map(user => (
-                  <div key={user.id} className="flex items-center gap-2 mb-1">
-                    <input
-                      type="checkbox"
-                      id={`user-${user.id}`}
-                      checked={selectedUserIds.includes(user.id)}
-                      onChange={e => {
-                        if (e.target.checked) {
-                          setSelectedUserIds(prev => [...prev, user.id]);
-                        } else {
-                          setSelectedUserIds(prev => prev.filter(id => id !== user.id));
+              {allUsers.map(user => (
+                <div key={user.id} className="flex items-center gap-2 mb-1">
+                  <input
+                    type="checkbox"
+                    checked={selectedUserIds.includes(user.id)}
+                    onChange={e => {
+                      if (e.target.checked) {
+                        setSelectedUserIds(prev => [...prev, user.id]);
+                      } else {
+                        // Prevent removing current manager unless new chosen
+                        if (user.id === managerId) {
+                          toast({
+                            title: "Cannot remove manager",
+                            description: "Assign a new manager before removing this one.",
+                          });
+                          return;
                         }
-                      }}
-                    />
-                    <label htmlFor={`user-${user.id}`}>
-                      {user.user_name || user.email}
-                    </label>
-                  </div>
-                ))
-              )}
+                        setSelectedUserIds(prev => prev.filter(id => id !== user.id));
+                      }
+                    }}
+                  />
+                  <label>{user.user_name || user.email}</label>
+                </div>
+              ))}
             </div>
           </div>
+
+          {/* MANAGER SELECT */}
           <div>
-            <label className="block text-xs mb-1 font-medium text-muted-foreground">Team Manager</label>
+            <label className="block text-xs mb-1 text-muted-foreground">Team Manager</label>
+
             <Select
               value={managerId}
-              onValueChange={(val) => setManagerId(val)}
+              onValueChange={setManagerId}
               disabled={selectedUserIds.length === 0}
             >
               <SelectTrigger>
@@ -355,47 +301,57 @@ const TeamManagerDialog: React.FC<TeamManagerDialogProps> = ({
                 {allUsers
                   .filter(u => selectedUserIds.includes(u.id))
                   .map(u => (
-                  <SelectItem key={u.id} value={u.id}>
-                    {u.user_name || u.email}
-                  </SelectItem>
-                ))}
+                    <SelectItem key={u.id} value={u.id}>
+                      {u.user_name || u.email}
+                    </SelectItem>
+                  ))}
               </SelectContent>
             </Select>
           </div>
+
+          {/* FOOTER */}
           <DialogFooter>
-            <Button type="button" variant="ghost" onClick={() => onOpenChange(false)} disabled={saving}>
+            <Button variant="ghost" type="button" onClick={() => onOpenChange(false)}>
               Cancel
             </Button>
+
             {isEdit && (
-              <>
-                <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-                  <AlertDialogTrigger asChild>
-                    <Button type="button" variant="destructive" onClick={() => setDeleteOpen(true)} disabled={saving}>
-                      Delete Team
-                    </Button>
-                  </AlertDialogTrigger>
-                  <AlertDialogContent>
-                    <AlertDialogHeader>
-                      <AlertDialogTitle>Delete This Team?</AlertDialogTitle>
-                    </AlertDialogHeader>
+              <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive">Delete Team</Button>
+                </AlertDialogTrigger>
+
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Delete This Team?</AlertDialogTitle>
                     <AlertDialogDescription>
-                      Are you sure you want to delete this team? This action cannot be undone.
+                      This action cannot be undone.
                     </AlertDialogDescription>
-                    <AlertDialogFooter>
-                      <AlertDialogCancel disabled={saving}>Cancel</AlertDialogCancel>
-                      <AlertDialogAction onClick={handleDeleteTeam} disabled={saving} className="bg-destructive text-destructive-foreground">
-                        Delete
-                      </AlertDialogAction>
-                    </AlertDialogFooter>
-                  </AlertDialogContent>
-                </AlertDialog>
-              </>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Cancel</AlertDialogCancel>
+                    <AlertDialogAction className="bg-destructive" onClick={handleDeleteTeam}>
+                      Delete
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
             )}
-            <Button type="submit" disabled={saving || !teamName || !managerId}>
+
+            <Button
+              type="submit"
+              disabled={
+                saving ||
+                !teamName ||
+                !managerId ||
+                currentManagerRemoved
+              }
+            >
               {isEdit ? "Update" : "Create"}
             </Button>
           </DialogFooter>
         </form>
+
       </DialogContent>
     </Dialog>
   );

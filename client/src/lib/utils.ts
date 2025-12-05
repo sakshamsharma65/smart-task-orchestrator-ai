@@ -5,21 +5,18 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
-export function formatOrgDate(dateString: string | Date | null | undefined): string {
+export function formatOrgDate(dateString: string) {
   if (!dateString) return "—";
-  
-  try {
-    const date = new Date(dateString);
-    if (isNaN(date.getTime())) return "—";
-    
-    return date.toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  } catch {
-    return "—";
-  }
+
+  const date = new Date(dateString);
+
+  return date.toLocaleString("en-US", {
+    timeZone: "UTC",
+    year: "numeric",
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit"
+  });
 }
+

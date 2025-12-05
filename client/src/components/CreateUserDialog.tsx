@@ -6,12 +6,13 @@ import {
 import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
-import { supabase } from "@/integrations/supabase/client";
+import { useRoles } from "@/hooks/useRoles";
 import { useDepartments } from "@/hooks/useDepartments";
 import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { apiCreateUser } from "@/integrations/supabase/apiCreateUser";
 import { useUserList } from "@/hooks/useUserList";
 import { useQuery } from "@tanstack/react-query";
+
 
 interface CreateUserDialogProps {
   onUserCreated?: () => void;
@@ -20,6 +21,7 @@ interface CreateUserDialogProps {
   onOpenChange?: (open: boolean) => void;
 }
 
+
 const initialValues = {
   email: "",
   password: "",
@@ -27,6 +29,7 @@ const initialValues = {
   department: "",
   phone: "",
   manager: "",
+  role:"",
   // Benchmarking override fields
   benchmarking_excluded: false,
   custom_min_hours_per_day: "",
@@ -47,7 +50,7 @@ const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
   const [values, setValues] = useState(initialValues);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
+  const { roles, loading: rolesLoading } = useRoles();
   // Use external control if provided, otherwise use internal state
   const isOpen = open !== undefined ? open : internalOpen;
   const setIsOpen = onOpenChange || setInternalOpen;
@@ -58,11 +61,28 @@ const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
   const currentUser = useCurrentUser(organization);
   // All users for manager dropdown
   const { users: allUsers, loading: usersLoading } = useUserList();
+  console.log(' Saksham All users for manager dropdown:', allUsers);
+  // Define the type for organization settings
+  interface OrgSettings {
+    allow_user_level_override?: boolean;
+    benchmarking_enabled?: boolean;
+    min_hours_per_day?: number;
+    max_hours_per_day?: number;
+    min_hours_per_week?: number;
+    max_hours_per_week?: number;
+    min_hours_per_month?: number;
+    max_hours_per_month?: number;
+    // Add any other fields as needed
+    [key: string]: any;
+  }
+  
+
   // Organization settings for benchmarking overrides
-  const { data: orgSettings } = useQuery({
+ const { data: orgSettings } = useQuery({
     queryKey: ['/api/organization-settings'],
     enabled: isOpen,
   });
+
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     setValues((v) => ({ ...v, [e.target.name]: e.target.value }));
@@ -74,7 +94,7 @@ const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
     setError(null);
 
     try {
-      const { email, password, user_name, department, phone, manager, 
+      const { email, password, user_name, department, phone, manager,role, 
               benchmarking_excluded, custom_min_hours_per_day, custom_max_hours_per_day,
               custom_min_hours_per_week, custom_max_hours_per_week, 
               custom_min_hours_per_month, custom_max_hours_per_month } = values;
@@ -87,7 +107,7 @@ const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
         department,
         phone,
         manager,
-        roles: ["user"],
+        role,
         // Include benchmarking overrides if organization allows them
         ...(orgSettings?.allow_user_level_override && {
           benchmarking_excluded,
@@ -159,11 +179,30 @@ const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
             />
             <Input
               name="user_name"
+              required
               placeholder="Full Name"
               value={values.user_name}
               onChange={handleChange}
               disabled={loading}
             />
+          <select
+  name="role"
+  className="border rounded px-2 py-2 text-sm bg-background"
+  value={values.role}
+  onChange={handleChange}
+  disabled={loading || rolesLoading}
+  required
+>
+  <option value="">
+    {rolesLoading ? "Loading roles..." : "Select role"}
+  </option>
+  {roles.map((role) => (
+    <option key={role.id} value={role.id}>
+      {role.name.charAt(0).toUpperCase() + role.name.slice(1)}
+    </option>
+  ))}
+</select>
+
             <select
               name="department"
               className="border rounded px-2 py-2 text-sm bg-background"
@@ -195,7 +234,7 @@ const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
               disabled={loading || usersLoading}
             >
               <option value="">Select Manager</option>
-              {allUsers.map((u) => (
+              {allUsers.filter(u=>u.role_name ==='manager' && u.is_active ).map((u) => (
                 <option key={u.id} value={u.id}>
                   {u.user_name ? `${u.user_name} (${u.email})` : u.email}
                 </option>

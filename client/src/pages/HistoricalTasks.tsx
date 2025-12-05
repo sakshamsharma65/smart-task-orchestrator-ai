@@ -60,7 +60,12 @@ export default function HistoricalTasksPage() {
   return (
     <div className="w-full p-4 mx-0">
       <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">Historical Tasks</h1>
+       <h1 className="text-2xl font-bold">
+  Historical Tasks
+  <span className="block text-sm font-normal text-muted-foreground">
+    Displays List of Tasks Completed Last Month
+  </span>
+</h1>
         <div className="flex gap-2">
           <Button 
             variant="outline" 

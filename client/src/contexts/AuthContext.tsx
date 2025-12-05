@@ -36,27 +36,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     setLoading(false);
   }, []);
 
-  const login = async (email: string, password: string) => {
-    setLoading(true);
-    try {
-      // Simple authentication - in production this should be more secure
-      const response = await fetch('/api/auth/login', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email, password }),
-      });
-      
-      if (response.ok) {
-        const user = await response.json();
-        setUser(user);
-        localStorage.setItem('user', JSON.stringify(user));
-      } else {
-        throw new Error('Invalid credentials');
-      }
-    } finally {
-      setLoading(false);
+const login = async (email: string, password: string) => {
+  setLoading(true);
+  try {
+    const response = await fetch('/api/auth/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+
+    const data = await response.json(); // always read JSON
+
+    if (!response.ok) {
+      // Forward backend error message to UI
+      throw {
+        status: response.status,
+        message: data.error || "Login failed",
+      };
     }
-  };
+
+    setUser(data);
+    localStorage.setItem('user', JSON.stringify(data));
+  } finally {
+    setLoading(false);
+  }
+};
+
 
   const logout = () => {
     setUser(null);

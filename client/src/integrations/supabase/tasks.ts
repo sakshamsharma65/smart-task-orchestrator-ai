@@ -50,10 +50,17 @@ export async function createTask(task: Omit<Task, "id" | "created_at" | "updated
   return await apiClient.createTask(task);
 }
 
+
+
 // Update a task
 export async function updateTask(id: string, updates: Partial<Task>) {
   return await apiClient.updateTask(id, updates);
 }
+// Update only the task status
+export async function updateTaskStatus(taskId: string, newStatus: string) {
+  return await apiClient.patch(`/tasks/${taskId}`, { status: newStatus });
+}
+
 
 // Delete a task
 export async function deleteTask(id: string) {
@@ -163,7 +170,7 @@ export async function fetchTasksPaginated(input: FetchTasksInput = {}): Promise<
     filteredTasks = filteredTasks.filter(task => task.team_id === input.teamId);
     console.log(`[DEBUG] Tasks after teamId filter:`, filteredTasks.length);
   }
-  if (input.status && input.status !== "all") {
+  if (input.status && input.status !== "Completed||In Progress||To Do") {
     console.log(`[DEBUG] Filtering by status: ${input.status}`);
     filteredTasks = filteredTasks.filter(task => 
       task.status.toLowerCase().includes(input.status!.toLowerCase())

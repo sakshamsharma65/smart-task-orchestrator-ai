@@ -1,17 +1,75 @@
 import type { Express } from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
+import passwordResetRouter from "./passwordResetRoutes";
 import { licenseManager, APP_ID } from "./license-manager";
 import { insertUserSchema, insertTaskSchema, insertTeamSchema, insertTaskGroupSchema, insertRoleSchema, insertOfficeLocationSchema, userRoles } from "@shared/schema";
 import { db } from "./db";
 import bcrypt from "bcrypt";
+import { toast } from "@/hooks/use-toast";
+import { log } from "console";
+
 
 // Role-based access control middleware
 // Cache roles and user roles to avoid repeated database calls
 let rolesCache: any[] = [];
 let rolesCacheTime = 0;
 const userRolesCache = new Map<string, { roles: string[]; time: number }>();
-const CACHE_TTL = 60000; // 1 minute cache
+const CACHE_TTL = 60000; // 1 minute 
+const PERMISSIONS = {
+  NONE: 0,
+  VIEW: 1,
+  EDIT: 2,
+  CREATE: 3,
+  DELETE: 4,
+};
+
+ // Add this helper function in routes.ts (near requireRole)
+
+function checkPermission(resource: string, requiredLevel: number) {
+  return async (req: any, res: any, next: any) => {
+    try {
+      const userId = req.headers['x-user-id'];
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required" });
+      }
+
+      // 1. Get User's Roles
+      const userRoles = await storage.getUserRoles(userId);
+
+      // 2. Check the permission level across all roles
+      let maxPermissionLevel = 0;
+
+      for (const role of userRoles) {
+        // Fetch permissions for this role (you can cache this later if needed)
+        const permissions = await storage.getRolePermissions(role.role_id);
+        const resourcePerm = permissions.find((p: any) => p.resource === resource);
+        
+        if (resourcePerm && resourcePerm.permission_level > maxPermissionLevel) {
+          maxPermissionLevel = resourcePerm.permission_level;
+        }
+      }
+
+      // 3. Admin Override (Optional: Admins usually get Level 4 automatically)
+      // If you want Admins to bypass checks:
+      // const isAdmin = userRoles.some(ur => ur.role_id === 'admin-role-id'); // simplified
+      // if (isAdmin) maxPermissionLevel = 4;
+
+      // 4. Verify Access
+      if (maxPermissionLevel >= requiredLevel) {
+        next();
+      } else {
+        res.status(403).json({ 
+          error: "Insufficient permissions",
+          details: `Required level: ${requiredLevel} for ${resource}, You have: ${maxPermissionLevel}`
+        });
+      }
+    } catch (error) {
+      console.error('Permission check error:', error);
+      res.status(500).json({ error: "Authorization failed" });
+    }
+  };
+}
 
 function requireRole(allowedRoles: string[]) {
   return async (req: any, res: any, next: any) => {
@@ -121,7 +179,6 @@ async function getUserVisibilityScope(userId: string): Promise<{ scope: string; 
     return { scope: "user", roleNames: [] };
   }
 }
-
 export async function registerRoutes(app: Express): Promise<Server> {
   // Authentication routes
   // Check if system has any users (for initial setup)
@@ -200,6 +257,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
       
       const user = await storage.getUserByEmail(email);
+      if(user?.is_active === false){
+        
+        return res.status(403).json({ error: "User account is deactivated" });
+      }
       if (!user) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
@@ -220,8 +281,11 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Mount password reset routes (forgot password flow)
+  app.use(passwordResetRouter);
+
   // User management routes - Admin/Manager only
-  app.get("/api/users", requireManagerOrAdmin, async (req, res) => {
+  app.get("/api/users",  async (req, res) => {
     try {
       const userId = req.headers['x-user-id'] as string;
       const { scope, roleNames } = await getUserVisibilityScope(userId);
@@ -270,6 +334,35 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to fetch users" });
     }
   });
+  app.get("/api/usersName", async (req, res) => {
+  try {
+    const userId = req.headers["x-user-id"] as string;
+    if (!userId) {
+      return res.status(401).json({ error: "Missing user id" });
+    }
+
+    // 1. Fetch current user
+    const currentUser = await storage.getUser(userId);
+    if (!currentUser) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+
+
+    // 3. Fetch all users (only id + name)
+    const allUsers = await storage.getAllUsers();
+    const result = allUsers.map(u => ({
+      id: u.id,
+      name: u.user_name,
+    }));
+
+    return res.json(result);
+  } catch (error) {
+    console.error("Error fetching users:", error);
+    return res.status(500).json({ error: "Internal server error" });
+  }
+});
+
 
   app.get("/api/users/:id", async (req, res) => {
     try {
@@ -283,43 +376,122 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/users", requireAdmin, async (req, res) => {
-    try {
-      // Check license user limits before creating new user
-      const userId = req.headers['x-user-id'] as string;
-      const currentUser = await storage.getUser(userId);
-      if (!currentUser) {
-        return res.status(403).json({ error: "User not found" });
-      }
+ app.post("/api/users", requireAdmin, async (req, res) => {
+  try {
+    // --- License check logic (no changes) ---
+    const userId = req.headers['x-user-id'] as string;
+    const currentUser = await storage.getUser(userId);
+    if (!currentUser) {
+      return res.status(403).json({ error: "User not found" });
+    }
+    const allUsers = await storage.getAllUsers();
+    const activeUserCount = allUsers.filter(user => user.is_active !== false).length;
+    const licenseStatus = await licenseManager.getLicenseStatus(currentUser.id);
+    console.log("licenseStatus post", licenseStatus);
+    if (licenseStatus.hasLicense && licenseStatus.userLimits) {
+      console.log("Inside license check saksham");
+      const { maximum } = licenseStatus.userLimits;
+      console.log("max", maximum, "active", activeUserCount);
+      if (activeUserCount >= maximum) {
+        return res.status(400).json({
+          error: `Cannot create or activate user. License limit reached (${activeUserCount}/${maximum} users). Please upgrade your license or deactivate existing users.`,
+          licenseLimit: maximum,
+          currentUsers: activeUserCount
+        });
+      }
+    }
+    else{
+      console.log('saskham license not found');
+    }
+    // --- End of license check ---
 
-      // Get current active user count
-      const allUsers = await storage.getAllUsers();
-      const activeUserCount = allUsers.filter(user => user.is_active !== false).length;
 
-      // Check license limits
-      const licenseStatus = await licenseManager.getLicenseStatus(currentUser.id);
-      if (licenseStatus.hasLicense && licenseStatus.userLimits) {
-        const { maximum } = licenseStatus.userLimits;
-        if (activeUserCount >= maximum) {
-          return res.status(400).json({ 
-            error: `Cannot create user. License limit reached (${activeUserCount}/${maximum} users). Please upgrade your license or deactivate existing users.`,
-            licenseLimit: maximum,
-            currentUsers: activeUserCount
-          });
-        }
-      }
+    // --- START OF CORRECTION: Password Hashing, Validation, and Role Assignment ---
 
-      const userData = insertUserSchema.parse(req.body);
-      const user = await storage.createUser(userData);
-      res.status(201).json(user);
-    } catch (error) {
-      if (error.message && error.message.includes('License limit reached')) {
-        res.status(400).json({ error: error.message });
-      } else {
-        res.status(400).json({ error: "Invalid user data" });
-      }
+    console.log("[DEBUG 1] Raw Request Body:", JSON.stringify(req.body));
+    
+    // 1. Extract the raw password, role, and the rest of the body fields.
+    const { password, role, ...restOfBody } = req.body;
+    const roleId = role;
+
+    // 2. Hash the password before database interaction
+    let password_hash = null;
+    if (password && typeof password === 'string' && password.length > 0) {
+      const saltRounds = 10;
+      password_hash = await bcrypt.hash(password, saltRounds);
+      console.log("[DEBUG 2] Password Hashed. Hash starts with:", password_hash.substring(0, 10));
+    } else {
+      console.log("[DEBUG 2] WARNING: Raw password field was missing or empty in request body. Cannot hash.");
+      // Added explicit error return if password is required for new user creation
+      return res.status(400).json({ error: "Password is required for new user creation." });
     }
-  });
+    
+    // 3. Construct the final user data payload using the HASHED password
+    // Include is_active default for new users
+    const userPayload = {
+      ...restOfBody,
+      password_hash: password_hash,
+      is_active: true,
+    };
+
+    // 4. Validate the payload against the schema 
+    // This step validates the data (including the newly added password_hash)
+    const userData = insertUserSchema.parse(userPayload);
+    
+    // Diagnostic check
+    console.log("[DEBUG 3] Data after Zod parse (userData). Check if 'password_hash' is present:", JSON.stringify(userData));
+
+    if (!userData.password_hash) {
+      console.error("[DEBUG 3 ERROR] password_hash was stripped by insertUserSchema! Please verify shared/schema.ts is updated.");
+    }
+    
+    // 5. Create the user in the 'users' table
+    const user = await storage.createUser(userData);
+    console.log("[DEBUG 4] User successfully created in DB. ID:", user?.id);
+
+    // 6. Assign the role.
+    if (user && user.id && roleId) {
+      try {
+        // This is the correct role assignment logic
+        await storage.assignUserRole(user.id, roleId);
+      } catch (roleError) {
+        // If this fails, the user is still created, but without a role.
+        console.error(`Failed to assign role ${roleId} to new user ${user.id}:`, roleError);
+      }
+    }
+    
+    // --- END OF CORRECTION: Password Hashing, Validation, and Role Assignment ---
+
+    res.status(201).json(user);
+
+  } catch (error: any) {
+  console.error("API ERROR:", error);
+
+  // Zod validation errors
+  if (error.name === "ZodError") {
+    return res.status(400).json({
+      error: "Invalid input",
+      details: error.errors,
+    });
+  }
+
+  // Postgres duplicate email
+  if (error.code === "23505" ||
+      error?.message?.includes("duplicate key") ||
+      error?.detail?.includes("already exists")
+  ) {
+    return res.status(400).json({ error: "Email already exists" });
+  }
+
+  // License limit error
+  if (error.message?.includes("License limit reached")) {
+    return res.status(400).json({ error: error.message });
+  }
+
+  return res.status(400).json({ error: "Invalid user data" });
+}
+  });
+// ... (End of surrounding code context)
 
   app.patch("/api/users/:id", requireManagerOrAdmin, async (req, res) => {
     try {
@@ -331,35 +503,68 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Deactivate user (admin only)
-  app.patch("/api/users/:id/deactivate", requireAdmin, async (req, res) => {
-    try {
-      const user = await storage.deactivateUser(req.params.id);
-      res.json(user);
-    } catch (error) {
-      console.error("Error deactivating user:", error);
-      res.status(500).json({ error: "Failed to deactivate user" });
+app.patch("/api/users/:id/deactivate", requireAdmin, async (req, res) => {
+  try {
+    const targetUserId = req.params.id;
+
+    // Fetch user's roles
+    const targetUserRoles = await storage.getUserRoles(targetUserId);
+    const isTargetUserAdmin = targetUserRoles.some(ur => ur.role?.name === "admin");
+
+    if (isTargetUserAdmin) {
+      // Count total ACTIVE admins
+      const allUsers = await storage.getAllUsers();
+
+      const activeAdmins = allUsers.filter(
+        user => user.role_name === "admin" && user.is_active === true
+      );
+
+      // If only one admin remains, block deactivation
+      if (activeAdmins.length <= 1) {
+        return res.status(400).json({
+          error: "Cannot deactivate user. At least one active admin must remain in the system."
+        });
+      }
     }
-  });
+
+    // Proceed with deactivation
+    const user = await storage.deactivateUser(targetUserId);
+    res.json(user);
+
+  } catch (error) {
+    console.error("Error deactivating user:", error);
+    res.status(500).json({ error: "Failed to deactivate user" });
+  }
+});
+
 
   // Activate user (admin only)
   app.patch("/api/users/:id/activate", requireAdmin, async (req, res) => {
+    console.log('saksham activate ribhu api hit')
     try {
+      console.log('activate ribhu api hit')
       // Check license user limits before activating user
       const userId = req.headers['x-user-id'] as string;
       const currentUser = await storage.getUser(userId);
       if (!currentUser) {
+        console.log('User not found during activation') ;
         return res.status(403).json({ error: "User not found" });
       }
 
       // Get current active user count
       const allUsers = await storage.getAllUsers();
       const activeUserCount = allUsers.filter(user => user.is_active !== false).length;
+      console.log("activesak", activeUserCount);
 
       // Check license limits
       const licenseStatus = await licenseManager.getLicenseStatus(currentUser.id);
+      console.log("licenseStatus", licenseStatus);
+      console.log("hasLicense", licenseStatus.hasLicense);
       if (licenseStatus.hasLicense && licenseStatus.userLimits) {
+        console.log(" ribhu Inside license check");
         const { maximum } = licenseStatus.userLimits;
-        if (activeUserCount >= maximum) {
+        console.log("max", maximum);
+        if (activeUserCount > maximum) {
           return res.status(400).json({ 
             error: `Cannot activate user. License limit reached (${activeUserCount}/${maximum} users). Please upgrade your license or deactivate other users first.`,
             licenseLimit: maximum,
@@ -409,13 +614,14 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!deletedBy) {
         return res.status(401).json({ error: "User not authenticated" });
       }
-      
+      console.log('Deleting user', req.params.id, 'by', deletedBy);
       const result = await storage.deleteUser(req.params.id, deletedBy);
       res.json(result);
     } catch (error) {
       console.error("Error deleting user:", error);
       res.status(500).json({ error: "Failed to delete user" });
     }
+     
   });
 
   // Get deleted users (admin only)
@@ -428,6 +634,18 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Failed to fetch deleted users" });
     }
   });
+// Get ALL task group memberships (group_id ↔ user_id)
+   app.get("/api/task-group-members", requireAnyAuthenticated, async (req, res) => {
+   try {
+    const memberships = await storage.getAllTaskGroupMembers(); 
+    // Must return array like:
+    // [ { group_id: "...", user_id: "..." }, ... ]
+    res.json(memberships);
+  } catch (error) {
+    console.error("Failed to fetch task group memberships:", error);
+    res.status(500).json({ error: "Failed to fetch task group memberships" });
+  }
+});
 
   // Get deleted user tasks (admin only)
   app.get("/api/deleted-users/:id/tasks", requireAdmin, async (req, res) => {
@@ -501,43 +719,95 @@ export async function registerRoutes(app: Express): Promise<Server> {
   });
 
   // Task management routes - Visibility-aware access
+  // app.get("/api/tasks", requireAnyAuthenticated, async (req, res) => {
+  //   try {
+  //     const userId = req.headers['x-user-id'] as string;
+  //     const { scope, roleNames } = await getUserVisibilityScope(userId);
+
+      
+  //     let tasks;
+      
+  //     if (scope === "organization") {
+  //       // Admin can see all tasks
+  //       tasks = await storage.getAllTasks();
+  //     } else if (scope === "team") {
+  //       // Manager/Team Manager can see tasks for their team members
+  //       const user = await storage.getUser(userId);
+  //       if (!user) {
+  //         return res.status(404).json({ error: "User not found" });
+  //       }
+        
+  //       // Get all users that this manager can see (including themselves)
+  //       const allUsers = await storage.getAllUsers();
+  //       const visibleUserIds = allUsers
+  //         .filter(u => u.manager === userId || u.id === userId)
+  //         .map(u => u.id);
+        
+  //       // Get tasks for visible users only
+  //       const allTasks = await storage.getAllTasks();
+  //       tasks = allTasks.filter(task => visibleUserIds.includes(task.assigned_to));
+  //     } else {
+  //       // User scope - can only see their own tasks
+  //       tasks = await storage.getTasksByUser(userId);
+  //     }
+      
+  //     res.json(tasks);
+  //   } catch (error) {
+  //     console.error('Error fetching tasks with visibility scope:', error);
+  //     res.status(500).json({ error: "Failed to fetch tasks" });
+  //   }
+  // });
   app.get("/api/tasks", requireAnyAuthenticated, async (req, res) => {
     try {
-      const userId = req.headers['x-user-id'] as string;
-      const { scope, roleNames } = await getUserVisibilityScope(userId);
-      
+      const userId = req.headers["x-user-id"] as string;
+
+      // === NORMAL EXISTING LOGIC (unchanged) ===
       let tasks;
-      
-      if (scope === "organization") {
-        // Admin can see all tasks
+
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      if (user.isAdmin) {
+        // Admin logic
         tasks = await storage.getAllTasks();
-      } else if (scope === "team") {
-        // Manager/Team Manager can see tasks for their team members
-        const user = await storage.getUser(userId);
-        if (!user) {
-          return res.status(404).json({ error: "User not found" });
-        }
-        
-        // Get all users that this manager can see (including themselves)
+      } else if (user.isManager) {
+        // Old manager logic
         const allUsers = await storage.getAllUsers();
         const visibleUserIds = allUsers
-          .filter(u => u.manager === userId || u.id === userId)
-          .map(u => u.id);
-        
-        // Get tasks for visible users only
+          .filter((u) => u.manager === userId || u.id === userId)
+          .map((u) => u.id);
+
         const allTasks = await storage.getAllTasks();
-        tasks = allTasks.filter(task => visibleUserIds.includes(task.assigned_to));
+        tasks = allTasks.filter((task) =>
+          visibleUserIds.includes(task.assigned_to)
+        );
       } else {
-        // User scope - can only see their own tasks
+        // Normal user logic
         tasks = await storage.getTasksByUser(userId);
       }
-      
-      res.json(tasks);
+
+      // === NEW MANAGER TEAM LOGIC (attach additional tasks) ===
+      const managerTeamTasks = await storage.getTasksForManager(userId);
+
+      // Combine tasks + managerTeamTasks safely
+      const merged = [...tasks, ...managerTeamTasks];
+
+      // === REMOVE DUPLICATES BY task.id ===
+      const dedupedTasks = Array.from(
+        new Map(merged.map((task) => [task.id, task])).values()
+      );
+
+      return res.json(dedupedTasks);
+
     } catch (error) {
-      console.error('Error fetching tasks with visibility scope:', error);
-      res.status(500).json({ error: "Failed to fetch tasks" });
+      console.error("Error fetching tasks:", error);
+      return res.status(500).json({ error: "Failed to fetch tasks" });
     }
   });
+
+
 
   app.get("/api/tasks/:id", async (req, res) => {
     try {
@@ -551,40 +821,49 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.post("/api/tasks", requireAnyAuthenticated, async (req, res) => {
-    try {
-      console.log("[DEBUG] Task creation request body:", JSON.stringify(req.body, null, 2));
-      const taskData = insertTaskSchema.parse(req.body);
-      const task = await storage.createTask(taskData);
-      
-      // Log task creation activity
-      await storage.logTaskActivity({
-        task_id: task.id,
-        action_type: "created",
-        new_value: task.title,
-        acted_by: task.created_by,
-      });
-      
-      res.status(201).json(task);
-    } catch (error) {
-      console.error("[ERROR] Task creation failed:", error);
-      if (error instanceof Error) {
-        console.error("[ERROR] Error message:", error.message);
-      }
-      res.status(400).json({ 
-        error: "Invalid task data", 
-        details: error instanceof Error ? error.message : "Unknown error" 
-      });
+
+
+
+ app.post("/api/tasks", requireAnyAuthenticated, async (req, res) => {
+  debugger
+  try {
+    const userId = req.headers["x-user-id"] as string;
+
+    const currentUser = await storage.getUser(userId);
+    if (!currentUser) {
+      return res.status(403).json({ error: "Your account has been Deleted by admin" });
     }
-  });
+
+    console.log("[DEBUG] Task creation request body:", JSON.stringify(req.body, null, 2));
+
+    const taskData = insertTaskSchema.parse(req.body);
+    const task = await storage.createTask(taskData);
+
+    await storage.logTaskActivity({
+      task_id: task.id,
+      action_type: "created",
+      new_value: task.assigned_to,
+      acted_by: task.created_by,
+    });
+
+    return res.status(201).json(task);
+  } catch (error) {
+    console.error("[ERROR] Task creation failed:", error);
+    return res.status(400).json({
+      error: "Invalid task data",
+      details: error instanceof Error ? error.message : "Unknown error",
+    });
+  }
+});
+
 
   app.patch("/api/tasks/:id", requireAnyAuthenticated, async (req, res) => {
     try {
       console.log("[DEBUG] Task update request body:", JSON.stringify(req.body, null, 2));
       const oldTask = await storage.getTask(req.params.id);
       
-      // Check daily hour limit if task is being completed
-      if (req.body.status === "completed" && oldTask && oldTask.status !== "completed") {
+      // Check daily hour limit if task is being Completed
+      if (req.body.status === "Completed" && oldTask && oldTask.status !== "Completed") {
         const userId = req.headers['x-user-id'] as string || oldTask.assigned_to || oldTask.created_by;
         const settings = await storage.getOrganizationSettings();
         
@@ -608,12 +887,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
             
             if (task.is_time_managed && task.time_spent_minutes > 0) {
               currentDailyHours += task.time_spent_minutes / 60;
-            } else if (!task.is_time_managed && task.status === 'completed' && task.estimated_hours > 0) {
+            } else if (!task.is_time_managed && task.status === 'Completed' && task.estimated_hours > 0) {
               currentDailyHours += task.estimated_hours;
             }
           }
           
-          // Calculate hours for current task being completed
+          // Calculate hours for current task being Completed
           let taskHours = 0;
           if (oldTask.is_time_managed && oldTask.time_spent_minutes > 0) {
             taskHours = oldTask.time_spent_minutes / 60;
@@ -680,15 +959,30 @@ export async function registerRoutes(app: Express): Promise<Server> {
         }
         
         // Due date change
-        if (req.body.due_date && oldTask.due_date !== req.body.due_date) {
-          await storage.logTaskActivity({
-            task_id: task.id,
-            action_type: "due_date_changed",
-            old_value: oldTask.due_date ? new Date(oldTask.due_date).toLocaleDateString() : "No due date",
-            new_value: new Date(req.body.due_date).toLocaleDateString(),
-            acted_by: userId,
-          });
-        }
+      // 🔹 Due date change (normalized and accurate)
+if (req.body.due_date) {
+  const oldDate = oldTask.due_date ? new Date(oldTask.due_date) : null;
+  const newDate = new Date(req.body.due_date);
+
+  const normalize = (d: Date | null) => (d ? d.toISOString().split("T")[0] : null);
+
+  const oldDateStr = normalize(oldDate);
+  const newDateStr = normalize(newDate);
+
+  // ✅ Only log if the normalized date values differ
+  if (oldDateStr !== newDateStr) {
+    await storage.logTaskActivity({
+      task_id: task.id,
+      action_type: "due_date_changed",
+      old_value: oldDateStr
+        ? new Date(oldDateStr).toLocaleDateString()
+        : "No due date",
+      new_value: new Date(newDateStr).toLocaleDateString(),
+      acted_by: userId,
+    });
+  }
+}
+
         
         // Title change
         if (req.body.title && oldTask.title !== req.body.title) {
@@ -726,27 +1020,38 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/tasks/:id", requireAnyAuthenticated, async (req, res) => {
-    try {
-      const task = await storage.getTask(req.params.id);
-      const userId = req.headers['x-user-id'] as string;
-      
-      if (task) {
-        // Log task deletion activity before deleting
-        await storage.logTaskActivity({
-          task_id: task.id,
-          action_type: "deleted",
-          new_value: `Task "${task.title}" was deleted`,
-          acted_by: userId,
-        });
-      }
-      
-      await storage.deleteTask(req.params.id);
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ error: "Failed to delete task" });
+app.delete("/api/tasks/:id", requireAnyAuthenticated, async (req, res) => {
+  try {
+    // 1. Get the ID from the request parameters (the correct variable)
+    const taskId = req.params.id; // <-- Define taskId here for clarity and safety
+    
+    // 2. You were trying to use req.params.id here, but without defining a variable
+    const task = await storage.getTask(taskId); 
+    const userId = req.headers['x-user-id'] as string;
+    
+    if (task) {
+      await storage.logTaskActivity({
+        task_id: task.id,
+        action_type: "deleted",
+        old_value: null,
+        new_value: `Task "${task.title}" was deleted`,
+        acted_by: userId,
+      });
     }
-  });
+
+    // 3. The fix: Use the ID from the request parameters
+    await storage.deleteTask(taskId); 
+    
+    console.log("✅ Task deleted successfully!");
+    res.status(204).send();
+  } catch (error: any) { // Add ': any' for better type safety in catch
+    console.error("❌ Failed to delete task:", error);
+    res.status(500).json({
+      error: "Failed to delete task",
+      details: error.message,
+    });
+  }
+});
 
   // Task activity routes
   app.get("/api/tasks/:id/activity", async (req, res) => {
@@ -755,6 +1060,32 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(activity);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch task activity" });
+    }
+  });
+
+  // Accept activity posts from clients and persist via storage.logTaskActivity
+  app.post("/api/tasks/:id/activity", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const taskId = req.params.id;
+      const { action_type, old_value, new_value, acted_by } = req.body;
+
+      if (!action_type) {
+        return res.status(400).json({ error: "action_type is required" });
+      }
+
+      const logEntry = {
+        task_id: taskId,
+        action_type,
+        old_value: old_value ?? null,
+        new_value: new_value ?? null,
+        acted_by: acted_by ?? req.headers['x-user-id'] ?? null,
+      };
+
+      const saved = await storage.logTaskActivity(logEntry as any);
+      res.status(201).json(saved);
+    } catch (error: any) {
+      console.error('Failed to create task activity:', error);
+      res.status(500).json({ error: 'Failed to create task activity', details: error.message });
     }
   });
 
@@ -774,12 +1105,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const task = await storage.startTaskTimer(req.params.id, userId);
       
       // Log timer start activity
-      await storage.logTaskActivity({
-        task_id: task.id,
-        action_type: "timer_started",
-        new_value: "Timer started",
-        acted_by: userId,
-      });
+
       
       res.json(task);
     } catch (error) {
@@ -793,12 +1119,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const task = await storage.pauseTaskTimer(req.params.id, userId);
       
       // Log timer pause activity
-      await storage.logTaskActivity({
-        task_id: task.id,
-        action_type: "timer_paused",
-        new_value: "Timer paused",
-        acted_by: userId,
-      });
+   
       
       res.json(task);
     } catch (error) {
@@ -812,13 +1133,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const task = await storage.stopTaskTimer(req.params.id, userId);
       
       // Log timer stop activity
-      await storage.logTaskActivity({
-        task_id: task.id,
-        action_type: "timer_stopped",
-        new_value: `Timer stopped (Total: ${task.time_spent_minutes}m)`,
-        acted_by: userId,
-      });
-      
+   
       res.json(task);
     } catch (error) {
       res.status(400).json({ error: error instanceof Error ? error.message : "Failed to stop timer" });
@@ -849,13 +1164,29 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   app.post("/api/teams", requireManagerOrAdmin, async (req, res) => {
     try {
-      const teamData = insertTeamSchema.parse(req.body);
+      // Derive the creator from the authenticated header rather than trusting the client
+      const userId = req.headers['x-user-id'] as string;
+      if (!userId) {
+        return res.status(401).json({ error: "Authentication required teams" });
+      }
+
+      // Build payload with authoritative created_by and validate
+      const payload = { ...req.body, created_by: userId };
+      const teamData = insertTeamSchema.parse(payload);
       const team = await storage.createTeam(teamData);
+      console.debug("Team created by:", userId, "payload:", payload);
       res.status(201).json(team);
     } catch (error) {
+      console.error("Team creation error:", error);
+      // If this is a Zod validation error, forward details to help debugging
+      if ((error as any)?.errors) {
+        return res.status(400).json({ error: "Invalid team data", details: (error as any).errors });
+      }
       res.status(400).json({ error: "Invalid team data" });
     }
   });
+
+
 
   app.patch("/api/teams/:id", requireManagerOrAdmin, async (req, res) => {
     try {
@@ -1102,6 +1433,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.json(tasks);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch user tasks" });
+      console.error(" sakshi Error fetching user tasks:", error);
     }
   });
 
@@ -1321,7 +1653,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
-  app.delete("/api/task-status-transitions/:id", requireAdmin, async (req, res) => {
+  app.delete("/api/task-status-transitions/:id",  async (req, res) => {
     try {
       const { id } = req.params;
       await storage.deleteTaskStatusTransition(id);
@@ -1334,6 +1666,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
   // Organization settings routes - Managers can read, Admin can modify
   app.get("/api/organization-settings", requireManagerOrAdmin, async (req, res) => {
+    console.log('organization-settings GET endpoint hit');
     try {
       const settings = await storage.getOrganizationSettings();
       res.json(settings);
@@ -1447,6 +1780,69 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error("Failed to delete office location:", error);
       res.status(500).json({ error: "Failed to delete office location" });
+    }
+  });
+
+  // Department management routes - Admin only
+  app.get("/api/departments", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const departments = await storage.getAllDepartments();
+      res.json(departments);
+    } catch (error) {
+      console.error('Error fetching departments:', error);
+      res.status(500).json({ error: "Failed to fetch departments" });
+    }
+  });
+
+  app.post("/api/departments", requireAdmin, async (req, res) => {
+    try {
+      const { name, description } = req.body;
+      
+      if (!name || !name.trim()) {
+        return res.status(400).json({ error: "Department name is required" });
+      }
+
+      const department = await storage.createDepartment({
+        name: name.trim(),
+        description: description || null
+      });
+      
+      res.status(201).json(department);
+    } catch (error) {
+      console.error('Error creating department:', error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to create department" });
+    }
+  });
+
+  app.patch("/api/departments/:id", requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      const { name, description } = req.body;
+
+      if (name && !name.trim()) {
+        return res.status(400).json({ error: "Department name cannot be empty" });
+      }
+
+      const department = await storage.updateDepartment(id, {
+        name: name ? name.trim() : undefined,
+        description: description !== undefined ? description : undefined
+      });
+
+      res.json(department);
+    } catch (error) {
+      console.error('Error updating department:', error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to update department" });
+    }
+  });
+
+  app.delete("/api/departments/:id", requireAdmin, async (req, res) => {
+    try {
+      const { id } = req.params;
+      await storage.deleteDepartment(id);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting department:', error);
+      res.status(400).json({ error: error instanceof Error ? error.message : "Failed to delete department" });
     }
   });
 

@@ -8,6 +8,10 @@ import { toast } from "@/components/ui/use-toast";
 import TeamManagerDialog from "@/components/TeamManagerDialog";
 import { useUserList } from "@/hooks/useUserList";
 import { useCurrentUserRoleAndTeams } from "@/hooks/useCurrentUserRoleAndTeams";
+import { log } from "console";
+import { useQueryClient } from "@tanstack/react-query";
+import { apiRequest } from "@/lib/queryClient";
+import { useQuery } from "@tanstack/react-query";
 
 interface Team {
   id: string;
@@ -32,9 +36,19 @@ const AdminTeams: React.FC = () => {
   const [editTeam, setEditTeam] = React.useState<Team | null>(null);
   const [membersMap, setMembersMap] = React.useState<Record<string, string[]>>({});
   const [managersMap, setManagersMap] = React.useState<Record<string, string>>({});
+  const queryClient = useQueryClient();
+  const { data: usersName } = useQuery({
+    queryKey: ['/api/usersName'],
+    queryFn: () => apiRequest("/api/usersName"),
+    enabled: true,
+  });
+
+  
+  
 
   // Fetch users for Created By lookup
   const { users: allUsers, loading: usersLoading } = useUserList();
+  console.log(" saksham All users:", allUsers);
   // Get current user's info and roles
   const { roles: currentUserRoles, user: currentUser } = useCurrentUserRoleAndTeams();
 
@@ -104,9 +118,10 @@ const AdminTeams: React.FC = () => {
 
   // Helper: get display name/email for a user id (used for created_by)
   function getUserDisplay(userId: string) {
-    const u = allUsers.find(user => user.id === userId);
+    if (!usersName) return userId.slice(0, 8); // fallback
+    const u = usersName.find(user => user.id === userId);
     if (!u) return userId.slice(0, 8); // fallback
-    return u.user_name ? `${u.user_name} (${u.email})` : u.email;
+  return u.name && u.name.trim() !== "" ? u.name : userId.slice(0, 8);
   }
 
   // Helper: check if a user is an admin (used for team creator)

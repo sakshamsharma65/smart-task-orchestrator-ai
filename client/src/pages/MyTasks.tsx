@@ -216,7 +216,7 @@ export default function MyTasksPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [userFilter, setUserFilter] = useState<string>("all");
   const [teamFilter, setTeamFilter] = useState<string>("all");
-  const [dateRange, setDateRange] = useState(defaultDateRange());
+  const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>(defaultDateRange());
   const [preset, setPreset] = useState<string>("This Month");
   
   // Sort states
@@ -225,7 +225,7 @@ export default function MyTasksPage() {
 
   function handlePresetChange(range: { from: Date | null; to: Date | null }, p: string) {
     setPreset(p);
-    if (p === "custom") return;
+    // Always propagate the selected range to parent so custom inputs update the parent state
     setDateRange(range);
   }
 
@@ -403,15 +403,24 @@ export default function MyTasksPage() {
     const transitionSequence = getStatusSequence();
     const statusMap = new Map(statuses.map(s => [s.name, s]));
     
-    // Start with default status first
-    const defaultStatus = statuses.find(s => s.is_default);
+    // Preferred explicit ordering for Kanban columns (if those statuses exist)
+    // This enforces: To Do -> In Progress -> Review -> Completed
+    const preferredOrder = ["To Do", "In Progress", "Review", "Completed"];
     const orderedStatuses: string[] = [];
-    
-    if (defaultStatus) {
+
+    // Add preferred statuses first when they exist in the status list
+    preferredOrder.forEach(pref => {
+      const found = statuses.find(s => getStatusKey(s.name) === getStatusKey(pref));
+      if (found && !orderedStatuses.includes(found.name)) orderedStatuses.push(found.name);
+    });
+
+    // Then ensure the default status is included (if not already)
+    const defaultStatus = statuses.find(s => s.is_default);
+    if (defaultStatus && !orderedStatuses.includes(defaultStatus.name)) {
       orderedStatuses.push(defaultStatus.name);
     }
-    
-    // Add statuses following the transition sequence
+
+    // Add statuses following the transition sequence (skip duplicates)
     transitionSequence.forEach(statusName => {
       if (statusMap.has(statusName) && !orderedStatuses.includes(statusName)) {
         orderedStatuses.push(statusName);

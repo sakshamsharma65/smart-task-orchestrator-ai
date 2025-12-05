@@ -2,11 +2,15 @@ import React, { useState, useRef, useCallback, useEffect } from "react";
 import { useStatusTransitions, TaskStatus } from "@/hooks/useTaskStatuses";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/hooks/use-toast";
+import { useAuth } from '@/contexts/AuthContext';
+
 
 const StatusLifecycleGraphDraggable: React.FC<{ statuses: TaskStatus[] }> = ({ statuses }) => {
   const { transitions, setTransitions } = useStatusTransitions();
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
+  const { user } = useAuth();
+  
   
   // Drag and drop state
   const [statusPositions, setStatusPositions] = useState<Map<string, {x: number, y: number}>>(new Map());
@@ -50,41 +54,90 @@ const StatusLifecycleGraphDraggable: React.FC<{ statuses: TaskStatus[] }> = ({ s
     }
   };
 
-  const createTransition = async () => {
+ // StatusLifecycleGraphDraggable.tsx
+const createTransition = async () => {
+  
     if (!from || !to || from === to) {
-      toast({ title: "Please select different statuses." });
-      return;
+        toast({ title: "Please select different statuses." });
+        return;
     }
     
     const fromStatus = statuses.find(s => s.id === from);
     const toStatus = statuses.find(s => s.id === to);
     
     if (!fromStatus || !toStatus) {
-      toast({ title: "Invalid status selection." });
-      return;
+        toast({ title: "Invalid status selection." });
+        return;
     }
     
     if (transitions.find((t) => t.from_status === fromStatus.name && t.to_status === toStatus.name)) {
-      toast({ title: "Transition already exists." });
-      return;
+        toast({ title: "Transition already exists." });
+        return;
     }
     
-    const newTransition = {
-      id: Date.now().toString(),
-      from_status: fromStatus.name,
-      to_status: toStatus.name,
-      created_at: new Date().toISOString(),
-    };
+    // START: ADDING PERSISTENCE LOGIC
+    try {
+        const payload = {
+            from_status: fromStatus.name,
+            to_status: toStatus.name
+        };
+
+        const response = await fetch('/api/task-status-transitions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'x-user-id': user?.id || '' 
+            },
+            body: JSON.stringify(payload)
+        });
+        
+        if (response.ok) {
+            // Assuming the API returns the newly created transition object
+            const newTransition = await response.json(); 
+            
+            // Update local state with the persisted object
+            setTransitions([...transitions, newTransition]);
+            
+            toast({ title: "Status transition added successfully!" });
+        } else {
+            const errorData = await response.json();
+            toast({ title: "Failed to add transition", description: errorData.message || "Server error.", variant: "destructive" });
+        }
+    } catch (error) {
+        console.error('Error adding transition:', error);
+        toast({ title: "Error adding transition", description: "Network or unexpected error.", variant: "destructive" });
+    }
+    // END: ADDING PERSISTENCE LOGIC
     
-    setTransitions([...transitions, newTransition]);
     setFrom("");
     setTo("");
-    toast({ title: "Transition created successfully!" });
-  };
+};
 
-  const deleteTransition = (transitionId: string) => {
-    setTransitions(transitions.filter(t => t.id !== transitionId));
-  };
+// StatusLifecycleGraphDraggable.tsx
+const deleteTransition = async (transitionId: string) => {
+    // START: ADDING PERSISTENCE LOGIC
+    try {
+        const response = await fetch(`/api/task-status-transitions/${transitionId}`, {
+            method: 'DELETE',
+            headers: {
+                'x-user-id': (window as any).currentUser?.id || ''
+            }
+        });
+        
+        if (response.ok) {
+            // Update local state only after successful API call
+            setTransitions(transitions.filter(t => t.id !== transitionId)); 
+            toast({ title: "Transition removed." });
+        } else {
+            const errorData = await response.json();
+            toast({ title: "Failed to remove transition", description: errorData.message || "Server error.", variant: "destructive" });
+        }
+    } catch (error) {
+        console.error('Error removing transition:', error);
+        toast({ title: "Error removing transition", description: "Network or unexpected error.", variant: "destructive" });
+    }
+    // END: ADDING PERSISTENCE LOGIC
+};
   
   // Initialize positions if not set
   const initializePositions = useCallback(() => {

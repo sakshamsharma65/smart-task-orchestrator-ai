@@ -31,7 +31,7 @@ const HelpButton: React.FC<HelpButtonProps> = ({
           {showText && 'Help'}
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-w-[95vw] sm:max-w-6xl h-[90vh] sm:h-[80vh] p-0 m-2 sm:m-4">
+  <DialogContent className="w-screen h-screen max-w-none m-0 p-0">
         <DialogHeader className="p-4 sm:p-6 pb-0 flex-shrink-0">
           <DialogTitle>Help Center</DialogTitle>
         </DialogHeader>

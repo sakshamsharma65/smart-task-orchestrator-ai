@@ -6,6 +6,7 @@ import { Clock, Play, Pause, Square } from 'lucide-react';
 import { Task, startTaskTimer, pauseTaskTimer, stopTaskTimer } from '@/integrations/supabase/tasks';
 import { toast } from '@/hooks/use-toast';
 import { useAuth } from '@/contexts/AuthContext';
+import { updateTaskStatus } from '@/integrations/supabase/tasks';
 
 interface TaskTimerProps {
   task: Task;
@@ -18,7 +19,10 @@ export default function TaskTimer({ task, onTaskUpdated, compact = false }: Task
   const [currentTime, setCurrentTime] = useState(0);
   const [isLoading, setIsLoading] = useState(false);
 
-  // Calculate current elapsed time
+  // Define final statuses
+  const finalStatuses = ['Completed', 'Review']; // Use uppercase 'Completed' to match common task status conventions
+
+  // 1. Timer Calculation Effect (Existing logic)
   useEffect(() => {
     if (task.timer_state === 'running' && task.timer_started_at) {
       const interval = setInterval(() => {
@@ -35,46 +39,71 @@ export default function TaskTimer({ task, onTaskUpdated, compact = false }: Task
     }
   }, [task.timer_state, task.timer_started_at, task.time_spent_minutes]);
 
+
+  // 2. NEW EFFECT: Auto-stop timer when task status becomes 'Completed' or 'Review'
+  useEffect(() => {
+    // Only run if the task is running AND the status is one of the final states
+    if (task.timer_state === 'running' && finalStatuses.includes(task.status)) {
+      // Automatically call stop action
+      console.log(`Task status changed to ${task.status}. Auto-stopping timer...`);
+      handleTimerAction('stop', true); // Pass a flag to prevent re-toasting/re-calling if desired
+    }
+  }, [task.status]); // Depend only on task.status
+
+
   const formatTime = (minutes: number) => {
     const hours = Math.floor(minutes / 60);
     const mins = minutes % 60;
     return `${hours}h ${mins}m`;
   };
 
-  const handleTimerAction = async (action: 'start' | 'pause' | 'stop') => {
+  const onStart = () => {
+    // Check and update status to "In Progress" if currently "To Do"
+    if (task.status === "To Do") {
+      updateTaskStatus(task.id, "In Progress");
+    }
+    handleTimerAction("start");
+  };
+
+  // Modified handleTimerAction to optionally suppress toast and handle auto-stop better
+  const handleTimerAction = async (action: 'start' | 'pause' | 'stop', isInternal = false) => {
     if (!user?.id) return;
-    
+
     // Check if task is in a final state where timer should not be allowed
-    const finalStatuses = ['completed', 'review'];
-    if (finalStatuses.includes(task.status.toLowerCase())) {
-      toast({ 
-        title: 'Timer unavailable', 
-        description: 'Timer actions are not allowed for completed or review tasks',
-        variant: 'destructive'
-      });
+    // Note: If action is 'stop', we allow it to ensure final time is saved, 
+    // even if the task is marked completed via a different flow.
+    if (action !== 'stop' && finalStatuses.includes(task.status)) {
+      if (!isInternal) {
+        toast({
+          title: 'Timer unavailable',
+          description: `Timer actions are not allowed for ${task.status} tasks`,
+          variant: 'destructive'
+        });
+      }
       return;
     }
-    
+
+
     setIsLoading(true);
     try {
       switch (action) {
         case 'start':
           await startTaskTimer(task.id, user.id);
-          toast({ title: 'Timer started', description: `Timer started for "${task.title}"` });
+          if (!isInternal) toast({ title: 'Timer started', description: `Timer started for "${task.title}"` });
           break;
         case 'pause':
           await pauseTaskTimer(task.id, user.id);
-          toast({ title: 'Timer paused', description: `Timer paused for "${task.title}"` });
+          if (!isInternal) toast({ title: 'Timer paused', description: `Timer paused for "${task.title}"` });
           break;
         case 'stop':
           await stopTaskTimer(task.id, user.id);
-          toast({ title: 'Timer stopped', description: `Timer stopped for "${task.title}"` });
+          if (!isInternal) toast({ title: 'Timer stopped', description: `Timer stopped for "${task.title}"` });
           break;
       }
       onTaskUpdated?.();
     } catch (error) {
-      toast({ 
-        title: 'Timer action failed', 
+      toast({
+        title: 'Timer action failed',
         description: error instanceof Error ? error.message : 'Unknown error',
         variant: 'destructive'
       });
@@ -87,6 +116,8 @@ export default function TaskTimer({ task, onTaskUpdated, compact = false }: Task
     return null;
   }
 
+  // ... (rest of the component's rendering logic remains the same)
+  
   if (compact) {
     const estimatedMinutes = (task.estimated_hours || 0) * 60;
     const timeRemaining = Math.max(0, estimatedMinutes - currentTime);
@@ -136,8 +167,7 @@ export default function TaskTimer({ task, onTaskUpdated, compact = false }: Task
   const isTimeExceeded = task.estimated_hours && currentTime > estimatedMinutes;
   
   // Check if task is in final state where timer controls should be disabled
-  const finalStatuses = ['completed', 'review'];
-  const isTimerDisabled = finalStatuses.includes(task.status.toLowerCase());
+  const isTimerDisabled = finalStatuses.includes(task.status);
   
   return (
     <Card className={`w-full ${isDelayed ? 'border-red-500 bg-red-50' : ''}`}>
@@ -151,7 +181,7 @@ export default function TaskTimer({ task, onTaskUpdated, compact = false }: Task
                   ? 'text-red-600 dark:text-red-400' 
                   : 'text-green-600 dark:text-green-400'
               }`}>
-                {formatTime(currentTime)}
+                Time Consumed : {formatTime(currentTime)}
               </div>
               {task.estimated_hours && (
                 <div className="space-y-1">
@@ -193,7 +223,7 @@ export default function TaskTimer({ task, onTaskUpdated, compact = false }: Task
                   <Button
                     size="sm"
                     variant="outline"
-                    onClick={() => handleTimerAction('start')}
+                    onClick={onStart}
                     disabled={isLoading}
                   >
                     <Play className="h-4 w-4" />

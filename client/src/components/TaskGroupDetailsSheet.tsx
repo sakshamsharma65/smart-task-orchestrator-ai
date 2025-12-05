@@ -52,14 +52,16 @@ import {
   Building2
 } from "lucide-react";
 import { apiClient } from "@/lib/api";
+import { text } from "stream/consumers";
 
 type Props = {
   open: boolean;
   onOpenChange: (v: boolean) => void;
   group: any | null;
+    refetchDetails: () => void; 
 };
 
-export default function TaskGroupDetailsSheet({ open, onOpenChange, group }: Props) {
+export default function TaskGroupDetailsSheet({ open, onOpenChange, group, refetchDetails }: Props) {
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<string>("");
   const [selectedRole, setSelectedRole] = useState<string>("member");
@@ -82,7 +84,7 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group }: Pro
 
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
-      case 'completed': return 'bg-green-100 text-green-800 border-green-200';
+      case 'Completed': return 'bg-green-100 text-green-800 border-green-200';
       case 'in_progress': return 'bg-blue-100 text-blue-800 border-blue-200';
       case 'new': return 'bg-gray-100 text-gray-800 border-gray-200';
       case 'on_hold': return 'bg-yellow-100 text-yellow-800 border-yellow-200';
@@ -92,7 +94,7 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group }: Pro
 
   const getStatusIcon = (status: string) => {
     switch (status.toLowerCase()) {
-      case 'completed': return CheckCircle2;
+      case 'Completed': return CheckCircle2;
       case 'in_progress': return Play;
       case 'on_hold': return Pause;
       default: return AlertCircle;
@@ -125,6 +127,7 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group }: Pro
       year: 'numeric'
     });
   };
+
 
   const handleAddTeam = async () => {
     if (!group?.id || !selectedTeamId) return;
@@ -161,6 +164,8 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group }: Pro
         }
       }
       
+      await refetchDetails();   // ⬅️ THIS refreshes UI instantly
+
       // Refresh the group details immediately
       queryClient.invalidateQueries({ queryKey: ['/api/task-groups'] });
       queryClient.invalidateQueries({ queryKey: [`/api/task-groups/${group.id}/details`] });
@@ -220,6 +225,8 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group }: Pro
       // Refresh the group details immediately
       queryClient.invalidateQueries({ queryKey: ['/api/task-groups'] });
       queryClient.invalidateQueries({ queryKey: [`/api/task-groups/${group.id}/details`] });
+      await refetchDetails();   // ⬅️ THIS refreshes UI instantly
+
       
       setSelectedUserIds([]);
       setSelectedRole("member");
@@ -244,6 +251,8 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group }: Pro
       // Refresh the group details immediately
       queryClient.invalidateQueries({ queryKey: ['/api/task-groups'] });
       queryClient.invalidateQueries({ queryKey: [`/api/task-groups/${group.id}/details`] });
+      await refetchDetails();   // ⬅️ THIS refreshes UI instantly
+
       toast({
         title: "Member removed successfully",
         description: "The user has been removed from the task group.",
@@ -309,37 +318,48 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group }: Pro
         {/* Group Summary */}
         <div className="py-6 space-y-6">
           {/* Stats Cards */}
-          <div className="grid grid-cols-4 gap-6">
+          <div className="grid grid-cols-5 gap-2">
             <Card className="bg-blue-50 border-blue-200">
               <CardContent className="p-8 text-center">
                 <div className="text-3xl font-bold text-blue-700 mb-2">{group?.tasks?.length || 0}</div>
                 <div className="text-sm text-blue-600 font-medium">Total Tasks</div>
               </CardContent>
             </Card>
-            <Card className="bg-green-50 border-green-200">
-              <CardContent className="p-8 text-center">
-                <div className="text-3xl font-bold text-green-700 mb-2">
-                  {group?.tasks?.filter((t: any) => t.task?.status?.toLowerCase() === 'completed').length || 0}
-                </div>
-                <div className="text-sm text-green-600 font-medium">Completed</div>
-              </CardContent>
-            </Card>
-            <Card className="bg-orange-50 border-orange-200">
-              <CardContent className="p-8 text-center">
-                <div className="text-3xl font-bold text-orange-700 mb-2">
-                  {group?.tasks?.filter((t: any) => t.task?.status?.toLowerCase() === 'in_progress').length || 0}
-                </div>
-                <div className="text-sm text-orange-600 font-medium">In Progress</div>
-              </CardContent>
-            </Card>
-            <Card className="bg-gray-50 border-gray-200">
+                        <Card className="bg-gray-50 border-gray-200">
               <CardContent className="p-8 text-center">
                 <div className="text-3xl font-bold text-gray-700 mb-2">
-                  {group?.tasks?.filter((t: any) => t.task?.status?.toLowerCase() === 'new').length || 0}
+                  {group?.tasks?.filter((t: any) => t.task?.status?.toLowerCase() === 'to do').length || 0}
                 </div>
                 <div className="text-sm text-gray-600 font-medium">New</div>
               </CardContent>
             </Card>
+             <Card className="bg-orange-50 border-orange-200">
+              <CardContent className="p-8 text-center">
+                <div className="text-3xl font-bold text-orange-700 mb-2">
+                  {group?.tasks?.filter((t: any) => t.task?.status?.toLowerCase() === 'in progress').length || 0}
+                </div>
+                <div className="text-sm text-orange-600 font-medium">In Progress</div>
+              </CardContent>
+            </Card>
+              <Card className="bg-gray-50 border-gray-200">
+              <CardContent className="p-8 text-center">
+                <div className="text-3xl font-bold text-gray-700 mb-2">
+                  {group?.tasks?.filter((t: any) => t.task?.status?.toLowerCase() === 'review').length || 0}
+                </div>
+                <div className="text-sm text-gray-600 font-medium">Review</div>
+              </CardContent>
+            </Card>
+            <Card className="bg-green-50 border-green-200">
+              <CardContent className="p-8 text-center">
+                <div className="text-3xl font-bold text-green-700 mb-2">
+                  {group?.tasks?.filter((t: any) => t.task?.status?.toLowerCase() === 'Completed').length || 0}
+                </div>
+                <div className="text-sm text-green-600 font-medium">Completed</div>
+              </CardContent>
+            </Card>
+           
+          
+         
           </div>
 
           {/* Members Section */}
@@ -395,7 +415,7 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group }: Pro
                         variant="outline"
                         role="combobox"
                         aria-expanded={userSearchOpen}
-                        className="w-48 justify-between"
+                        className="w-48 justify-between" style={{ textAlign: 'left' }}
                       >
                         {selectedUserIds.length > 0 
                           ? `${selectedUserIds.length} users selected`
@@ -404,7 +424,7 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group }: Pro
                         <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
                       </Button>
                     </PopoverTrigger>
-                    <PopoverContent className="w-48 p-0">
+                    <PopoverContent  align="start" sideOffset={5} className="w-[280px] max-h-[320px] p-0 bg-white border shadow-lg rounded-md overflow-hidden">
                       <Command>
                         <CommandInput 
                           placeholder="Search users..." 

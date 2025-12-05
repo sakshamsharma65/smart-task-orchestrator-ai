@@ -46,13 +46,13 @@ export default function TaskReportExportButton({ disabled, report, statusNames }
   return (
     <Button
       type="button"
-      variant="outline"
+      variant="default"
       className="flex items-center gap-2"
       onClick={handleExportCSV}
       disabled={disabled}
     >
       <Download className="w-4 h-4" />
-      Export CSV
+      Export  CSV
     </Button>
   );
 }

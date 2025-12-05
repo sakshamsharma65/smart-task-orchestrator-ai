@@ -31,7 +31,7 @@ const statusOptions = [
   { label: "All", value: "all" },
   { label: "Pending", value: "pending" },
   { label: "In Progress", value: "in_progress" },
-  { label: "Completed", value: "completed" },
+  { label: "Completed", value: "Completed" },
 ];
 
 const TaskSearchDialog: React.FC<TaskSearchDialogProps> = ({

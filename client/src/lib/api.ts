@@ -4,46 +4,66 @@
 const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 class ApiClient {
-  private async request(endpoint: string, options: RequestInit = {}) {
-    // Remove leading slash from endpoint if present to avoid double slashes
-    const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-    const url = `${API_BASE}/api${cleanEndpoint}`;
+private async request(endpoint: string, options: RequestInit = {}) {
+  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
+  const url = `${API_BASE}/api${cleanEndpoint}`;
 
-    // Get current user for authentication
-    const userStr = localStorage.getItem('user');
-    const user = userStr ? JSON.parse(userStr) : null;
-    
-    console.log('API Request:', { url, endpoint, cleanEndpoint, userId: user?.id, method: options.method || 'GET' });
+  // Load user for authentication header
+  const userStr = localStorage.getItem('user');
+  const user = userStr ? JSON.parse(userStr) : null;
 
-    const response = await fetch(url, {
-      headers: {
-        'Content-Type': 'application/json',
-        ...(user?.id && { 'x-user-id': user.id }),
-        ...options.headers,
-      },
-      ...options,
-    });
+  // Merge headers
+  const headers = {
+    'Content-Type': 'application/json',
+    ...(user?.id && { 'x-user-id': user.id }),
+    ...(options.headers || {})
+  };
 
-    if (!response.ok) {
-      const error = await response.json().catch(() => ({ error: 'Request failed' }));
-      throw new Error(error.error || `HTTP ${response.status}`);
-    }
+  // Actual request (ONLY ONE)
+  const response = await fetch(url, {
+    ...options,
+    headers,
+  });
 
-    // Handle empty response
-    const contentType = response.headers.get('content-type');
-    if (contentType && contentType.includes('application/json')) {
-      return response.json();
-    } else {
-      const text = await response.text();
-      if (!text) return {};
-      try {
-        return JSON.parse(text);
-      } catch (e) {
-        console.error('Failed to parse response as JSON:', text);
-        throw new Error('Invalid JSON response from server');
-      }
-    }
+  console.log('API Request:', { url, endpoint, method: options.method || 'GET', userId: user?.id });
+
+  // Handle logout signal from backend
+  if (response.status === 440) {
+    localStorage.removeItem("user");
+    sessionStorage.clear();
+    window.location.href = "/";
+    return;
   }
+
+  // Handle failed responses
+  if (!response.ok) {
+    let json: any = {};
+    try { json = await response.json(); } catch {}
+
+    const message =
+      json.error ||
+      json.message ||
+      json.details ||
+      json.detail ||
+      `HTTP ${response.status}`;
+
+    throw new Error(message);
+  }
+
+  // Parse success response
+  const contentType = response.headers.get('content-type');
+  if (contentType?.includes('application/json')) {
+    return response.json();
+  }
+
+  const text = await response.text();
+  if (!text) return {};
+  try { return JSON.parse(text); }
+  catch {
+    throw new Error("Invalid JSON response from server");
+  }
+}
+
 
   // User management
   async getUsers() {
@@ -100,6 +120,10 @@ class ApiClient {
   async getDeletedUserTasks(id: string) {
     return this.request(`/deleted-users/${id}/tasks`);
   }
+   async getTaskGroupMembers() {
+  return this.request('/task-group-members');
+ }
+
 
   async resetUserPassword(id: string, password: string) {
     return this.request(`/users/${id}/reset-password`, {
@@ -196,9 +220,14 @@ class ApiClient {
   }
 
   // Role management
-  async getRoles() {
-    return this.request('/roles');
-  }
+  // async getRoles() {
+  //   return this.request('/roles');
+  // }
+ async getRoles() {
+  return this.request("/roles", {
+    method: "GET",
+  });
+}
 
   async createRole(data: any) {
     return this.request('/roles', {

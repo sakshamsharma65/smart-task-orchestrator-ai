@@ -118,7 +118,7 @@ function KanbanTaskCard({ task, onClick, CARD_TYPE, statusColor }: {
   statusColor?: string;
 }) {
   const statusKey = getStatusKey(task.status);
-  const isCompleted = statusKey === "completed";
+  const isCompleted = statusKey === "Completed";
   const cardStyling = getCardStyling(statusKey);
   const dynamicStyling = getDynamicCardStyling(statusColor);
   const assignedUserName = useUserName(task.assigned_to);

@@ -221,7 +221,7 @@ const BenchmarkingReport: React.FC = () => {
           hours = task.time_spent_minutes / 60;
         } 
         // For non-time-managed tasks, use estimated_hours only if completed
-        else if (!task.is_time_managed && task.status === 'completed' && task.estimated_hours > 0) {
+        else if (!task.is_time_managed && task.status === 'Completed' && task.estimated_hours > 0) {
           hours = task.estimated_hours;
         }
 
@@ -1203,7 +1203,7 @@ const BenchmarkingReport: React.FC = () => {
         
         if (task.is_time_managed && task.time_spent_minutes > 0) {
           hours = task.time_spent_minutes / 60;
-        } else if (!task.is_time_managed && task.status === 'completed' && task.estimated_hours > 0) {
+        } else if (!task.is_time_managed && task.status === 'Completed' && task.estimated_hours > 0) {
           hours = task.estimated_hours;
         }
 

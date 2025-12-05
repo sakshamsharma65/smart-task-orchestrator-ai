@@ -1,5 +1,4 @@
-
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { apiClient } from "@/lib/api";
 
 export interface SimpleUser {
@@ -12,20 +11,21 @@ export function useUserList() {
   const [users, setUsers] = useState<SimpleUser[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    async function fetchUsers() {
-      try {
-        const data = await apiClient.getUsers();
-        setUsers(data || []);
-      } catch (error) {
-        console.error('Failed to fetch users:', error);
-        setUsers([]);
-      }
-      setLoading(false);
+  const fetchUsers = useCallback(async () => {
+    setLoading(true);
+    try {
+      const data = await apiClient.getUsers();
+      setUsers(data || []);
+    } catch (error) {
+      console.error("Failed to fetch users:", error);
+      setUsers([]);
     }
-    
-    fetchUsers();
+    setLoading(false);
   }, []);
 
-  return { users, loading };
+  useEffect(() => {
+    fetchUsers();
+  }, [fetchUsers]);
+
+  return { users, loading, refetch: fetchUsers };
 }

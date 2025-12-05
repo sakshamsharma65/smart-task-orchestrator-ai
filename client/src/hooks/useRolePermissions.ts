@@ -53,7 +53,7 @@ export function useRolePermissions() {
   });
 
   // Helper function to check if user has permission for a resource
-  const hasPermission = (resource: string, minLevel: number = 1): boolean => {
+  const hasPermission = (resource: string, minLevel: number = 0): boolean => {
     if (!permissions.length) return false;
     
     // Check if user has any permission for this resource that meets minimum level

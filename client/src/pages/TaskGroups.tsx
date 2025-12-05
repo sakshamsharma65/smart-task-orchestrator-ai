@@ -13,14 +13,16 @@ import useSupabaseSession from "@/hooks/useSupabaseSession";
 import { useUserList } from "@/hooks/useUserList";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 import DateRangePresetSelector from "@/components/DateRangePresetSelector";
+import { useRole } from "@/contexts/RoleProvider";
 
 function defaultDateRange() {
-  const now = new Date();
+   const now = new Date();
   return {
-    from: startOfMonth(now),
-    to: endOfMonth(now),
+    from: null,
+    to: null,
   };
 }
+
 
 const visibilityOptions = [
   { value: "private", label: "Private" },
@@ -28,10 +30,12 @@ const visibilityOptions = [
   { value: "all_team_members", label: "All Team Members" },
 ];
 
-export default function TaskGroupsPage() {
+export default function  TaskGroupsPage() {
   const [groups, setGroups] = useState<TaskGroup[]>([]);
   const [loading, setLoading] = useState(false);
   const [createOpen, setCreateOpen] = useState(false);
+  const { userName, highestRole } = useRole();
+
   const [form, setForm] = useState<{
     name: string;
     description: string;
@@ -39,6 +43,7 @@ export default function TaskGroupsPage() {
   }>({ name: "", description: "", visibility: "private" });
   const [detailsGroup, setDetailsGroup] = useState<any>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
+  
   
   // Filter states
   const [searchQuery, setSearchQuery] = useState("");
@@ -103,6 +108,15 @@ export default function TaskGroupsPage() {
       toast({ title: "Failed to fetch group details", description: err.message });
     }
   }
+async function refetchDetails() {
+  if (!detailsGroup?.id) return;
+  try {
+    const updated = await fetchTaskGroupDetails(detailsGroup.id);
+    setDetailsGroup(updated);
+  } catch (err: any) {
+    toast({ title: "Failed to refresh", description: err.message });
+  }
+}
 
   const getOwnerInfo = (group: TaskGroup) => {
     if (group.owner) {
@@ -122,7 +136,7 @@ export default function TaskGroupsPage() {
 
   function handlePresetChange(range: { from: Date | null; to: Date | null }, p: string) {
     setPreset(p);
-    if (p === "custom") return;
+    if (p === "custom") ;
     setDateRange(range);
   }
 
@@ -168,9 +182,12 @@ export default function TaskGroupsPage() {
             <Filter size={16} />
             Filters
           </Button>
-          <Button onClick={() => setCreateOpen(v => !v)}>
-            {createOpen ? "Cancel" : "Create Task Group"}
-          </Button>
+{highestRole !== "user" && (
+  <Button onClick={() => setCreateOpen(v => !v)}>
+    {createOpen ? "Cancel" : "Create Task Group"}
+  </Button>
+)}
+
         </div>
       </div>
 
@@ -308,6 +325,7 @@ export default function TaskGroupsPage() {
         open={detailsOpen}
         onOpenChange={setDetailsOpen}
         group={detailsGroup}
+        refetchDetails={refetchDetails} 
       />
     </div>
   );

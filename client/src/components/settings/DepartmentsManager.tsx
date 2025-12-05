@@ -1,13 +1,12 @@
-
 import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { toast } from "@/components/ui/use-toast";
-import { supabase } from "@/integrations/supabase/client";
 import { useDepartments } from "@/hooks/useDepartments";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useRole } from "@/contexts/RoleProvider";
+import { apiClient } from "@/lib/api";
 
 const DepartmentsManager: React.FC = () => {
   const { departments, loading, refetch } = useDepartments();
@@ -21,20 +20,19 @@ const DepartmentsManager: React.FC = () => {
   const handleAddDepartment = async () => {
     if (!newDepartment.name.trim()) return;
 
-    const { data, error } = await supabase
-      .from("departments")
-      .insert([{ name: newDepartment.name, description: newDepartment.description }])
-      .select()
-      .single();
+    try {
+      await apiClient.post('/departments', {
 
-    if (error) {
-      toast({ title: "Error", description: error.message });
-      return;
+        name: newDepartment.name.trim(),
+        description: newDepartment.description || null
+      });
+      
+      setNewDepartment({ name: "", description: "" });
+      refetch();
+      toast({ title: "Department added successfully" });
+    } catch (error) {
+      toast({ title: "Error", description: error instanceof Error ? error.message : "Failed to add department" });
     }
-
-    setNewDepartment({ name: "", description: "" });
-    refetch();
-    toast({ title: "Department added successfully" });
   };
 
   const handleEditDepartment = (id: string) => {
@@ -52,17 +50,31 @@ const DepartmentsManager: React.FC = () => {
     const editedDept = editingDepartments[id];
     if (!editedDept || !editedDept.name.trim()) return;
 
-    // Note: Department management should be done via localStorage for now
-    // since we don't have API endpoints for departments yet
-    toast({ title: "Feature not implemented", description: "Department editing via API not yet available" });
+    try {
+      await apiClient.patch(`/departments/${id}`, {
+        name: editedDept.name.trim(),
+        description: editedDept.description || null
+      });
+      
+      setEditing({ ...editing, [id]: false });
+      refetch();
+      toast({ title: "Department updated successfully" });
+    } catch (error) {
+      toast({ title: "Error", description: error instanceof Error ? error.message : "Failed to update department" });
+    }
   };
 
   const handleDeleteDepartment = async (id: string) => {
     if (!window.confirm("Are you sure you want to delete this department?")) return;
 
-    // Note: Department management should be done via localStorage for now
-    // since we don't have API endpoints for departments yet
-    toast({ title: "Feature not implemented", description: "Department deletion via API not yet available" });
+    try {
+      await apiClient.delete(`/departments/${id}`);
+      
+      refetch();
+      toast({ title: "Department deleted successfully" });
+    } catch (error) {
+      toast({ title: "Error", description: error instanceof Error ? error.message : "Failed to delete department" });
+    }
   };
 
   return (
@@ -91,6 +103,7 @@ const DepartmentsManager: React.FC = () => {
                         {editing[department.id] && highestRole === "admin" ? (
                           <Input
                             value={editingDepartments[department.id]?.name || ""}
+                            maxLength={50}
                             onChange={(e) =>
                               setEditingDepartments({
                                 ...editingDepartments,
@@ -108,6 +121,7 @@ const DepartmentsManager: React.FC = () => {
                       <td className="p-2">
                         {editing[department.id] && highestRole === "admin" ? (
                           <Textarea
+                            maxLength={1000}
                             value={editingDepartments[department.id]?.description || ""}
                             onChange={(e) =>
                               setEditingDepartments({
@@ -173,6 +187,7 @@ const DepartmentsManager: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium mb-2">Department Name</label>
                 <Input
+                  maxLength={50}
                   placeholder="Enter department name"
                   value={newDepartment.name}
                   onChange={(e) => setNewDepartment({ ...newDepartment, name: e.target.value })}
@@ -181,6 +196,7 @@ const DepartmentsManager: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium mb-2">Description</label>
                 <Textarea
+                  maxLength={1000}
                   placeholder="Enter description"
                   value={newDepartment.description}
                   onChange={(e) => setNewDepartment({ ...newDepartment, description: e.target.value })}

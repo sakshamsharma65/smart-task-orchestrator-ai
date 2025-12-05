@@ -1,16 +1,19 @@
 import React, { useState } from "react";
 import AppSidebar from "@/components/AppSidebar";
 import Topbar from "@/components/Topbar";
+import { useAuth } from "@/contexts/AuthContext";
 import { useCurrentUserRoleAndTeams } from "@/hooks/useCurrentUserRoleAndTeams";
 import { useLicenseCheck } from "@/hooks/useLicenseCheck";
 import { LicenseAcquisitionScreen } from "@/components/LicenseAcquisitionScreen";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { AlertCircle } from "lucide-react";
+import { Navigate } from "react-router-dom";
 
 
 export default function AdminLayout({ children }: { children: React.ReactNode }) {
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const { user: currentUser, roles } = useCurrentUserRoleAndTeams();
+const {user: currentUser,roles,loading: roleLoading} = useCurrentUserRoleAndTeams();
+const { loading: authLoading } = useAuth();
   
   // Check if user is admin
   const isAdmin = roles.includes('admin');
@@ -43,22 +46,35 @@ export default function AdminLayout({ children }: { children: React.ReactNode })
       </div>
     );
   }
+if (authLoading || roleLoading) {
+  return (
+    <div className="min-h-screen flex items-center justify-center">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary"></div>
+    </div>
+  );
+}
 
+if (!currentUser) {
+  return <Navigate to="/auth" replace />;
+}
   // Show access denied for non-authenticated users
+  // if (!currentUser) {
+  //   return (
+  //     <div className="min-h-screen bg-background flex items-center justify-center p-6">
+  //       <div className="text-center space-y-4">
+  //         <Alert className="max-w-md">
+  //           <AlertCircle className="h-4 w-4" />
+  //           <AlertDescription>
+  //             Please log in to access the admin panel.
+  //           </AlertDescription>
+  //         </Alert>
+  //       </div>
+  //     </div>
+  //   );
+  // }
   if (!currentUser) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center p-6">
-        <div className="text-center space-y-4">
-          <Alert className="max-w-md">
-            <AlertCircle className="h-4 w-4" />
-            <AlertDescription>
-              Please log in to access the admin panel.
-            </AlertDescription>
-          </Alert>
-        </div>
-      </div>
-    );
-  }
+  return <Navigate to="/auth" replace />;
+}
 
   return (
     <div className="flex h-screen w-full bg-background">

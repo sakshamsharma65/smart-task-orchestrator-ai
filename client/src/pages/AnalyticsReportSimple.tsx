@@ -144,6 +144,7 @@ export default function AnalyticsReport() {
       </div>
     );
   }
+  
 
   return (
     <div className="max-w-7xl mx-0 p-4">
@@ -233,39 +234,56 @@ export default function AnalyticsReport() {
         {/* Status Distribution Chart */}
         <div className="bg-white p-6 rounded-lg border shadow-sm">
           <h3 className="text-lg font-semibold mb-4">Task Status Distribution</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <PieChart>
-              <Pie
-                data={analytics.statusData}
-                cx="50%"
-                cy="50%"
-                labelLine={false}
-                label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
-                outerRadius={80}
-                fill="#8884d8"
-                dataKey="value"
-              >
-                {analytics.statusData.map((entry, index) => (
-                  <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip />
-              <Legend />
-            </PieChart>
-          </ResponsiveContainer>
+      {analytics.statusData.length === 0 ? (
+  <div className="flex items-center justify-center h-48 text-gray-500">
+    No data found
+  </div>
+) : (
+  <ResponsiveContainer width="100%" height={300}>
+    <PieChart>
+      <Pie
+        data={analytics.statusData}
+        cx="50%"
+        cy="50%"
+        labelLine={false}
+        label={({ name, percent }) => `${name} (${(percent * 100).toFixed(0)}%)`}
+        outerRadius={80}
+        fill="#8884d8"
+        dataKey="value"
+      >
+        {analytics.statusData.map((entry, index) => (
+          <Cell key={`cell-${index}`} fill={COLORS[index % COLORS.length]} />
+        ))}
+      </Pie>
+      <Tooltip />
+      <Legend />
+    </PieChart>
+  </ResponsiveContainer>
+)}
+
         </div>
 
         {/* Top Users by Task Count */}
         <div className="bg-white p-6 rounded-lg border shadow-sm">
           <h3 className="text-lg font-semibold mb-4">Top Users by Task Count</h3>
-          <ResponsiveContainer width="100%" height={300}>
-            <BarChart data={analytics.userStats} margin={{ top: 20, right: 30, left: 20, bottom: 5 }}>
-              <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} />
-              <YAxis />
-              <Tooltip />
-              <Bar dataKey="tasks" fill="#8884d8" />
-            </BarChart>
-          </ResponsiveContainer>
+         {analytics.userStats.length === 0 ? (
+  <div className="flex items-center justify-center h-48 text-gray-500">
+    No data found
+  </div>
+) : (
+  <ResponsiveContainer width="100%" height={300}>
+    <BarChart
+      data={analytics.userStats}
+      margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+    >
+      <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} />
+      <YAxis />
+      <Tooltip />
+      <Bar dataKey="tasks" fill="#8884d8" />
+    </BarChart>
+  </ResponsiveContainer>
+)}
+
         </div>
       </div>
     </div>

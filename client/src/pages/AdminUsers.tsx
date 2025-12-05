@@ -34,7 +34,7 @@ const AdminUsers: React.FC = () => {
   const [loading, setLoading] = React.useState(true);
 
   // For checking session info and admin status
-  const { user } = useSupabaseSession();
+  const { user } = useSupabaseSession(); 
 
   // Get user roles
   const userIds = users.map(user => user.id);
@@ -85,7 +85,7 @@ const AdminUsers: React.FC = () => {
     });
   }, [users, search]);
 
-  function handleCreateUser() {
+  function  handleCreateUser(){
     // Check license limits before opening create dialog
     if (licenseInfo && licenseInfo.hasLicense && licenseInfo.userLimits) {
       const { maximum } = licenseInfo.userLimits;
@@ -94,7 +94,7 @@ const AdminUsers: React.FC = () => {
       if (currentUsers >= maximum) {
         toast({
           title: "License Limit Reached",
-          description: `Cannot create user. License limit reached (${currentUsers}/${maximum} users). Please upgrade your license or deactivate existing users.`,
+          description: `Cannot create or activate  user. License limit reached (${currentUsers}/${maximum} users). Please upgrade your license or deactivate existing users.`,
           variant: "destructive"
         });
         return;

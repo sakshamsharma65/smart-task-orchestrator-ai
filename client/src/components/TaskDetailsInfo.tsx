@@ -60,7 +60,7 @@ const TaskDetailsInfo: React.FC<Props> = ({
     <div>
       <label className="block font-bold mb-1">Due Date</label>
       <div>
-        {task.status === "completed"
+        {task.status === "Completed"
           ? (
             <span>
               Completion: {task.actual_completion_date || "-"}

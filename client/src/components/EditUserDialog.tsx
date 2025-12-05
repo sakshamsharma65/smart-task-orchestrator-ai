@@ -70,7 +70,7 @@ const EditUserDialog: React.FC<EditUserDialogProps> = ({
       setDepartmentsLoading(true);
       try {
         // For now, use hardcoded departments since we don't have a departments API
-        const hardcodedDepartments = ["Administration", "IT", "HR", "Finance", "Marketing", "Sales", "Operations"];
+        const hardcodedDepartments = ["Administration",  "Engineering", "Marketing"];
         setDepartments(hardcodedDepartments);
       } catch (error) {
         console.error('Error fetching departments:', error);
@@ -143,11 +143,8 @@ const EditUserDialog: React.FC<EditUserDialogProps> = ({
     console.log("[EditUserDialog] Prepared to update user:", user.id, cleanedForm);
 
     try {
-      await apiClient(`/api/users/${user.id}`, {
-        method: 'PATCH',
-        body: JSON.stringify(cleanedForm),
-        headers: { 'Content-Type': 'application/json' },
-      });
+      // Use the ApiClient helper which injects x-user-id header and handles base URL
+      await apiClient.updateUser(user.id, cleanedForm);
 
       toast({ title: "User updated!" });
       setSaving(false);

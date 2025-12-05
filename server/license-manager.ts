@@ -1,7 +1,8 @@
-import crypto from 'crypto';
+
 import { db } from './db';
 import { licenses, type License, type InsertLicense } from '@shared/schema';
 import { eq, and, desc } from 'drizzle-orm';
+import * as crypto from 'crypto';
 
 export const APP_ID = 'taskrep-task-management'; // TaskRep application ID
 const ENCRYPTION_KEY = process.env.LICENSE_ENCRYPTION_KEY || 'taskrep-license-key-2024';
@@ -52,15 +53,22 @@ export interface LicenseValidationResponse {
 
 // Encryption/Decryption functions
 function encrypt(text: string): string {
-  const cipher = crypto.createCipher('aes-256-cbc', ENCRYPTION_KEY);
+  const iv = crypto.randomBytes(16);
+  const key = crypto.createHash('sha256').update(ENCRYPTION_KEY).digest();
+  const cipher = crypto.createCipheriv('aes-256-cbc', key, iv);
   let encrypted = cipher.update(text, 'utf8', 'hex');
   encrypted += cipher.final('hex');
-  return encrypted;
+  // Prepend IV as hex to the encrypted text
+  return iv.toString('hex') + ':' + encrypted;
 }
 
+// Decrypt
 function decrypt(encryptedText: string): string {
-  const decipher = crypto.createDecipher('aes-256-cbc', ENCRYPTION_KEY);
-  let decrypted = decipher.update(encryptedText, 'hex', 'utf8');
+  const [ivHex, encrypted] = encryptedText.split(':');
+  const iv = Buffer.from(ivHex, 'hex');
+  const key = crypto.createHash('sha256').update(ENCRYPTION_KEY).digest();
+  const decipher = crypto.createDecipheriv('aes-256-cbc', key, iv);
+  let decrypted = decipher.update(encrypted, 'hex', 'utf8');
   decrypted += decipher.final('utf8');
   return decrypted;
 }
@@ -501,7 +509,7 @@ export class LicenseManager {
         isValid: !isExpired,
         expiresAt: new Date(license.validTill),
         subscriptionType: license.subscriptionType,
-        userLimits: userLimits || undefined,
+        userLimits: userLimits || undefined4,
         clientId: license.clientId,
         applicationId: license.applicationId,
         message: isExpired ? 'License has expired' : 'License is active'

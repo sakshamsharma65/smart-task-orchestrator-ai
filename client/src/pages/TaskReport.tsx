@@ -25,8 +25,10 @@ async function fetchTaskReportView(fromDate: Date, toDate: Date, limit = 1000) {
   const { format } = await import("date-fns");
   const { fetchTasksPaginated } = await import("@/integrations/supabase/tasks");
   
-  const fromStr = format(fromDate, "yyyy-MM-dd");
-  const toStr = format(toDate, "yyyy-MM-dd");
+  // fromDate is startOfDay (00:00:00.000)
+  const fromStr = fromDate.toISOString(); 
+  // toDate is endOfDay (23:59:59.999), which we need to preserve
+  const toStr = toDate.toISOString();
   
   try {
     const { tasks } = await fetchTasksPaginated({

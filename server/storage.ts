@@ -1,5 +1,9 @@
-import { eq, desc, and, or, ne } from "drizzle-orm";
+import { eq, desc, and, or, ne ,getTableColumns,sql} from "drizzle-orm";
 import { db } from "./db";
+import { alias } from "drizzle-orm/pg-core";
+import { inArray } from "drizzle-orm";
+
+
 import { 
   users, 
   tasks, 
@@ -18,6 +22,7 @@ import {
   deletedTasks,
   organizationSettings,
   officeLocations,
+  departments,
   licenses,
   User, 
   InsertUser, 
@@ -45,6 +50,8 @@ import {
   InsertOrganizationSettings,
   OfficeLocation,
   InsertOfficeLocation,
+  Department,
+  InsertDepartment,
   License,
   InsertLicense
 } from "@shared/schema";
@@ -178,16 +185,55 @@ export class DatabaseStorage implements IStorage {
     const result = await db.insert(users).values(user).returning();
     return result[0];
   }
+  async  getAllTaskGroupMembers() {
+  return db.select().from(taskGroupMembers);
+  }
+
+  async updateUserPasswordByEmail(email: string, newPasswordHash: string): Promise<User | null> {
+  try {
+    const result = await db
+      .update(users)
+      .set({ password_hash: newPasswordHash })
+      .where(eq(users.email, email))
+      .returning();
+
+    return result.length > 0 ? result[0] : null;
+  } catch (error) {
+    console.error("Error updating user password:", error);
+    throw new Error("Failed to update user password");
+  }
+}
+async updateTaskStatusForTask(taskId: string, newStatus: string) {
+  const result = await db.update(tasks)
+    .set({
+      status: newStatus,
+      updated_at: new Date()
+    })
+    .where(eq(tasks.id, taskId))
+    .returning();
+
+  return result[0];
+}
+
+
 
   async updateUser(id: string, updates: Partial<User>): Promise<User> {
     const result = await db.update(users).set(updates).where(eq(users.id, id)).returning();
+    console.log("🧩 updateUser() called with:", { id, updates });
+
     return result[0];
   }
 
-  async getAllUsers(): Promise<User[]> {
-    return await db.select().from(users).orderBy(users.user_name);
-  }
-
+async getAllUsers(): Promise<any[]> { // Note: Return type is now 'any[]' or a custom type
+  return await db.select({
+    ...getTableColumns(users), // Selects all columns from the 'users' table
+    role_name: roles.name      // Selects the 'name' from 'roles' and aliases it as 'role_name'
+  })
+  .from(users)
+  .leftJoin(userRoles, eq(users.id, userRoles.user_id))
+  .leftJoin(roles, eq(userRoles.role_id, roles.id))
+  .orderBy(users.user_name);
+}
   async deactivateUser(id: string): Promise<User> {
     const result = await db.update(users).set({
       is_active: false,
@@ -206,6 +252,7 @@ export class DatabaseStorage implements IStorage {
 
   async deleteUser(id: string, deletedBy: string): Promise<{ deletedUser: any; deletedTasksCount: number }> {
     // Get user data before deletion
+  
     const user = await this.getUser(id);
     if (!user) {
       throw new Error('User not found');
@@ -225,7 +272,7 @@ export class DatabaseStorage implements IStorage {
       created_at: user.created_at!,
       updated_at: user.updated_at!,
       deleted_by: deletedBy
-    }).returning();
+    }).onConflictDoNothing().returning();
 
     // Move user's tasks to deleted_tasks table
     let deletedTasksCount = 0;
@@ -308,11 +355,14 @@ export class DatabaseStorage implements IStorage {
     return await db.select().from(tasks).orderBy(desc(tasks.created_at));
   }
 
-  async getTasksByUser(userId: string): Promise<Task[]> {
+async getTasksByUser(userId: string): Promise<Task[]> {
     return await db.select().from(tasks).where(
       or(eq(tasks.assigned_to, userId), eq(tasks.created_by, userId))
-    ).orderBy(desc(tasks.created_at));
-  }
+    )
+    .orderBy(desc(tasks.created_at));
+}
+
+
 
   async getTasksByTeam(teamId: string): Promise<Task[]> {
     return await db.select().from(tasks).where(eq(tasks.team_id, teamId)).orderBy(desc(tasks.created_at));
@@ -322,6 +372,7 @@ export class DatabaseStorage implements IStorage {
     const result = await db.insert(tasks).values(task).returning();
     return result[0];
   }
+  
 
   async updateTask(id: string, updates: Partial<Task>): Promise<Task> {
     const result = await db.update(tasks).set(updates).where(eq(tasks.id, id)).returning();
@@ -354,8 +405,8 @@ export class DatabaseStorage implements IStorage {
       .limit(1);
     return result[0];
   }
-
-  async getAllTeams(): Promise<Team[]> {
+  
+ async getAllTeams(): Promise<Team[]> {
     return await db
       .select({
         id: teams.id,
@@ -373,7 +424,7 @@ export class DatabaseStorage implements IStorage {
       .from(teams)
       .leftJoin(users, eq(teams.manager_id, users.id))
       .orderBy(teams.name);
-  }
+  }  
 
   async getTeamsByUser(userId: string): Promise<Team[]> {
     return await db
@@ -396,6 +447,45 @@ export class DatabaseStorage implements IStorage {
       .where(eq(teamMemberships.user_id, userId))
       .orderBy(teams.name);
   }
+  async  getTasksForManager(userId: string) {
+  // 1. Get all teams managed by this user
+  const managedTeams = await db
+    .select({
+      id: teams.id,
+      name: teams.name,
+    })
+    .from(teams)
+    .where(eq(teams.manager_id, userId));
+
+  if (managedTeams.length === 0) {
+    return []; // user manages no teams → no tasks
+  }
+
+  const teamIds = managedTeams.map(t => t.id);
+
+  // 2. Get all team members for these teams
+  const teamMembers = await db
+    .select({
+      user_id: teamMemberships.user_id
+    })
+    .from(teamMemberships)
+    .where(inArray(teamMemberships.team_id, teamIds));
+
+  const userIds = teamMembers.map(m => m.user_id);
+
+  if (userIds.length === 0) {
+    return []; // no members → no tasks
+  }
+
+  // 3. Get all tasks assigned to these users
+  const taskList = await db
+    .select()
+    .from(tasks) // your tasks table
+    .where(inArray(tasks.assigned_to, userIds));
+
+  return taskList;
+}
+
 
   async createTeam(team: InsertTeam): Promise<Team> {
     const result = await db.insert(teams).values(team).returning();
@@ -490,20 +580,62 @@ export class DatabaseStorage implements IStorage {
       .where(eq(teamMemberships.team_id, teamId));
   }
 
-  async addTeamMember(teamId: string, userId: string, role?: string): Promise<TeamMembership> {
-    const result = await db.insert(teamMemberships).values({
-      team_id: teamId,
-      user_id: userId,
-      role_within_team: role
-    }).returning();
-    return result[0];
-  }
+async addTeamMember(teamId: string, userId: string, role?: string) {
+  await db.execute(sql`BEGIN`);
 
-  async removeTeamMember(teamId: string, userId: string): Promise<void> {
-    await db.delete(teamMemberships).where(
-      and(eq(teamMemberships.team_id, teamId), eq(teamMemberships.user_id, userId))
-    );
+  try {
+    if (role === "manager") {
+      // Set previous manager roles to NULL
+      await db.execute(sql`
+        UPDATE team_memberships
+        SET role_within_team = NULL
+        WHERE team_id = ${teamId}
+        AND user_id <> ${userId}
+        AND role_within_team = 'manager';
+      `);
+    }
+
+    // UPSERT new role
+    const result = await db.execute(sql`
+      INSERT INTO team_memberships (team_id, user_id, role_within_team)
+      VALUES (${teamId}, ${userId}, ${role || null})
+      ON CONFLICT (team_id, user_id)
+      DO UPDATE SET role_within_team = EXCLUDED.role_within_team
+      RETURNING *;
+    `);
+
+    await db.execute(sql`COMMIT`);
+    return result.rows[0];
+
+  } catch (err) {
+    await db.execute(sql`ROLLBACK`);
+    throw err;
   }
+}
+
+
+
+
+
+
+async removeTeamMember(teamId: string, userId: string): Promise<void> {
+  console.log(`Removing user ${userId} from team ${teamId}  heheheheheheh`);
+  // 1. Delete from team_memberships
+  await db.delete(teamMemberships).where(
+    and(eq(teamMemberships.team_id, teamId), eq(teamMemberships.user_id, userId))
+  );
+
+  // 2. Clear manager_id if this user is manager
+//  const a= await db.update(teams)
+//     .set({ manager_id: null })
+//     .where(
+//       and(eq(teams.id, teamId), eq(teams.manager_id, userId))
+//     ).returning();
+//     console.log(`Cleared manager_id for team ${teamId} if user was manager. hehehehe`);
+//     console.log('saksham',a)
+}
+
+
 
   // Task group operations
   async getAllTaskGroups(): Promise<TaskGroup[]> {
@@ -524,11 +656,13 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Get task groups visible to a specific user based on their role and permissions
-  async getTaskGroupsForUser(userId: string): Promise<TaskGroup[]> {
-    const userRoles = await this.getUserRoles(userId);
-    const roleNames = userRoles.map(ur => ur.role?.name).filter(Boolean);
-    
-    const baseSelect = {
+async getTaskGroupsForUser(userId: string): Promise<TaskGroup[]> {
+  const userRoles = await this.getUserRoles(userId);
+  const roleNames = userRoles.map(ur => ur.role?.name).filter(Boolean);
+
+  // 🧩 Define base query with COUNT + JOINs
+  let query = db
+    .select({
       id: taskGroups.id,
       name: taskGroups.name,
       description: taskGroups.description,
@@ -539,45 +673,52 @@ export class DatabaseStorage implements IStorage {
         id: users.id,
         user_name: users.user_name,
         email: users.email,
-      }
-    };
-    
-    // Admin can see all task groups
-    if (roleNames.includes('admin')) {
-      return await db.select(baseSelect).from(taskGroups)
-        .leftJoin(users, eq(taskGroups.owner_id, users.id));
-    }
-    
-    // For managers and team managers, they can see:
-    // 1. Their own task groups
-    // 2. Public task groups (all_team_members)
-    // 3. Manager-only task groups (managers_admin_only)
-    if (roleNames.includes('manager') || roleNames.includes('team_manager')) {
-      return await db.select(baseSelect).from(taskGroups)
-        .leftJoin(users, eq(taskGroups.owner_id, users.id))
-        .where(
-          or(
-            eq(taskGroups.owner_id, userId), // Own task groups
-            eq(taskGroups.visibility, 'all_team_members'), // Public groups
-            eq(taskGroups.visibility, 'managers_admin_only') // Manager-only groups
-          )
-        );
-    }
-    
-    // Regular users can only see:
-    // 1. Their own task groups
-    // 2. Public task groups (all_team_members)
-    // 3. Task groups they are explicitly members of
-    return await db.select(baseSelect).from(taskGroups)
-      .leftJoin(users, eq(taskGroups.owner_id, users.id))
-      .where(
-        or(
-          eq(taskGroups.owner_id, userId), // Own task groups
-          eq(taskGroups.visibility, 'all_team_members') // Public groups
-        )
-      );
+      },
+      task_count: sql<number>`COALESCE(COUNT(${taskGroupTasks.task_id}), 0)`.as("task_count"),
+    })
+    .from(taskGroups)
+    .leftJoin(taskGroupTasks, eq(taskGroups.id, taskGroupTasks.group_id))
+    .leftJoin(users, eq(taskGroups.owner_id, users.id))
+    .groupBy(
+      taskGroups.id,
+      taskGroups.name,
+      taskGroups.description,
+      taskGroups.visibility,
+      taskGroups.owner_id,
+      taskGroups.created_at,
+      users.id,
+      users.user_name,
+      users.email
+    );
+
+  // 🧠 Role-based filtering
+  if (roleNames.includes("admin")) {
+    // Admins see all
+    console.log("[DEBUG] Admin SQL:", query.toSQL().sql);
+    return await query;
   }
 
+  if (roleNames.includes("manager") || roleNames.includes("team_manager")) {
+    query = query.where(
+      or(
+        eq(taskGroups.owner_id, userId),
+        eq(taskGroups.visibility, "all_team_members"),
+        eq(taskGroups.visibility, "managers_admin_only")
+      )
+    );
+    console.log("[DEBUG] Manager SQL:", query.toSQL().sql);
+    return await query;
+  }
+
+  query = query.where(
+    or(
+      eq(taskGroups.owner_id, userId),
+      eq(taskGroups.visibility, "all_team_members")
+    )
+  );
+  console.log("[DEBUG] User SQL:", query.toSQL().sql);
+  return await query;
+}
   async createTaskGroup(group: InsertTaskGroup): Promise<TaskGroup> {
     const result = await db.insert(taskGroups).values(group).returning();
     return result[0];
@@ -724,13 +865,42 @@ export class DatabaseStorage implements IStorage {
       .where(eq(taskActivity.task_id, taskId))
       .orderBy(desc(taskActivity.created_at));
   }
+ 
+  // async logTaskActivity(activity: Omit<TaskActivity, 'id' | 'created_at'>): Promise<TaskActivity> {
+  //   console.log("[DEBUG] Logging task activity:", activity);
+  //   const result = await db.insert(taskActivity).values(activity).returning();
+  //   console.log("[DEBUG] Task activity logged successfully:", result[0]);
+  //   return result[0];
+  // }
+  async logTaskActivity(activity: Omit<TaskActivity, "id" | "created_at">): Promise<TaskActivity> {
+  const { task_id, action_type, old_value, new_value, acted_by } = activity;
 
-  async logTaskActivity(activity: Omit<TaskActivity, 'id' | 'created_at'>): Promise<TaskActivity> {
-    console.log("[DEBUG] Logging task activity:", activity);
-    const result = await db.insert(taskActivity).values(activity).returning();
-    console.log("[DEBUG] Task activity logged successfully:", result[0]);
-    return result[0];
+  // 1️⃣ Get last activity for this task
+  const last = await db.select()
+    .from(taskActivity)
+    .where(eq(taskActivity.task_id, task_id))
+    .orderBy(desc(taskActivity.created_at))
+    .limit(1);
+
+  const lastRow = last[0];
+
+  // 2️⃣ Prevent duplicates
+  if (
+    lastRow &&
+    lastRow.action_type === action_type &&
+    lastRow.old_value === old_value &&
+    lastRow.new_value === new_value &&
+    lastRow.acted_by === acted_by
+  ) {
+    console.log("⛔ Duplicate activity prevented");
+    return lastRow;
   }
+
+  // 3️⃣ Insert activity
+  const result = await db.insert(taskActivity).values(activity).returning();
+  return result[0];
+}
+
 
   // Task status operations
   async getAllTaskStatuses(): Promise<TaskStatus[]> {
@@ -1048,6 +1218,33 @@ export class DatabaseStorage implements IStorage {
 
   async deleteOfficeLocation(id: string): Promise<void> {
     await db.delete(officeLocations).where(eq(officeLocations.id, id));
+  }
+
+  // Department operations
+  async getAllDepartments(): Promise<Department[]> {
+    return await db.select().from(departments).orderBy(departments.name);
+  }
+
+  async getDepartment(id: string): Promise<Department | undefined> {
+    const result = await db.select().from(departments).where(eq(departments.id, id));
+    return result[0];
+  }
+
+  async createDepartment(dept: InsertDepartment): Promise<Department> {
+    const result = await db.insert(departments).values(dept).returning();
+    return result[0];
+  }
+
+  async updateDepartment(id: string, updates: Partial<InsertDepartment>): Promise<Department> {
+    const result = await db.update(departments).set({
+      ...updates,
+      updated_at: new Date()
+    }).where(eq(departments.id, id)).returning();
+    return result[0];
+  }
+
+  async deleteDepartment(id: string): Promise<void> {
+    await db.delete(departments).where(eq(departments.id, id));
   }
 
   // License operations

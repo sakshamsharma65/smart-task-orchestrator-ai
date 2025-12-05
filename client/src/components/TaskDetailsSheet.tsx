@@ -13,12 +13,17 @@ import { Textarea } from "@/components/ui/textarea";
 import { useUsersAndTeams } from "@/hooks/useUsersAndTeams";
 import { updateTask, Task } from "@/integrations/supabase/tasks";
 import { toast } from "@/components/ui/use-toast";
-
+import { useQueryClient } from "@tanstack/react-query";
 import { useTaskStatuses } from "@/hooks/useTaskStatuses";
 import { useTaskActivity } from "@/hooks/useTaskActivity";
 import TaskActivityTimeline from "./TaskActivityTimeline";
 import { createTaskActivity } from "@/integrations/supabase/taskActivity";
 import { EditTaskStatusSelect } from "./EditTaskStatusSelect";
+
+import { apiRequest } from "@/lib/queryClient";
+import { useQuery } from "@tanstack/react-query";
+
+
 
 
 // Dummy role check! Replace with real logic if user roles are exposed
@@ -56,6 +61,12 @@ const TaskDetailsSheet: React.FC<Props> = ({
   const { users } = useUsersAndTeams();
   const { statuses, loading: statusesLoading } = useTaskStatuses();
   const { activity, reload: reloadActivity, loading: activityLoading } = useTaskActivity(task?.id || null);
+  const queryClient = useQueryClient();
+  const { data: usersName = [] } = useQuery({
+    queryKey: ['/api/usersName'],
+    queryFn: () => apiRequest("/api/usersName"),
+    enabled: true,
+  });
 
   // Reload activity when task changes or when modal opens/closes
   useEffect(() => {
@@ -67,10 +78,10 @@ const TaskDetailsSheet: React.FC<Props> = ({
 
   // new: reload usersById for activity log
   const usersById = useMemo(() => {
-    const obj: Record<string, { email: string; user_name: string | null }> = {};
-    users.forEach(u => obj[u.id] = u);
+    const obj: Record<string, { id: string; name: string | null }> = {};
+    usersName.forEach(u => obj[u.id] = u);
     return obj;
-  }, [users]);
+  }, [usersName]);
 
   const showAssign = hasManagerPermissions(currentUser);
 
@@ -236,7 +247,7 @@ const TaskDetailsSheet: React.FC<Props> = ({
                 </SheetDescription>
               </div>
               {onEdit && (
-                <Button onClick={() => onEdit(task!)} variant="outline" className="sm:ml-4 w-full sm:w-auto">
+                <Button onClick={() => onEdit(task!)} variant="outline" className="sm:ml-4 w-full sm:w-auto" disabled={task?.status === "Completed"}>
                   Edit Task
                 </Button>
               )}

@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
+import * as crypto from 'crypto';
 import { AlertCircle, CheckCircle, Clock, Users, Calendar, Server } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { useCurrentUserRoleAndTeams } from "@/hooks/useCurrentUserRoleAndTeams";

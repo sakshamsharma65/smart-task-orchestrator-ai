@@ -32,7 +32,7 @@ export async function fetchTaskGroups(): Promise<TaskGroup[]> {
   const groups = await apiClient.getTaskGroups();
   return groups.map((g: any) => ({
     ...g,
-    task_count: 0, // TODO: implement task count in API
+   // TODO: implement task count in API
   }));
 }
 
@@ -142,6 +142,6 @@ export async function assignTaskToGroup({ group_id, task_id }: { group_id: strin
 
 // Helper function to get current user ID
 function getCurrentUserId(): string {
-  const user = JSON.parse(localStorage.getItem('sb-user') || '{}');
+  const user = JSON.parse(localStorage.getItem('user') || '{}');
   return user?.id || '';
 }

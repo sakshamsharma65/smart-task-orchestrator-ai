@@ -83,23 +83,65 @@ const DeletedUsers: React.FC = () => {
     return colors[priority as keyof typeof colors] || colors.medium;
   };
 
-  const exportUserData = (user: DeletedUser) => {
-    const userData = {
-      user_info: user,
-      tasks: deletedTasks
-    };
-    
-    const dataStr = JSON.stringify(userData, null, 2);
-    const dataBlob = new Blob([dataStr], { type: 'application/json' });
-    const url = URL.createObjectURL(dataBlob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `deleted_user_${user.user_name || user.email}_${new Date().toISOString().split('T')[0]}.json`;
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-    URL.revokeObjectURL(url);
-  };
+const exportUserData = (user: DeletedUser) => {
+  const userFields = [
+    ["Field", "Value"],
+    ["ID", user.id],
+    ["Name", user.user_name || "-"],
+    ["Email", user.email],
+    ["Department", user.department || "-"],
+    ["Phone", user.phone || "-"],
+    ["Manager", user.manager || "-"],
+    ["Created At", formatOrgDate(user.created_at)],
+    ["Deleted At", formatOrgDate(user.deleted_at)],
+  ];
+
+  const userCSV = userFields.map(row => row.join(",")).join("\n");
+
+  const taskHeaders = [
+    "Task #",
+    "Title",
+    "Priority",
+    "Status",
+    "Team",
+    "Est. Hours",
+    "Due Date",
+    "Created At"
+  ];
+
+  const taskRows = deletedTasks.map((task: DeletedTask) => [
+    task.task_number,
+    `"${task.title?.replace(/"/g, '""')}"`,
+    task.priority,
+    task.status,
+    task.team_name || "-",
+    task.estimated_hours || "-",
+    task.due_date ? formatOrgDate(task.due_date) : "-",
+    formatOrgDate(task.created_at)
+  ]);
+
+  const taskCSV =
+    deletedTasks.length > 0
+      ? [taskHeaders.join(","), ...taskRows.map(row => row.join(","))].join("\n")
+      : "No tasks found for this user";
+
+  const finalCSV = 
+    "User Details\n" +
+    userCSV +
+    "\n\nUser Tasks\n" +
+    taskCSV;
+
+  const blob = new Blob([finalCSV], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = `deleted_user_${user.user_name || user.email}_${new Date()
+    .toISOString()
+    .split("T")[0]}.csv`;
+  link.click();
+  URL.revokeObjectURL(url);
+};
+
 
   return (
     <div className="p-6 max-w-7xl w-full">

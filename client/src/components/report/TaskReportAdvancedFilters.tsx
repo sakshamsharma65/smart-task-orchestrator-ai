@@ -44,7 +44,7 @@ export default function TaskReportAdvancedFilters({
   allUsers,
   isAdmin
 }: TaskReportAdvancedFiltersProps) {
-  const [preset, setPreset] = React.useState<string>("custom");
+  const [preset, setPreset] = React.useState<string>("");
   const [employeeSearchOpen, setEmployeeSearchOpen] = React.useState(false);
   const { departments, loading: depsLoading } = useDepartments();
 
@@ -92,23 +92,27 @@ export default function TaskReportAdvancedFilters({
           preset={preset}
           onChange={handlePresetChange}
         />
-        <Popover>
-          <PopoverTrigger asChild>
-            <Button variant="outline" className="min-w-[220px] justify-start text-left font-normal mt-2">
-              <CalendarIcon className="mr-2 h-4 w-4 opacity-70" />
-              <span>{label}</span>
-            </Button>
-          </PopoverTrigger>
-          <PopoverContent className="w-auto p-0" align="start">
-            <Calendar
-              mode="range"
-              selected={dateRange}
-              onSelect={handleCustomRange}
-              initialFocus
-              className="p-3 pointer-events-auto"
-            />
-          </PopoverContent>
-        </Popover>
+
+       {preset !== "today" && preset !== "yesterday" && (
+  <Popover >
+    <PopoverTrigger asChild>
+      <Button variant="outline" className="min-w-[220px] justify-start text-left font-normal">
+        <CalendarIcon className="mr-2 h-4 w-4 opacity-70" />
+        <span>{label}</span>
+      </Button>
+    </PopoverTrigger>
+    <PopoverContent className="w-auto p-0 " align="start">
+      <Calendar
+        mode="range"
+        selected={dateRange}
+        onSelect={handleCustomRange}
+        initialFocus
+        className="p-3 pointer-events-auto"
+      />
+    </PopoverContent>
+  </Popover>
+)}
+
       </div>
 
       {/* Admin-only filters */}
@@ -124,7 +128,7 @@ export default function TaskReportAdvancedFilters({
               <SelectContent>
                 <SelectItem value="all">All Departments</SelectItem>
                 {depsLoading ? (
-                  <SelectItem value="" disabled>Loading...</SelectItem>
+                  <SelectItem value="loading" disabled>Loading...</SelectItem>
                 ) : (
                   departments.map(dept => (
                     <SelectItem key={dept.id} value={dept.name}>{dept.name}</SelectItem>

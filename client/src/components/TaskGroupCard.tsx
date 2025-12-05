@@ -32,7 +32,7 @@ const getBorderColor = (visibility: TaskGroup["visibility"]) => {
 
 export default function TaskGroupCard({ group, onView, onDelete, canDelete, ownerName, ownerEmail }: Props) {
   const borderColorClass = getBorderColor(group.visibility);
-  
+  console.log("Task Group Data:", group);
   return (
     <div className={`rounded-lg shadow bg-white p-4 flex flex-col gap-3 border border-muted border-l-4 ${borderColorClass}`}>
       <div className="flex items-center justify-between">
@@ -48,7 +48,7 @@ export default function TaskGroupCard({ group, onView, onDelete, canDelete, owne
       </div>
       
       <div className="flex items-center gap-2">
-        <span className="font-mono text-xs text-gray-700">Tasks: <b>{group.task_count ?? 0}</b></span>
+        <span className="font-mono text-xs text-gray-700">Tasks: <b>{group.task_count}</b></span>
         {onView && (
           <Button size="sm" variant="outline" onClick={onView} className="ml-auto">
             <Eye className="h-4 w-4 mr-1" /> View Details

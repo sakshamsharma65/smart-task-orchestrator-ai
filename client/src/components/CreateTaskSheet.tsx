@@ -26,6 +26,7 @@ import { queryClient } from "@/lib/queryClient";
 type User = { id: string; email: string; user_name: string | null; manager: string | null };
 type Role = { name: string };
 
+
 // HELPER: fetch roles for a given user id from API
 async function fetchUserRolesFromSupabase(userId: string): Promise<string[]> {
   try {
@@ -95,6 +96,11 @@ const CreateTaskSheet: React.FC<Props> = ({ onTaskCreated, children, defaultAssi
   const { statuses, loading: statusLoading } = useTaskStatuses();
   const [taskGroups, setTaskGroups] = useState<TaskGroup[]>([]);
   const [selectedTaskGroup, setSelectedTaskGroup] = useState<string>("");
+  const [teams, setTeams] = useState<any[]>([]);
+  const [selectedTeam, setSelectedTeam] = useState("");
+  const [teamMembers, setTeamMembers] = useState<any[]>([]);
+
+  
 
   // Add these lines for dependency selection and inline search:
   const [selectedDependencyTask, setSelectedDependencyTask] = useState<Task | null>(null);
@@ -102,6 +108,42 @@ const CreateTaskSheet: React.FC<Props> = ({ onTaskCreated, children, defaultAssi
 
   // Get user role: use fetched roles, fallback to email only if missing
   const [userRole, setUserRole] = useState<string>("user");
+useEffect(() => {
+  if (open) {
+    resetForm();
+  }
+
+  if (user?.id) {
+    fetchUserRolesFromSupabase(user.id).then(setUserRoles);
+  }
+
+  // Fetch tasks
+  fetchTasks().then(setTasks);
+
+  // Fetch teams
+  apiClient
+    .getTeams()
+    .then((t) => {
+      console.log("Teams:", t);
+      setTeams(t);
+    })
+    .catch((err) => console.error("Failed to fetch teams:", err));
+
+}, [open, user?.id]);
+
+useEffect(() => {
+  if (!selectedTeam) {
+    setTeamMembers([]);
+    return;
+  }
+ 
+  apiClient.getTeamMembers(selectedTeam).then((members) => {
+    console.log("Team Members:", members);
+    setTeamMembers(members);
+  }).catch((err) => console.error("Failed to fetch team members:", err));
+
+}, [selectedTeam]);
+
 
   // On open: fetch users and user roles afresh
   useEffect(() => {
@@ -128,6 +170,7 @@ const CreateTaskSheet: React.FC<Props> = ({ onTaskCreated, children, defaultAssi
           console.log("[DEBUG] Default status set:", defaultStatus.name);
         }
       })
+      
       .catch(err => console.error("Failed to fetch default status:", err));
   }, [open, user?.id]);
 
@@ -152,33 +195,47 @@ const CreateTaskSheet: React.FC<Props> = ({ onTaskCreated, children, defaultAssi
       setForm((f) => ({ ...f, assigned_to: "" }));
     }
   }, [form.type, open, user?.id]);
+  
+
 
   // Core: Compute assignable users for create view, with debug logs
-  function getAssignableUsersForCreate() {
-    if (!user) return [];
-    let list: User[] = [];
-    if (form.type === "personal" && user?.id) {
-      list = users.filter((u) => u.id === user.id);
-    } else if (form.type === "team") {
-      if (userRole === "admin") {
-        list = users;
-      } else if (userRole === "manager") {
-        // Managers: users who report to me ("manager" field matches my user_name, cannot assign to self)
-        list = users.filter(
-          (u) => u.manager === user.user_name && u.id !== user.id
-        );
-      } else if (userRole === "user") {
-        // Users: only assign to their manager (who's user_name matches in users list)
-        const myManagerName = user.user_metadata?.manager || null;
-        const myManager = users.find(
-          (u) => u.user_name === myManagerName
-        );
-        list = myManager ? [myManager] : [];
-      }
-    }
-    console.log("[DEBUG] Filtering users for role:", userRole, "Got list:", list);
-    return list;
+function getAssignableUsersForCreate() {
+  if (!user) return [];
+  let list: any[] = [];
+
+  // PERSONAL MODE
+  if (form.type === "personal") {
+    return users.filter((u) => u.id === user.id);
   }
+
+  // TEAM MODE
+  if (form.type === "team") {
+    if (!selectedTeam) return [];
+
+    // Load members: this matches AdminTeams' structure
+    list = teamMembers.map((m) => m.user);
+
+    // 🔥 Role logic (matches AdminTeams)
+    if (userRole === "admin") {
+      return list; // admin sees all
+    }
+
+    if (userRole === "manager") {
+      // Manager is also part of team; show all except themselves
+      return list.filter((u) => u.id !== user.id);
+    }
+
+    if (userRole === "user") {
+      // User should only see the team manager
+      const mgr = teamMembers.find((m) => m.role_within_team === "manager");
+      return mgr ? [mgr.user] : [];
+    }
+  }
+
+  return list;
+}
+
+
 
   // Handle form changes (typed fix)
   const handleChange = (
@@ -196,7 +253,7 @@ const CreateTaskSheet: React.FC<Props> = ({ onTaskCreated, children, defaultAssi
     } else if (name === "priority") {
       setForm((f) => ({ ...f, [name]: Number(value) }));
     } else if (name === "status") {
-      if (value === "completed" && !canCompleteDependent()) {
+      if (value === "Completed" && !canCompleteDependent()) {
         return;
       }
       setForm((f) => ({ ...f, status: value }));
@@ -279,7 +336,7 @@ const CreateTaskSheet: React.FC<Props> = ({ onTaskCreated, children, defaultAssi
         created_by: myUserId,
         assigned_to: form.assigned_to ? form.assigned_to : null,
         estimated_hours: form.estimated_hours ? Number(form.estimated_hours) : null,
-        team_id: null,
+        team_id: form.type === "team" && selectedTeam ? selectedTeam : null,
         actual_completion_date: null,
         is_time_managed: form.is_time_managed || false,
         timer_state: 'stopped',
@@ -373,25 +430,45 @@ const CreateTaskSheet: React.FC<Props> = ({ onTaskCreated, children, defaultAssi
   };
 
   // Fetch eligible task groups when subtask mode is toggled or type changes
-  useEffect(() => {
-    if (!open || !form.isSubTask) return;
-    async function loadGroups() {
+// Fetch eligible task groups based on assigned user membership
+useEffect(() => {
+  if (!open || !form.isSubTask) return;
+  if (!form.assigned_to) {
+    setTaskGroups([]);
+    return;
+  }
+
+  async function loadGroups() {
+    try {
+      // 1. Get all groups (already filtered by visibility in backend)
       const groups = await fetchAssignableTaskGroups();
-      let filtered: TaskGroup[] = [];
-      if (form.type === "personal") {
-        filtered = groups.filter(g => g.visibility === "private");
-      } else if (form.type === "team") {
-        filtered = groups.filter(g => g.visibility !== "private");
-      }
+
+      // 2. Get all group→user memberships
+      const memberships = await apiClient.getTaskGroupMembers();
+
+      const assignedUserId = form.assigned_to;
+
+      // 3. Filter: only groups where assigned user is a member
+      const filtered = groups.filter(g =>
+        memberships.some(m => m.group_id === g.id && m.user_id === assignedUserId)
+      );
+
       setTaskGroups(filtered);
-      // Reset selection if invalid
-      if (filtered.every(g => g.id !== selectedTaskGroup)) {
+
+      // 4. Reset selected if no longer valid
+      if (!filtered.some(g => g.id === selectedTaskGroup)) {
         setSelectedTaskGroup("");
+        
       }
+    } catch (err) {
+      console.error("Failed loading filtered task groups:", err);
+      setTaskGroups([]);
     }
-    loadGroups();
-    // eslint-disable-next-line
-  }, [open, form.type, form.isSubTask]);
+  }
+
+  loadGroups();
+}, [open, form.isSubTask, form.assigned_to]);
+
 
   // --- (dependency validation hook) ---
   const {
@@ -591,34 +668,84 @@ const CreateTaskSheet: React.FC<Props> = ({ onTaskCreated, children, defaultAssi
             </div>
           </div>
 
-          {/* SECTION 4: ASSIGNMENT */}
-          <div className="space-y-3 sm:space-y-4">
-            <div className="bg-orange-50 p-3 sm:p-4 rounded-lg">
-              <h3 className="text-sm sm:text-base font-medium text-gray-800 mb-3 flex items-center">
-                <span className="bg-orange-100 text-orange-800 rounded-full w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center text-xs font-bold mr-2">4</span>
-                Assignment & Responsibility
-              </h3>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Assignment Type</label>
-                  <select
-                    name="type"
-                    value={form.type}
-                    onChange={handleChange}
-                    className="w-full h-12 text-base border border-gray-300 rounded-lg px-4 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    {typeOptions.map((opt) => (
-                      <option key={opt.value} value={opt.value}>{opt.label}</option>
-                    ))}
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Assigned To</label>
-                  {renderAssignedToInput()}
-                </div>
-              </div>
+     {/* SECTION 4: ASSIGNMENT */}
+<div className="space-y-3 sm:space-y-4">
+  <div className="bg-orange-50 p-3 sm:p-4 rounded-lg">
+    <h3 className="text-sm sm:text-base font-medium text-gray-800 mb-3 flex items-center">
+      <span className="bg-orange-100 text-orange-800 rounded-full w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center text-xs font-bold mr-2">4</span>
+      Assignment & Responsibility
+    </h3>
+
+    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+
+      {/* Assignment Type */}
+      <div>
+        <label className="block text-sm font-semibold text-gray-700 mb-2">Assignment Type</label>
+        <select
+          name="type"
+          value={form.type}
+          onChange={(e) => {
+            handleChange(e);
+            setSelectedTeam("");
+            setForm((f) => ({ ...f, assigned_to: "" }));
+          }}
+          className="w-full h-12 text-base border rounded-lg px-4"
+        >
+          {typeOptions.map((opt) => (
+            <option key={opt.value} value={opt.value}>{opt.label}</option>
+          ))}
+        </select>
+      </div>
+
+      {/* Team dropdown (only if type = team) */}
+      {form.type === "team" && (
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">Select Team *</label>
+          <select
+            value={selectedTeam}
+            onChange={(e) => {
+              setSelectedTeam(e.target.value);
+              setForm((f) => ({ ...f, assigned_to: "" }));
+            }}
+            className="w-full h-12 text-base border rounded-lg px-4"
+          >
+            <option value="">Select Team</option>
+            {teams.map((t) => (
+              <option key={t.id} value={t.id}>{t.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {/* Assigned To — appears only when team is selected */}
+      {(form.type !== "team" || selectedTeam) && (
+        <div>
+          <label className="block text-sm font-semibold text-gray-700 mb-2">Assigned To</label>
+
+          {/* If type=team but NO selected team → show disabled message */}
+          {form.type === "team" && !selectedTeam ? (
+            <div
+              className="w-full h-12 border rounded-lg bg-gray-200 text-gray-500 flex items-center justify-center cursor-not-allowed"
+              onClick={() =>
+                toast({
+                  title: "Select team first",
+                  description: "Please select a team before choosing a user.",
+                  variant: "destructive",
+                })
+              }
+            >
+              Select Team First
             </div>
-          </div>
+          ) : (
+            renderAssignedToInput()
+          )}
+        </div>
+      )}
+
+    </div>
+  </div>
+</div>
+
           {/* SECTION 5: ADVANCED OPTIONS */}
           <div className="space-y-3 sm:space-y-4">
             <div className="bg-gray-50 p-3 sm:p-4 rounded-lg border-2 border-dashed border-gray-300">
@@ -645,28 +772,42 @@ const CreateTaskSheet: React.FC<Props> = ({ onTaskCreated, children, defaultAssi
                   </label>
                   <p className="text-sm text-gray-500 mt-1 ml-8">This task will be grouped under a parent task collection</p>
                   
-                  {form.isSubTask && (
-                    <div className="mt-4 ml-8">
-                      <label className="block text-sm font-semibold text-gray-700 mb-2">Select Task Group</label>
-                      <select
-                        name="task_group"
-                        value={selectedTaskGroup}
-                        onChange={e => setSelectedTaskGroup(e.target.value)}
-                        className="w-full h-12 text-base border border-gray-300 rounded-lg px-4 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                        required={form.isSubTask}
-                        disabled={taskGroups.length === 0}
-                      >
-                        <option value="">
-                          {form.type === "personal"
-                            ? "Select Private Task Group"
-                            : "Select Team Task Group"}
-                        </option>
-                        {taskGroups.map((g) => (
-                          <option key={g.id} value={g.id}>{g.name} ({g.visibility})</option>
-                        ))}
-                      </select>
-                    </div>
-                  )}
+                {form.isSubTask && (
+  <div className="mt-4 ml-8">
+    <label className="block text-sm font-semibold text-gray-700 mb-2">
+      Select Task Group
+    </label>
+
+    {/* If user has no groups */}
+    {taskGroups.length === 0 ? (
+      <div className="p-3 border border-red-300 bg-red-50 text-red-700 rounded-lg text-sm">
+        ⚠️ No task groups associated with this user.
+        <br />
+        Please create a group or assign user to an existing one.
+      </div>
+    ) : (
+      <select
+        name="task_group"
+        value={selectedTaskGroup}
+        onChange={(e) => setSelectedTaskGroup(e.target.value)}
+        className="w-full h-12 text-base border border-gray-300 rounded-lg px-4 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+        required={form.isSubTask}
+      >
+        <option value="">
+          {form.type === "personal"
+            ? "Select Task Group"
+            : "Select Team Task Group"}
+        </option>
+        {taskGroups.map((g) => (
+          <option key={g.id} value={g.id}>
+            {g.name} ({g.visibility})
+          </option>
+        ))}
+      </select>
+    )}
+  </div>
+)}
+
                 </div>
 
                 {/* Dependency Option */}
@@ -721,7 +862,7 @@ const CreateTaskSheet: React.FC<Props> = ({ onTaskCreated, children, defaultAssi
                               const statusColors = { 
                                 'pending': 'text-gray-600 bg-gray-100',
                                 'in_progress': 'text-blue-600 bg-blue-100', 
-                                'completed': 'text-green-600 bg-green-100',
+                                'Completed': 'text-green-600 bg-green-100',
                                 'backlog': 'text-purple-600 bg-purple-100'
                               };
                               
@@ -813,7 +954,7 @@ const CreateTaskSheet: React.FC<Props> = ({ onTaskCreated, children, defaultAssi
                         </div>
                       )}
                       
-                      {form.status === "completed" && !canCompleteDependent() && (
+                      {form.status === "Completed" && !canCompleteDependent() && (
                         <div className="p-3 bg-red-50 border border-red-200 rounded-lg">
                           <div className="text-sm text-red-800 flex items-center">
                             <span className="mr-2">⚠️</span>

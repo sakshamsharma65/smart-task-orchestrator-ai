@@ -11,23 +11,37 @@ interface EditTaskStatusSelectProps {
 
 export function EditTaskStatusSelect({ currentStatus, onStatusChange, disabled }: EditTaskStatusSelectProps) {
   const { getAllowedNextStatuses, isTransitionAllowed } = useStatusTransitionValidation();
+  console.log("Transitions check →");
+  
+
   
   // Ensure we have a valid current status
-  const validCurrentStatus = currentStatus || "New";
+  const validCurrentStatus = currentStatus || "To Do";
+  console.log(" Saksham Valid current status:", validCurrentStatus);
   
   const allowedStatuses = getAllowedNextStatuses(validCurrentStatus);
-  
+  console.log("Current:", validCurrentStatus);
+  console.log("Allowed next:", allowedStatuses);
   // Include current status and allowed next statuses, filter out empty values
   const availableStatuses = [validCurrentStatus, ...allowedStatuses].filter(status => status && status.trim().length > 0);
   
   const handleStatusChange = (newStatus: string) => {
+   // Ignore empty/invalid selections which may occur when the select updates
+   if (!newStatus || !newStatus.toString().trim()) {
+     console.warn("EditTaskStatusSelect: received empty status change, ignoring.");
+     return;
+   }
+   console.log(" Saksham Requested status change to:", newStatus);
     if (newStatus === validCurrentStatus) {
       // No change needed
       return;
     }
     
     if (!isTransitionAllowed(validCurrentStatus, newStatus)) {
+      console.log("saksham",validCurrentStatus,newStatus);
       toast({ 
+          
+          
         title: "Invalid Status Transition", 
         description: `Cannot move from "${validCurrentStatus}" to "${newStatus}". This transition is not allowed in the configured workflow.`,
         variant: "destructive"

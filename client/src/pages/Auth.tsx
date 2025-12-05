@@ -7,6 +7,7 @@ import { toast } from "@/components/ui/use-toast";
 import { useNavigate } from "react-router-dom";
 import { ClipboardList, Users2, ShieldCheck } from "lucide-react";
 import Logo from "@/components/Logo";
+import { FaEye, FaEyeSlash } from "react-icons/fa";
 import SuperAdminRegistration from "@/components/SuperAdminRegistration";
 
 const AuthPage: React.FC = () => {
@@ -16,13 +17,13 @@ const AuthPage: React.FC = () => {
   const [checkingSystem, setCheckingSystem] = useState(true);
   const navigate = useNavigate();
   const { user, login, loading, checkSystemStatus } = useAuth();
-
-  useEffect(() => {
-    if (user) {
-      // If user is already logged in, redirect to home (which will handle role-based routing)
-      navigate("/", { replace: true });
-    }
-  }, [user, navigate]);
+  const [showPassword, setShowPassword] = useState(false);
+  // useEffect(() => {
+  //   if (user) {
+  //     // If user is already logged in, redirect to home (which will handle role-based routing)
+  //     navigate("/", { replace: true });
+  //   }
+  // }, [user, navigate]);
 
   useEffect(() => {
     // Check if system has any users
@@ -53,15 +54,27 @@ const AuthPage: React.FC = () => {
     try {
       await login(form.email, form.password);
       toast({ title: "Login successful!" });
+      navigate("/admin/dashboard", { replace: true });
+
       // Navigation will happen automatically via useEffect when user state changes
-    } catch (error: any) {
-      setError(error.message || "Login failed");
-      toast({ 
-        title: "Login failed", 
-        description: error.message || "Please check your credentials",
-        variant: "destructive"
-      });
-    }
+    } 
+    catch (error: any) {
+  if (error.status === 403 && error.message.toLowerCase().includes("deactivated")) {
+    toast({
+      title: "Account Deactivated",
+      description: "Your account is deactivated. Please contact your admin.",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  toast({
+    title: "Login Failed",
+    description: error.message || "Invalid email or password",
+    variant: "destructive",
+  });
+}
+
   };
 
   // Show loading spinner while checking system status
@@ -181,10 +194,11 @@ const AuthPage: React.FC = () => {
                         disabled={loading}
                         className="w-full h-12 bg-white/10 border-white/20 text-white placeholder:text-slate-300 focus:border-blue-400 focus:ring-blue-400/20 rounded-xl"
                       />
+                      
                     </div>
                     <div className="relative">
                       <Input
-                        type="password"
+                         type={showPassword ? "text" : "password"}
                         name="password"
                         placeholder="Enter your password"
                         required
@@ -194,6 +208,13 @@ const AuthPage: React.FC = () => {
                         disabled={loading}
                         className="w-full h-12 bg-white/10 border-white/20 text-white placeholder:text-slate-300 focus:border-blue-400 focus:ring-blue-400/20 rounded-xl"
                       />
+                      <button
+                         type="button"
+    onClick={() => setShowPassword(!showPassword)}
+    className="absolute inset-y-0 right-3 flex items-center text-white/70 hover:text-white"
+  >
+    {showPassword ? <FaEye size={20}  color="black"/> : <FaEyeSlash size={20} color="black" />}
+  </button>
                     </div>
                   </div>
 
@@ -217,6 +238,17 @@ const AuthPage: React.FC = () => {
                       "Sign In"
                     )}
                   </Button>
+                   <div className="text-center mt-1 ">
+                      <button
+                     type="button"
+                     onClick={() => navigate("/forgot-password")} // or setModalOpen(true)
+                     className="text-sm text-white hover:text-blue-800 hover:underline transition-colors duration-200"
+                              >
+                            Forgot Password?
+                               </button>
+                       </div>
+
+                  
 
                   {/* Demo login instruction */}
                   <div className="text-center">

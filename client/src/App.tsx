@@ -17,7 +17,7 @@ import TasksPage from "./pages/Tasks";
 import MyTasksPage from "./pages/MyTasks";
 import HistoricalTasks from "./pages/HistoricalTasks";
 import AdminDashboard from "./pages/AdminDashboardSimple";
-import TaskReport from "@/pages/TaskReportSimple";
+import TaskReport from "@/pages/TaskReportSimple";TasksPage
 import AnalyticsReport from "@/pages/AnalyticsReportSimple";
 import TaskOverdueReport from "@/pages/TaskOverdueReportAdvanced";
 import TaskGroupsPage from "./pages/TaskGroups";
@@ -28,6 +28,11 @@ import { RoleProvider } from "@/contexts/RoleProvider";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { queryClient } from "@/lib/queryClient";
 import HelpPage from "@/pages/HelpPage";
+import ForgotPassword from "@/pages/ForgotPassword";
+import VerifyOtp from "@/pages/VerifyOtp";
+import ResetPassword from "@/pages/ResetPassword";
+import ForgotPasswordFlow from "@/pages/ForgotPasswordFlow";
+
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -38,7 +43,7 @@ const App = () => (
         <RoleProvider>
           <BrowserRouter>
             <Routes>
-              <Route path="/" element={<Index />} />
+              <Route path="/" element={<AuthPage />} />
               <Route path="/auth" element={<AuthPage />} />
             <Route
               path="/admin/users"
@@ -189,6 +194,18 @@ const App = () => (
                 </AdminLayout>
               }
             />
+             <Route
+              path="/forgot-password"
+              element={<ForgotPasswordFlow />}
+              />
+            <Route
+              path="/verify-otp"
+              element={ 
+                <VerifyOtp email="" onVerified={(token: string) => { /* handle OTP verified, e.g., show a message or redirect */ }} />
+              }
+            />
+              
+              
             {/* Help page route */}
             <Route
               path="/help"
