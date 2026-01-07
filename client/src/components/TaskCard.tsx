@@ -11,6 +11,8 @@ import { formatOrgDate } from "@/lib/dateUtils";
 import { useUserNames } from "@/hooks/useUserName";
 import { useStatusTransitionValidation } from "@/hooks/useStatusTransitionValidation";
 import TaskTimer from "./TaskTimer";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
+import { useUserDisplayNames } from "@/hooks/useUserDisplayNames";
 
 // Utility to convert hex to RGB for lighter colors
 const hexToRgb = (hex: string) => {
@@ -135,6 +137,8 @@ function handleDeleteTask(id: string) {
 
   // Check if task is Completed for blue left border
   const isCompleted = task.status === "Completed";
+  const { canEditTask, canDeleteTask,canEditMy_Tasks} = useRolePermissions();
+  const { usersMap } = useUserDisplayNames();
 
   return (
     <Card 
@@ -145,21 +149,21 @@ function handleDeleteTask(id: string) {
       <div className="absolute left-1/2 top-2 -translate-x-1/2 z-10 flex gap-2 sm:gap-4 opacity-0 group-hover:opacity-100 transition-all">
         {/* Edit icon always present */}
         <EditTaskSheet task={task} onUpdated={onTaskUpdated} >
-          <Button  disabled={isCompleted} size="icon" variant="ghost" className="text-gray-700 hover:text-blue-900 h-8 w-8 sm:h-10 sm:w-10" title="Edit Task">
+          {(canEditMy_Tasks || canEditTask) && (<Button  disabled={isCompleted} size="icon" variant="ghost" className="text-gray-700 hover:text-blue-900 h-8 w-8 sm:h-10 sm:w-10" title="Edit Task">
             <Edit size={16} className="sm:w-5 sm:h-5" />
-          </Button>
+          </Button>)}
         </EditTaskSheet>
         {/* Delete icon */}
-        <Button
+       {canDeleteTask && <Button
           size="icon"
           variant="ghost"
           className={`text-gray-400 h-8 w-8 sm:h-10 sm:w-10 ${canDelete(task.status) ? "hover:text-red-900" : "opacity-60 cursor-not-allowed"}`}
           title={canDelete(task.status) ? "Delete Task" : "Cannot delete tasks with this status"}
           onClick={() => canDelete(task.status) && handleDeleteTask(task.id)}
-          disabled={!canDelete(task.status)}
+          disabled={!canDelete(task.status)|| isCompleted}
         >
           <Trash2 size={16} className="sm:w-5 sm:h-5" />
-        </Button>
+        </Button>}
         {/* Mark complete */}
         <Button
           size="icon"
@@ -255,12 +259,14 @@ function handleDeleteTask(id: string) {
             {task.created_at ? formatOrgDate(task.created_at) : "-"}
           </div>
           <div>
-            <span className="font-semibold">Assigned To:</span>{" "}
-            {task.assigned_user
-              ? task.assigned_user.user_name || task.assigned_user.email
-              : task.assigned_to
-              ? getUserName(task.assigned_to)
-              : "-"}
+          
+<span className="font-semibold">Assigned To:</span>{" "}
+{task.assigned_user
+  ? (task.assigned_user.user_name || task.assigned_user.email)
+  : task.assigned_to
+  ? (usersMap[task.assigned_to] || "Unknown User")
+  : "-"}
+
           </div>
           {task.status === "Completed" && task.actual_completion_date && (
             <div>

@@ -54,7 +54,7 @@ export default function TaskFiltersSidebar({
 
   function handlePresetChange(range: { from: Date | null; to: Date | null }, p: string) {
     setPreset(p);
-    if (p === "custom") return; // allow picker
+    
     onDateRangeChange(range);
   }
 

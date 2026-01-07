@@ -44,7 +44,7 @@ export async function createTaskGroup(
   const groupData = {
     ...input,
     visibility: parseVisibility(input.visibility as string),
-    owner_id: '12345678-1234-5678-9012-123456789012', // Mock user ID
+    owner_id: getCurrentUserId(), // Mock user ID
   };
   return await apiClient.createTaskGroup(groupData);
 }

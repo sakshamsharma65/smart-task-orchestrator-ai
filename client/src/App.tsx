@@ -32,6 +32,7 @@ import ForgotPassword from "@/pages/ForgotPassword";
 import VerifyOtp from "@/pages/VerifyOtp";
 import ResetPassword from "@/pages/ResetPassword";
 import ForgotPasswordFlow from "@/pages/ForgotPasswordFlow";
+import ActivityLogPage from "@/pages/ActivityLogPage";
 
 
 const App = () => (
@@ -53,6 +54,11 @@ const App = () => (
                 </AdminLayout>
               }
             />
+            <Route path="/activity-log" element={
+               <AdminLayout>
+              <ActivityLogPage /></AdminLayout>
+              } />
+
             <Route
               path="/admin/teams"
               element={

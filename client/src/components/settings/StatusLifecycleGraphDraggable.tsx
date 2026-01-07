@@ -327,49 +327,118 @@ const deleteTransition = async (transitionId: string) => {
           </defs>
 
           {/* Render transitions */}
-          {transitions.map((tr, i) => {
-            const fromPos = statusPositions.get(tr.from_status);
-            const toPos = statusPositions.get(tr.to_status);
-            if (!fromPos || !toPos) return null;
-            
-            const startX = fromPos.x + nodeRadius;
-            const endX = toPos.x - nodeRadius;
-            const startY = fromPos.y;
-            const endY = toPos.y;
-            
-            const midX = (startX + endX) / 2;
-            const midY = (startY + endY) / 2;
-            
-            return (
-              <g key={tr.id}>
-                <path
-                  d={`M ${startX} ${startY} L ${endX} ${endY}`}
-                  stroke="#4b5563"
-                  strokeWidth="2"
-                  fill="none"
-                  markerEnd="url(#arrowhead)"
-                  opacity="0.8"
-                />
-                
-                <foreignObject 
-                  x={midX - 12} 
-                  y={midY - 12} 
-                  width="24" 
-                  height="24"
-                >
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="!w-6 !h-6 !p-0 text-xs bg-red-50 hover:bg-red-100 text-red-600 rounded-full border border-red-200"
-                    onClick={() => deleteTransition(tr.id)}
-                    title="Remove transition"
-                  >
-                    ✕
-                  </Button>
-                </foreignObject>
-              </g>
-            );
-          })}
+      {/* Render transitions */}
+{transitions.map((tr) => {
+  const fromPos = statusPositions.get(tr.from_status);
+  const toPos = statusPositions.get(tr.to_status);
+  
+  if (!fromPos || !toPos) return null;
+
+  // Check if there is a reverse transition (Bidirectional)
+  const isBidirectional = transitions.some(
+    (t) => t.from_status === tr.to_status && t.to_status === tr.from_status
+  );
+
+  let pathD = "";
+  let labelX = 0;
+  let labelY = 0;
+  
+  // Basic vector math
+  const dx = toPos.x - fromPos.x;
+  const dy = toPos.y - fromPos.y;
+  
+  if (isBidirectional) {
+    // === CURVED LINE LOGIC ===
+    
+    // Calculate the midpoint between the two nodes
+    const midX = (fromPos.x + toPos.x) / 2;
+    const midY = (fromPos.y + toPos.y) / 2;
+
+    // Calculate a normal vector (perpendicular to the line)
+    // We normalize it and multiply by a curvature factor (e.g., 50px)
+    const distance = Math.sqrt(dx * dx + dy * dy);
+    const curvature = 60; // How "bent" the curve is
+    
+    // Normal vector logic: (-dy, dx) gives a perpendicular vector
+    const offsetX = (-dy / distance) * curvature;
+    const offsetY = (dx / distance) * curvature;
+
+    // The Control Point for the Bezier Curve
+    const cpX = midX + offsetX;
+    const cpY = midY + offsetY;
+
+    // Recalculate start/end points on the circle circumference 
+    // based on the angle to the CONTROL POINT, not the destination node.
+    // This makes the arrow come out of the circle cleanly.
+    const angleFrom = Math.atan2(cpY - fromPos.y, cpX - fromPos.x);
+    const angleTo = Math.atan2(cpY - toPos.y, cpX - toPos.x);
+
+    const startX = fromPos.x + Math.cos(angleFrom) * nodeRadius;
+    const startY = fromPos.y + Math.sin(angleFrom) * nodeRadius;
+    
+    const endX = toPos.x + Math.cos(angleTo) * nodeRadius;
+    const endY = toPos.y + Math.sin(angleTo) * nodeRadius;
+
+    // Quadratic Bezier Curve (M = Move, Q = Quadratic Curve to endpoint using control point)
+    pathD = `M ${startX} ${startY} Q ${cpX} ${cpY} ${endX} ${endY}`;
+    
+    // Position the X button near the peak of the curve (approx at t=0.5)
+    // Bezier formula for t=0.5 simplifies to: 0.25*P0 + 0.5*P1 + 0.25*P2
+    // But geometrically, it's roughly the midpoint between the chord mid and the control point
+    labelX = (midX + cpX) / 2;
+    labelY = (midY + cpY) / 2;
+
+  } else {
+    // === STRAIGHT LINE LOGIC (Existing) ===
+    
+    // Calculate angle directly to the target
+    const angle = Math.atan2(dy, dx);
+    
+    const startX = fromPos.x + Math.cos(angle) * nodeRadius;
+    const startY = fromPos.y + Math.sin(angle) * nodeRadius;
+    
+    const endX = toPos.x - Math.cos(angle) * nodeRadius;
+    const endY = toPos.y - Math.sin(angle) * nodeRadius;
+
+    pathD = `M ${startX} ${startY} L ${endX} ${endY}`;
+    
+    labelX = (startX + endX) / 2;
+    labelY = (startY + endY) / 2;
+  }
+
+  return (
+    <g key={tr.id}>
+      <path
+        d={pathD}
+        stroke="#4b5563"
+        strokeWidth="2"
+        fill="none"
+        markerEnd="url(#arrowhead)"
+        opacity="0.8"
+      />
+      
+      <foreignObject 
+        x={labelX - 12} 
+        y={labelY - 12} 
+        width="24" 
+        height="24"
+      >
+        <Button
+          variant="ghost"
+          size="sm"
+          className="!w-6 !h-6 !p-0 text-xs bg-red-50 hover:bg-red-100 text-red-600 rounded-full border border-red-200 shadow-sm"
+          onClick={(e) => {
+            e.stopPropagation(); // Prevent drag start when clicking delete
+            deleteTransition(tr.id);
+          }}
+          title="Remove transition"
+        >
+          ✕
+        </Button>
+      </foreignObject>
+    </g>
+  );
+})}
           
           {/* Render status nodes */}
           {Array.from(statusPositions.entries()).map(([statusName, pos]) => {

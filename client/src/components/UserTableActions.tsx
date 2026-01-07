@@ -113,7 +113,7 @@ const UserTableActions: React.FC<UserTableActionsProps> = ({ user, onEdit, onRef
     onSuccess: (result) => {
       toast({
         title: "User deleted",
-        description: `${user.user_name || user.email} and ${result.deletedTasksCount} associated tasks have been moved to the deleted users repository.`,
+        description: `${user.user_name || user.email} and ${result.deletedTasksCount.length} associated tasks have been moved to the deleted users repository.`,
       });
       onRefresh?.();
       setDeleteDialogOpen(false);

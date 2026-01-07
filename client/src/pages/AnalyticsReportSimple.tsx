@@ -44,7 +44,7 @@ export default function AnalyticsReport() {
 
   function handlePresetChange(range: { from: Date | null; to: Date | null }, p: string) {
     setPreset(p);
-    if (p === "custom") return;
+   
     setDateRange(range);
   }
 

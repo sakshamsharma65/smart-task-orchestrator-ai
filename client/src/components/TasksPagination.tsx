@@ -1,12 +1,11 @@
 
 import React from "react";
-import {
-  Pagination,
+import { Pagination,
   PaginationContent,
   PaginationItem,
   PaginationLink,
   PaginationPrevious,
-  PaginationNext,
+  PaginationNext
 } from "@/components/ui/pagination";
 
 type TasksPaginationProps = {

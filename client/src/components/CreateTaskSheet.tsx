@@ -64,7 +64,7 @@ const initialForm = {
   start_date: "",
   due_date: "",
   priority: 2,
-  status: "", // Will be set to default status from API
+  status: "To Do", // Will be set to default status from API
   type: "personal",
   estimated_hours: "",
   assigned_to: "",
@@ -108,6 +108,18 @@ const CreateTaskSheet: React.FC<Props> = ({ onTaskCreated, children, defaultAssi
 
   // Get user role: use fetched roles, fallback to email only if missing
   const [userRole, setUserRole] = useState<string>("user");
+  useEffect(() => {
+  if (open) {
+    resetForm();
+
+    // Force default status
+    setForm(f => ({ 
+      ...f,
+      status: "To Do"
+    }));
+  }
+}, [open]);
+
 useEffect(() => {
   if (open) {
     resetForm();
@@ -159,20 +171,20 @@ useEffect(() => {
       console.log("[DEBUG] Current user roles:", roles);
     });
     // Fetch tasks for subtasks/dependencies
-    fetchTasks().then(setTasks);
+    fetchTasks().then(setTasks)}, [open, user?.id]);
     
     // Fetch default status and set it in form
-    fetch("/api/task-statuses/default")
-      .then(res => res.json())
-      .then(defaultStatus => {
-        if (defaultStatus && defaultStatus.name) {
-          setForm(f => ({ ...f, status: defaultStatus.name }));
-          console.log("[DEBUG] Default status set:", defaultStatus.name);
-        }
-      })
+  //   fetch("/api/task-statuses/default")
+  //     .then(res => res.json())
+  //     .then(defaultStatus => {
+  //       if (defaultStatus && defaultStatus.name) {
+  //         setForm(f => ({ ...f, status: defaultStatus.name }));
+  //         console.log("[DEBUG] Default status set:", defaultStatus.name);
+  //       }
+  //     })
       
-      .catch(err => console.error("Failed to fetch default status:", err));
-  }, [open, user?.id]);
+  //     .catch(err => console.error("Failed to fetch default status:", err));
+  // }, [open, user?.id]);
 
   // Get user role & update state on mount
   useEffect(() => {
@@ -287,9 +299,21 @@ function getAssignableUsersForCreate() {
       setForm((f) => ({ ...f, [name]: value }));
     }
   };
+ 
+    
+  
 
   // In handleSubmit: assign to group if set and not empty
   const handleSubmit = async (e: React.FormEvent) => {
+
+    if(form.type === "team" && !form.assigned_to){
+      toast({
+        title: "Assigned To Required",
+        description: "Please select a user to assign the task to.",
+        variant: "destructive",
+      });return;
+      
+    }
     e.preventDefault();
     if (isDueDateBeforeStartDate()) {
       toast({
@@ -419,9 +443,9 @@ function getAssignableUsersForCreate() {
         className="w-full border rounded p-2 bg-white z-50"
         required={form.type === "team"}
       >
-        <option value="">Select a user</option>
+        <option value="" >Select a user</option>
         {assignableUsers.map((u) => (
-          <option key={u.id} value={u.id}>
+          <option key={u.id} value={u.id} >
             {u.user_name ?? u.email}
           </option>
         ))}
@@ -567,21 +591,15 @@ useEffect(() => {
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">Initial Status *</label>
-                  <select
-                    name="status"
-                    value={form.status}
-                    onChange={handleChange}
-                    className="w-full h-12 text-base border border-gray-300 rounded-lg px-4 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                    disabled={statusLoading || statuses.length === 0}
-                    required
-                  >
-                    {statusLoading && (
-                      <option value="">Loading statuses...</option>
-                    )}
-                    {statuses.map((opt) => (
-                      <option key={opt.id} value={opt.name}>{opt.name}</option>
-                    ))}
-                  </select>
+           <select
+            name="status"
+               value="To Do"
+                    disabled
+                className="w-full h-12 text-base border border-gray-300 rounded-lg px-4 bg-gray-100 cursor-not-allowed"
+>
+  <option value="To Do">To Do</option>
+            </select>
+
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">Estimated Hours <span className="text-red-500">*</span></label>
@@ -720,9 +738,9 @@ useEffect(() => {
       {/* Assigned To — appears only when team is selected */}
       {(form.type !== "team" || selectedTeam) && (
         <div>
-          <label className="block text-sm font-semibold text-gray-700 mb-2">Assigned To</label>
+          <label className="block text-sm font-semibold text-gray-700 mb-2 required">Assigned To</label>
 
-          {/* If type=team but NO selected team → show disabled message */}
+          {/* If type=team but NO selected team → show disabled message */}                   
           {form.type === "team" && !selectedTeam ? (
             <div
               className="w-full h-12 border rounded-lg bg-gray-200 text-gray-500 flex items-center justify-center cursor-not-allowed"
@@ -1006,6 +1024,6 @@ useEffect(() => {
       </SheetContent>
     </Sheet>
   );
-};
+  };
 
 export default CreateTaskSheet;

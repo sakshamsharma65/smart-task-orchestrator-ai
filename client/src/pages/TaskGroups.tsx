@@ -14,6 +14,7 @@ import { useUserList } from "@/hooks/useUserList";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 import DateRangePresetSelector from "@/components/DateRangePresetSelector";
 import { useRole } from "@/contexts/RoleProvider";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
 
 function defaultDateRange() {
    const now = new Date();
@@ -52,6 +53,7 @@ export default function  TaskGroupsPage() {
   const [preset, setPreset] = useState<string>("This Month");
   const [visibilityFilter, setVisibilityFilter] = useState<string>("all");
   const [createdByFilter, setCreatedByFilter] = useState<string>("all");
+  const { canCreatetask_Groups,canEdittask_Groups,canDeletetask_Groups } = useRolePermissions();
   
   const { user } = useSupabaseSession();
   const { users } = useUserList();
@@ -136,7 +138,7 @@ async function refetchDetails() {
 
   function handlePresetChange(range: { from: Date | null; to: Date | null }, p: string) {
     setPreset(p);
-    if (p === "custom") ;
+ 
     setDateRange(range);
   }
 
@@ -182,8 +184,8 @@ async function refetchDetails() {
             <Filter size={16} />
             Filters
           </Button>
-{highestRole !== "user" && (
-  <Button onClick={() => setCreateOpen(v => !v)}>
+{canCreatetask_Groups && highestRole !== "user" && (
+ <Button onClick={() => setCreateOpen(v => !v)}>
     {createOpen ? "Cancel" : "Create Task Group"}
   </Button>
 )}

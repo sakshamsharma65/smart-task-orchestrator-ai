@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
@@ -92,6 +93,7 @@ export default function RolePermissions() {
   const [newRoleDescription, setNewRoleDescription] = useState("");
   const [newRoleVisibilityScope, setNewRoleVisibilityScope] = useState("user");
   const { toast } = useToast();
+  const queryClient = useQueryClient();
 
   useEffect(() => {
     loadRoles();
@@ -103,7 +105,8 @@ export default function RolePermissions() {
     }
   }, [selectedRole]);
 
-  const loadRoles = async () => {
+
+   const loadRoles = async () => {
     try {
       const rolesData = await apiClient.getRoles();
       setRoles(rolesData);
@@ -147,11 +150,17 @@ export default function RolePermissions() {
       setNewRoleName("");
       setNewRoleDescription("");
       setNewRoleVisibilityScope("user");
-      
+      await loadRoles();
+      await loadRolePermissions(newRole.id);
+
       toast({
         title: "Role created",
         description: `Role "${newRoleName}" has been created successfully`,
       });
+      await queryClient.invalidateQueries({
+      queryKey: ["/api/role-permissions"],
+    });
+
     } catch (error) {
       toast({
         title: "Error creating role",
@@ -188,6 +197,14 @@ export default function RolePermissions() {
         title: "Permission updated",
         description: `Updated ${resourceId} permission for ${selectedRole.name}`,
       });
+      await loadRoles();
+      await loadRolePermissions(selectedRole.id);
+      await queryClient.invalidateQueries({
+        queryKey: ["/api/role-permissions"],
+      });
+
+
+
     } catch (error) {
       toast({
         title: "Error updating permission",

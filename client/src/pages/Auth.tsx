@@ -10,6 +10,7 @@ import Logo from "@/components/Logo";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
 import SuperAdminRegistration from "@/components/SuperAdminRegistration";
 
+
 const AuthPage: React.FC = () => {
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState<string | null>(null);
@@ -111,10 +112,24 @@ const AuthPage: React.FC = () => {
           <div className="hidden lg:block space-y-8 text-white">
             <div className="space-y-6">
               <div className="flex items-center space-x-3">
-                <Logo />
-                <span className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-                  TaskRep
-                </span>
+                {/* <Logo /> */}
+              <img
+  src="/tazq-logo-blue.png"
+  alt="Tazq Logo"
+  className="
+    w-32        /* mobile */
+    sm:w-40     /* ≥640px */
+    md:w-48     /* ≥768px */
+    lg:w-52     /* ≥1024px */
+    h-auto
+    
+  "
+/>
+
+
+                {/* <span className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
+                  Tazq
+                </span> */}
               </div>
               <div className="space-y-4">
                 <h1 className="text-5xl font-bold leading-tight">

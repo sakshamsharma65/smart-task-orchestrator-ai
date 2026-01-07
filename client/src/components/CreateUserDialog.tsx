@@ -12,7 +12,7 @@ import { useCurrentUser } from "@/hooks/useCurrentUser";
 import { apiCreateUser } from "@/integrations/supabase/apiCreateUser";
 import { useUserList } from "@/hooks/useUserList";
 import { useQuery } from "@tanstack/react-query";
-
+import { Toast } from "@radix-ui/react-toast";
 
 interface CreateUserDialogProps {
   onUserCreated?: () => void;
@@ -92,6 +92,41 @@ const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
     e.preventDefault();
     setLoading(true);
     setError(null);
+      const minDay = Number(values.custom_min_hours_per_day);
+  const maxDay = Number(values.custom_max_hours_per_day);
+  const minWeek = Number(values.custom_min_hours_per_week);
+  const maxWeek = Number(values.custom_max_hours_per_week);
+  const minMonth = Number(values.custom_min_hours_per_month);
+  const maxMonth = Number(values.custom_max_hours_per_month);
+   if (minDay && maxDay && minDay > maxDay) {
+    toast({
+      title: "Validation Error",
+      description: "Min hours per day cannot be greater than max hours per day.",
+      variant: "destructive",
+    });
+    setLoading(false);
+    return;
+  }
+
+  if (minWeek && maxWeek && minWeek > maxWeek) {
+    toast({
+      title: "Validation Error",
+      description: "Min hours per week cannot be greater than max hours per week.",
+      variant: "destructive",
+    });
+    setLoading(false);
+    return;
+  }
+
+  if (minMonth && maxMonth && minMonth > maxMonth) {
+    toast({
+      title: "Validation Error",
+      description: "Min hours per month cannot be greater than max hours per month.",
+      variant: "destructive",
+    });
+    setLoading(false);
+    return;
+  }
 
     try {
       const { email, password, user_name, department, phone, manager,role, 
@@ -347,6 +382,7 @@ const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
             
             {error && (<div className="text-red-600 text-sm">{error}</div>)}
           </div>
+    
           <DialogFooter>
             <Button type="submit" disabled={loading}>
               {loading ? "Creating..." : "Create"}

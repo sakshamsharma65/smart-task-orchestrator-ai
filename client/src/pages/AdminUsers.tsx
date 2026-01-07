@@ -2,7 +2,7 @@
 import React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Plus, Filter, Shield, Users, AlertCircle } from "lucide-react";
+import { Plus, Search, Shield, Users, AlertCircle } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,6 +14,9 @@ import CreateUserDialog from "@/components/CreateUserDialog";
 import useSupabaseSession from "@/hooks/useSupabaseSession";
 import { useUserRoles } from "@/hooks/useUserRoles";
 import { useQuery } from "@tanstack/react-query";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
+import { useUserDisplayNames } from "@/hooks/useUserDisplayNames";
+import { get } from "http";
 
 interface User {
   id: string;
@@ -32,9 +35,11 @@ const AdminUsers: React.FC = () => {
   const [editUser, setEditUser] = React.useState<User | null>(null);
   const [users, setUsers] = React.useState<User[]>([]);
   const [loading, setLoading] = React.useState(true);
+  const { canCreateUsers,canEditUsers } = useRolePermissions();
 
   // For checking session info and admin status
   const { user } = useSupabaseSession(); 
+  const { usersMap } = useUserDisplayNames();
 
   // Get user roles
   const userIds = users.map(user => user.id);
@@ -80,8 +85,14 @@ const AdminUsers: React.FC = () => {
     return users.filter((user) => {
       return (
         user.user_name?.toLowerCase().includes(searchTerm) ||
-        user.email?.toLowerCase().includes(searchTerm)
-      );
+        user.email?.toLowerCase().includes(searchTerm)||
+        user.department && user.department.toLowerCase().includes(searchTerm)||
+        (userRoles[user.id] && userRoles[user.id].some(ur => ur.role.name.toLowerCase().includes(searchTerm)))||
+        (user.phone && user.phone.toLowerCase().includes(searchTerm)||
+        (user.is_active !== undefined && (user.is_active ? 'active' : 'deactivated').includes(searchTerm)))||
+        (user.manager && usersMap[user.manager] && usersMap[user.manager]?.toLowerCase().includes(searchTerm))||
+        (user.id && user.id.toLowerCase().includes(searchTerm))||
+        user.manager && getManagerInfo(user.manager)?.email?.toLowerCase().includes(searchTerm));
     });
   }, [users, search]);
 
@@ -146,10 +157,10 @@ const AdminUsers: React.FC = () => {
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
         <h1 className="text-2xl font-bold">User Management</h1>
         <div className="flex gap-3 flex-wrap">
-          <Button onClick={handleCreateUser}>
+     {canCreateUsers && (<Button onClick={handleCreateUser}>
             <Plus className="w-4 h-4 mr-2" />
             Create User
-          </Button>
+          </Button>)}
         </div>
       </div>
 
@@ -232,7 +243,7 @@ const AdminUsers: React.FC = () => {
       {/* Filters */}
       <div className="flex flex-col sm:flex-row flex-wrap gap-3 mb-5 bg-muted/30 border rounded-md px-4 py-3">
         <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-muted-foreground" />
+       <Search className=" left-3  mt-4 transform -translate-y-1/2 text-gray-400" size={20} />
           <Input
             placeholder="Search users..."
             className="w-[180px]"
@@ -316,7 +327,7 @@ const AdminUsers: React.FC = () => {
                         {user.is_active ? "Active" : "Deactivated"}
                       </Badge>
                     </td>
-                    <td className="p-2 text-right">
+                 {canEditUsers &&   <td className="p-2 text-right">
                       <UserTableActions 
                         user={user} 
                         onEdit={handleEditUser} 
@@ -325,7 +336,7 @@ const AdminUsers: React.FC = () => {
                           refetchLicense();
                         }} 
                       />
-                    </td>
+                    </td>}
                   </tr>
                 );
               })

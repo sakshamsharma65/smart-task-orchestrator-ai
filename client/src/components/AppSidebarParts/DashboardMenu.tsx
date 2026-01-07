@@ -2,15 +2,17 @@
 import React from "react";
 import { useLocation, NavLink } from "react-router-dom";
 import { Home, BarChart3 } from "lucide-react";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
 
 export default function DashboardMenu({ isUserOnly, collapsed }: { isUserOnly: boolean, collapsed: boolean }) {
   const location = useLocation();
+  const { canViewDashboard } = useRolePermissions();
   return (
     <div>
       <div className="text-xs font-semibold uppercase tracking-wider mb-2 px-2 text-[#021133]">Dashboard</div>
       <div>
         <ul className="flex w-full min-w-0 flex-col gap-1">
-          <li className="group/menu-item relative">
+        {canViewDashboard &&  <li className="group/menu-item relative">
             <NavLink
               to="/admin/dashboard"
               end
@@ -20,9 +22,9 @@ export default function DashboardMenu({ isUserOnly, collapsed }: { isUserOnly: b
               }
             >
               <Home className="w-4 h-4 shrink-0" />
-              {!collapsed && <span className="truncate">Dashboard</span>}
+              { !collapsed && <span className="truncate">Dashboard</span>}
             </NavLink>
-          </li>
+          </li>}
 
         </ul>
       </div>

@@ -24,6 +24,7 @@ import { apiClient } from "@/lib/api";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 import DateRangePresetSelector from "@/components/DateRangePresetSelector";
 import ActiveTimersBar from "@/components/ActiveTimersBar";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
 
 function defaultDateRange() {
   const now = new Date();
@@ -218,6 +219,7 @@ export default function MyTasksPage() {
   const [teamFilter, setTeamFilter] = useState<string>("all");
   const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>(defaultDateRange());
   const [preset, setPreset] = useState<string>("This Month");
+  const {canCreateMy_Tasks,canEditMy_Tasks} = useRolePermissions();
   
   // Sort states
   const [sortBy, setSortBy] = useState<string>("created_at");
@@ -374,6 +376,20 @@ export default function MyTasksPage() {
     
     return sorted;
   }, [tasks, sortBy, sortOrder]);
+  const searchedTasks = useMemo(()=>{
+    if (!searchQuery.trim()) return sortedTasks;
+    const q = searchQuery.toLowerCase();
+    return sortedTasks.filter((task)=>{
+      return(
+        task.title?.toLowerCase().includes(q) ||
+        task.description?.toLowerCase().includes(q)||
+          task.status?.toLowerCase().includes(q)||
+          task.assigned_to?.toLowerCase().includes(q)
+
+
+      )
+    })
+  },[searchQuery,sortedTasks])
 
   // Grouped tasks for Kanban
   const tasksByStatus = useMemo(() => {
@@ -382,7 +398,7 @@ export default function MyTasksPage() {
       const key = getStatusKey(statusObj.name);
       columns[key] = [];
     });
-    sortedTasks.forEach((task) => {
+    searchedTasks.forEach((task) => {
       const key = getStatusKey(task.status || "new");
       if (!columns[key]) columns[key] = [];
       columns[key].push(task);
@@ -506,10 +522,10 @@ export default function MyTasksPage() {
             Kanban
           </Button>
           <CreateTaskSheet onTaskCreated={load}>
-            <Button size="sm" className="gap-2">
+         {canCreateMy_Tasks &&  <Button size="sm" className="gap-2">
               <Plus className="w-4 h-4" />
               Create Task
-            </Button>
+            </Button>}
           </CreateTaskSheet>
         </div>
       </div>
@@ -645,7 +661,7 @@ export default function MyTasksPage() {
           <div className="text-muted-foreground mb-4 text-center">Loading...</div>
         )}
 
-        {!loading && !statusesLoading && !showTooManyWarning && sortedTasks.length === 0 && (
+        {!loading && !statusesLoading && !showTooManyWarning && searchedTasks.length === 0 && (
           <div className="flex flex-col items-center justify-center mt-16">
             <div className="w-40 h-40 bg-gray-100 rounded-lg mb-4 flex items-center justify-center">
               <Search className="w-16 h-16 text-gray-400" />
@@ -655,9 +671,9 @@ export default function MyTasksPage() {
           </div>
         )}
 
-            {!loading && !statusesLoading && !showTooManyWarning && sortedTasks.length > 0 && view === "list" && (
+            {!loading && !statusesLoading && !showTooManyWarning && searchedTasks.length > 0 && view === "list" && (
               <div className="grid grid-cols-1 gap-6">
-                {sortedTasks.map((task) => {
+                {searchedTasks.map((task) => {
                   const statusObj = statuses.find(s => getStatusKey(s.name) === getStatusKey(task.status));
                   return (
                     <TaskCardClickable

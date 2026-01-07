@@ -56,7 +56,9 @@ const Topbar: React.FC<TopbarProps> = ({ sidebarOpen, setSidebarOpen }) => {
         {/* Mobile logo */}
         <div className="flex items-center gap-2 lg:hidden">
           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
-            <span className="text-white font-bold text-sm">#</span>
+            <span className="text-white font-bold text-sm">
+                <img src="/tazq-logo-blue.png" alt="Logo" style={{ width: '100px', height: '50px' }} />
+  </span>
           </div>
           <span className="text-lg font-semibold text-gray-800">
             TaskRep
@@ -72,16 +74,47 @@ const Topbar: React.FC<TopbarProps> = ({ sidebarOpen, setSidebarOpen }) => {
           </span>
         )}
         {/* Help Button */}
-        <HelpButton variant="ghost" size="sm" showText={false} />
+       <div className="relative inline-block group">
+  <HelpButton variant="ghost" size="sm" showText={false} />
+
+  <div className="
+    absolute top-full mt-2 left-1/2 -translate-x-1/2
+    whitespace-nowrap rounded bg-black px-2 py-1
+    text-xs text-white opacity-0
+    group-hover:opacity-100
+    transition
+  ">
+    Help
+  </div>
+</div>
+
         
         {canViewSettings && (
-          <button
-            aria-label="Settings"
-            onClick={() => navigate("/admin/settings")}
-            className="rounded-full p-1.5 hover:bg-accent text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary"
-          >
-            <Settings className="w-5 h-5 sm:w-6 sm:h-6" />
-          </button>
+          <div className="relative inline-block group">
+  <button
+    aria-label="Settings"
+    onClick={() => navigate("/admin/settings")}
+    className="rounded-full p-1.5 hover:bg-accent text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary hover:text-foreground"
+  >
+    <Settings className="w-5 h-5 sm:w-6 sm:h-6" />
+  </button>
+
+  <span
+    className="
+      absolute top-full mt-2 left-1/2 -translate-x-1/2
+      whitespace-nowrap
+      rounded bg-black px-2 py-1
+      text-xs text-white
+      opacity-0
+      group-hover:opacity-100
+      transition-opacity duration-200
+      pointer-events-none
+    "
+  >
+    Settings
+  </span>
+</div>
+
         )}
         <DropdownMenu>
           <DropdownMenuTrigger className="outline-none rounded-full focus:ring-2 focus:ring-primary/50">

@@ -21,8 +21,10 @@ import TasksPagination from "@/components/TasksPagination";
 import { useCurrentUserRoleAndTeams } from "@/hooks/useCurrentUserRoleAndTeams";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 import DateRangePresetSelector from "@/components/DateRangePresetSelector";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
 
 function defaultDateRange() {
+
   const now = new Date();
   return {
     from: startOfMonth(now),
@@ -77,10 +79,11 @@ const TasksPage: React.FC = () => {
   const [teamFilter, setTeamFilter] = useState("all");
   const [dateRange, setDateRange] = useState(defaultDateRange());
   const [preset, setPreset] = useState<string>("This Month");
+    const {canCreateTask} = useRolePermissions();
   
   function handlePresetChange(range: { from: Date | null; to: Date | null }, p: string) {
     setPreset(p);
-    if (p === "custom") return;
+   
     setDateRange(range);
   }
 
@@ -128,6 +131,19 @@ const TasksPage: React.FC = () => {
   });
 
   const tasks = tasksResult?.tasks || [];
+  const filteredTasks = useMemo(() => {
+  if (!searchQuery.trim()) return tasks;
+
+  const q = searchQuery.toLowerCase();
+
+  return tasks.filter((task) =>
+    task.title?.toLowerCase().includes(q) ||
+    task.status?.toLowerCase().includes(q) ||
+    task.description?.toLowerCase().includes(q) ||
+    task.assigned_to?.toLowerCase().includes(q)
+  );
+}, [tasks, searchQuery]);
+
   const totalTasks = tasksResult?.total || 0;
   const showTooManyWarning = tasksResult?.showTooManyWarning || false;
 
@@ -170,7 +186,8 @@ const TasksPage: React.FC = () => {
             <Filter size={16} />
             Filters
           </Button>
-          <CreateTaskSheet onTaskCreated={handleSearch}>
+      
+        <CreateTaskSheet onTaskCreated={handleSearch}>
             <Button size="sm" className="gap-2">
               <Plus className="w-4 h-4" />
               Create Task
@@ -297,7 +314,7 @@ const TasksPage: React.FC = () => {
           <div className="text-muted-foreground mb-4 text-center">Loading...</div>
         )}
 
-        {!loading && tasks.length === 0 && (
+        {!loading && filteredTasks.length === 0 && (
           <div className="flex flex-col items-center justify-center mt-16">
             <div className="w-40 h-40 bg-gray-100 rounded-lg mb-4 flex items-center justify-center">
               <Search className="w-16 h-16 text-gray-400" />
@@ -307,13 +324,13 @@ const TasksPage: React.FC = () => {
           </div>
         )}
 
-        {!loading && tasks.length > 0 && (
+        {!loading && filteredTasks.length > 0 && (
           <>
             <div className="mb-4 text-sm text-gray-600">
-              Showing {tasks.length} of {totalTasks} tasks
+              Showing {filteredTasks.length} of {totalTasks} tasks
             </div>
             <TasksList 
-              tasks={tasks} 
+              tasks={filteredTasks} 
               onTaskUpdated={handleSearch} 
               canDelete={canDelete} 
               statuses={statuses} 

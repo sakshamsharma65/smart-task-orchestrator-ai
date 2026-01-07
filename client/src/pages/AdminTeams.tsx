@@ -2,7 +2,7 @@ import React from "react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Table, TableHeader, TableBody, TableHead, TableRow, TableCell } from "@/components/ui/table";
-import { Filter } from "lucide-react";
+import { Filter,Search  } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { toast } from "@/components/ui/use-toast";
 import TeamManagerDialog from "@/components/TeamManagerDialog";
@@ -12,6 +12,7 @@ import { log } from "console";
 import { useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import { useQuery } from "@tanstack/react-query";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
 
 interface Team {
   id: string;
@@ -37,6 +38,7 @@ const AdminTeams: React.FC = () => {
   const [membersMap, setMembersMap] = React.useState<Record<string, string[]>>({});
   const [managersMap, setManagersMap] = React.useState<Record<string, string>>({});
   const queryClient = useQueryClient();
+  const { canCreateTeams, canEditTeams } = useRolePermissions();
   const { data: usersName } = useQuery({
     queryKey: ['/api/usersName'],
     queryFn: () => apiRequest("/api/usersName"),
@@ -103,7 +105,9 @@ const AdminTeams: React.FC = () => {
     return teams.filter(team => 
       search === "" || 
       team.name.toLowerCase().includes(search.toLowerCase()) ||
-      (team.description && team.description.toLowerCase().includes(search.toLowerCase()))
+      (team.description && team.description.toLowerCase().includes(search.toLowerCase())) ||
+      team.manager?.user_name?.toLowerCase().includes(search.toLowerCase()) ||
+      team.created_at?.toLowerCase().includes(search.toLowerCase())
     );
   }, [teams, search]);
 
@@ -170,12 +174,12 @@ const AdminTeams: React.FC = () => {
       />
       <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-6">
         <h1 className="text-2xl font-bold">Team Management</h1>
-        <Button onClick={() => setCreateDialog(true)}>Create Team</Button>
+      {canCreateTeams &&   <Button onClick={() => setCreateDialog(true)}>Create Team</Button>}
       </div>
       {/* Filters */}
       <div className="flex flex-col sm:flex-row flex-wrap gap-3 mb-5 bg-muted/30 border rounded-md px-4 py-3">
         <div className="flex items-center gap-2">
-          <Filter className="w-4 h-4 text-muted-foreground" />
+        <Search className=" left-3 mt-4 transform -translate-y-1/2 text-gray-400" size={20} />
           <Input
             placeholder="Search teams..."
             className="w-[180px]"
@@ -219,7 +223,7 @@ const AdminTeams: React.FC = () => {
                   <td className="p-2">{managersMap[team.id] || "--"}</td>
                   <td className="p-2">{getUserDisplay(team.created_by)}</td>
                   <td className="p-2 text-right">
-                    {canEditTeam(team) && (
+                    {canEditTeams && (
                       <Button variant="ghost" size="sm" onClick={() => handleEditTeam(team)}>
                         Edit
                       </Button>

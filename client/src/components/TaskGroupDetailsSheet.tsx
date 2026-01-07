@@ -53,6 +53,7 @@ import {
 } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { text } from "stream/consumers";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
 
 type Props = {
   open: boolean;
@@ -100,6 +101,7 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group, refet
       default: return AlertCircle;
     }
   };
+  const {canEdittask_Groups,canDeletetask_Groups}=useRolePermissions();
 
   const getPriorityColor = (priority: number) => {
     switch (priority) {
@@ -396,14 +398,14 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group, refet
                       <SelectItem value="manager">Manager</SelectItem>
                     </SelectContent>
                   </Select>
-                  <Button 
+               {canEdittask_Groups &&   <Button 
                     onClick={handleAddTeam}
                     disabled={!selectedTeamId}
                     size="sm"
                   >
                     <Building2 className="h-4 w-4 mr-1" />
                     Add Team
-                  </Button>
+                  </Button>}
                 </div>
 
                 {/* Individual User Selection */}
@@ -459,14 +461,14 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group, refet
                       </Command>
                     </PopoverContent>
                   </Popover>
-                  <Button 
+               {canEdittask_Groups &&   <Button 
                     onClick={handleAddMembers}
                     disabled={selectedUserIds.length === 0}
                     size="sm"
                   >
                     <UserPlus className="h-4 w-4 mr-1" />
                     Add Users
-                  </Button>
+                  </Button>}
                 </div>
 
                 {/* Selected Users Preview */}
@@ -515,14 +517,14 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group, refet
                               <RoleIcon className="h-3 w-3 mr-1" />
                               {member.role.charAt(0).toUpperCase() + member.role.slice(1)}
                             </Badge>
-                            <Button
+                         { canDeletetask_Groups &&   <Button
                               variant="ghost"
                               size="sm"
                               onClick={() => handleRemoveMember(member.user_id)}
                               className="text-red-600 hover:text-red-700 hover:bg-red-50"
                             >
                               <UserMinus className="h-4 w-4" />
-                            </Button>
+                            </Button>}
                           </div>
                         </div>
                       </CardContent>

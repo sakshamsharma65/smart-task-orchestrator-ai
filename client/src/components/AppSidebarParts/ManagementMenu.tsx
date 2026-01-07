@@ -2,17 +2,19 @@
 import React from "react";
 import { useLocation, NavLink } from "react-router-dom";
 import { Users2, Users, ShieldCheck, Archive } from "lucide-react";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
 
 export default function ManagementMenu({ isAdmin, isManager, collapsed }: { isAdmin: boolean, isManager: boolean, collapsed: boolean }) {
   const location = useLocation();
+  const {canViewUsers,canViewRolePermissions,canViewTeams} = useRolePermissions();
   if (!(isAdmin || isManager)) return null;
   return (
     <div>
       <div className="text-xs font-semibold uppercase tracking-wider mb-2 px-2 text-[#021133]">Management</div>
       <div>
         <ul className="flex w-full min-w-0 flex-col gap-1">
-          {isAdmin && (
-            <li className="group/menu-item relative">
+          
+          {canViewUsers &&  <li className="group/menu-item relative">
               <NavLink
                 to="/admin/users"
                 end
@@ -24,8 +26,8 @@ export default function ManagementMenu({ isAdmin, isManager, collapsed }: { isAd
                 <Users2 className="w-4 h-4 shrink-0" />
                 {!collapsed && <span className="truncate">User Management</span>}
               </NavLink>
-            </li>
-          )}
+            </li>}
+          
           {isAdmin && (
             <li className="group/menu-item relative">
               <NavLink
@@ -41,7 +43,7 @@ export default function ManagementMenu({ isAdmin, isManager, collapsed }: { isAd
               </NavLink>
             </li>
           )}
-          <li className="group/menu-item relative">
+     {canViewTeams &&      <li className="group/menu-item relative">
             <NavLink
               to="/admin/teams"
               end
@@ -53,8 +55,8 @@ export default function ManagementMenu({ isAdmin, isManager, collapsed }: { isAd
               <Users className="w-4 h-4 shrink-0" />
               {!collapsed && <span className="truncate">Team Management</span>}
             </NavLink>
-          </li>
-          {isAdmin && (
+          </li>}
+          {canViewRolePermissions && (
             <li className="group/menu-item relative">
               <NavLink
                 to="/admin/role-permissions"

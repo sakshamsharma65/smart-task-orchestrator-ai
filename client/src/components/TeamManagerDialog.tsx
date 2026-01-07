@@ -4,18 +4,11 @@ import { Input } from "@/components/ui/input";
 import { Button } from "@/components/ui/button";
 import { toast } from "@/components/ui/use-toast";
 import { apiClient } from "@/lib/api";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from "@/components/ui/select";
-import {
-  AlertDialog,
-  AlertDialogTrigger,
-  AlertDialogContent,
-  AlertDialogHeader,
-  AlertDialogFooter,
-  AlertDialogTitle,
-  AlertDialogDescription,
-  AlertDialogAction,
-  AlertDialogCancel
+import {AlertDialog,AlertDialogTrigger, AlertDialogContent,AlertDialogHeader,AlertDialogFooter,AlertDialogTitle,AlertDialogDescription,AlertDialogAction,AlertDialogCancel
 } from "@/components/ui/alert-dialog";
+
 
 interface User {
   id: string;
@@ -61,7 +54,7 @@ const TeamManagerDialog: React.FC<TeamManagerDialogProps> = ({
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [managerId, setManagerId] = useState<string>("");
   const [deleteOpen, setDeleteOpen] = useState(false);
-
+const {canDeleteTeams,canEditTeams} = useRolePermissions();
   // Reload manager when members change
   useEffect(() => {
     if (!open) return;
@@ -198,13 +191,19 @@ const TeamManagerDialog: React.FC<TeamManagerDialogProps> = ({
       await apiClient.removeTeamMember(teamId, userId);
     }
 
-    for (const userId of toAdd) {
-      await apiClient.addTeamMember(teamId, userId);
-    }
+ for (const userId of toAdd) {
+  const role = userId === managerId ? "manager" : "member";
+  await apiClient.addTeamMember(teamId, userId, role);
+}
 
-    // Assign manager
-    await apiClient.updateTeam(teamId, { manager_id: managerId });
-    await apiClient.addTeamMember(teamId, managerId, "manager");
+const existingManager = existing.find(m => m.role_within_team === "manager");
+
+if (!existingManager || existingManager.user_id !== managerId) {
+  await apiClient.updateTeam(teamId, { manager_id: managerId });
+  await apiClient.addTeamMember(teamId, managerId, "manager");
+}
+
+
 
     toast({ title: isEdit ? "Team updated!" : "Team created!" });
 
@@ -317,9 +316,9 @@ const TeamManagerDialog: React.FC<TeamManagerDialogProps> = ({
 
             {isEdit && (
               <AlertDialog open={deleteOpen} onOpenChange={setDeleteOpen}>
-                <AlertDialogTrigger asChild>
+              {canDeleteTeams &&  <AlertDialogTrigger asChild>
                   <Button variant="destructive">Delete Team</Button>
-                </AlertDialogTrigger>
+                </AlertDialogTrigger>}
 
                 <AlertDialogContent>
                   <AlertDialogHeader>
@@ -338,7 +337,7 @@ const TeamManagerDialog: React.FC<TeamManagerDialogProps> = ({
               </AlertDialog>
             )}
 
-            <Button
+           {canEditTeams && <Button
               type="submit"
               disabled={
                 saving ||
@@ -348,7 +347,7 @@ const TeamManagerDialog: React.FC<TeamManagerDialogProps> = ({
               }
             >
               {isEdit ? "Update" : "Create"}
-            </Button>
+            </Button>}
           </DialogFooter>
         </form>
 

@@ -8,7 +8,8 @@ import { db } from "./db";
 import bcrypt from "bcrypt";
 import { toast } from "@/hooks/use-toast";
 import { log } from "console";
-
+import { activityLog } from "@shared/schema";
+import { eq, desc } from "drizzle-orm";
 
 // Role-based access control middleware
 // Cache roles and user roles to avoid repeated database calls
@@ -16,60 +17,16 @@ let rolesCache: any[] = [];
 let rolesCacheTime = 0;
 const userRolesCache = new Map<string, { roles: string[]; time: number }>();
 const CACHE_TTL = 60000; // 1 minute 
-const PERMISSIONS = {
-  NONE: 0,
-  VIEW: 1,
-  EDIT: 2,
-  CREATE: 3,
-  DELETE: 4,
-};
+
 
  // Add this helper function in routes.ts (near requireRole)
 
-function checkPermission(resource: string, requiredLevel: number) {
-  return async (req: any, res: any, next: any) => {
-    try {
-      const userId = req.headers['x-user-id'];
-      if (!userId) {
-        return res.status(401).json({ error: "Authentication required" });
-      }
 
-      // 1. Get User's Roles
-      const userRoles = await storage.getUserRoles(userId);
 
-      // 2. Check the permission level across all roles
-      let maxPermissionLevel = 0;
 
-      for (const role of userRoles) {
-        // Fetch permissions for this role (you can cache this later if needed)
-        const permissions = await storage.getRolePermissions(role.role_id);
-        const resourcePerm = permissions.find((p: any) => p.resource === resource);
-        
-        if (resourcePerm && resourcePerm.permission_level > maxPermissionLevel) {
-          maxPermissionLevel = resourcePerm.permission_level;
-        }
-      }
+ // Add this helper function in routes.ts (near requireRole)
 
-      // 3. Admin Override (Optional: Admins usually get Level 4 automatically)
-      // If you want Admins to bypass checks:
-      // const isAdmin = userRoles.some(ur => ur.role_id === 'admin-role-id'); // simplified
-      // if (isAdmin) maxPermissionLevel = 4;
 
-      // 4. Verify Access
-      if (maxPermissionLevel >= requiredLevel) {
-        next();
-      } else {
-        res.status(403).json({ 
-          error: "Insufficient permissions",
-          details: `Required level: ${requiredLevel} for ${resource}, You have: ${maxPermissionLevel}`
-        });
-      }
-    } catch (error) {
-      console.error('Permission check error:', error);
-      res.status(500).json({ error: "Authorization failed" });
-    }
-  };
-}
 
 function requireRole(allowedRoles: string[]) {
   return async (req: any, res: any, next: any) => {
@@ -219,6 +176,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
       // Create super admin user
       const newUser = await storage.createUser({
+        
         user_name: name,
         email: email,
         password_hash: password_hash,
@@ -228,6 +186,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         is_active: true,
         benchmarking_excluded: false
       });
+      
 
       // Get admin role
       const adminRole = await storage.getAllRoles().then(roles => 
@@ -363,6 +322,87 @@ export async function registerRoutes(app: Express): Promise<Server> {
   }
 });
 
+app.put("/api/users/:id", async (req, res) => {
+  const userId = req.params.id;
+  const actingUserId = req.user?.id; // whoever is logged in
+
+  try {
+    // 1️⃣ Fetch old user details (before update)
+    const [oldUser] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId));
+
+    // 2️⃣ Update the user
+    await db
+      .update(users)
+      .set({
+        user_name: req.body.user_name,
+        department: req.body.department,
+        phone: req.body.phone,
+        manager: req.body.manager,
+      })
+      .where(eq(users.id, userId));
+
+    // 3️⃣ Fetch new user details (after update)
+    const [newUser] = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, userId));
+
+    // 4️⃣ Log only changed fields
+    const summary: any = {};
+
+    if (oldUser.user_name !== newUser.user_name) {
+      summary.user_name = { from: oldUser.user_name, to: newUser.user_name };
+    }
+
+    if (oldUser.department !== newUser.department) {
+      summary.department = { from: oldUser.department, to: newUser.department };
+    }
+
+    if (oldUser.phone !== newUser.phone) {
+      summary.phone = { from: oldUser.phone, to: newUser.phone };
+    }
+
+    if (oldUser.manager !== newUser.manager) {
+      summary.manager = { from: oldUser.manager, to: newUser.manager };
+    }
+
+    // If something changed, log it
+    if (Object.keys(summary).length > 0) {
+      await storage.logActivity({
+        source_table: "users",
+        event_type: "UPDATE",
+        record_id: userId,
+        summary,
+        performed_by: actingUserId,
+      });
+    }
+
+    res.json({ message: "User updated successfully" });
+  } catch (error) {
+    console.error(error);
+    res.status(500).json({ error: "Update failed" });
+  }
+});
+// ================= ACTIVITY LOG API ======================
+app.get("/api/activity-log",  async (req, res) => {
+  try {
+    const logs = await db
+      .select()
+      .from(activityLog)
+      .orderBy(desc(activityLog.occurred_at));
+
+    res.json(logs);
+  } catch (error) {
+    console.error("Failed to fetch activity log:", error);
+    res.status(500).json({ error: "Error fetching activity log" });
+  }
+});
+
+
+
 
   app.get("/api/users/:id", async (req, res) => {
     try {
@@ -376,121 +416,133 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
- app.post("/api/users", requireAdmin, async (req, res) => {
-  try {
-    // --- License check logic (no changes) ---
-    const userId = req.headers['x-user-id'] as string;
-    const currentUser = await storage.getUser(userId);
-    if (!currentUser) {
-      return res.status(403).json({ error: "User not found" });
-    }
-    const allUsers = await storage.getAllUsers();
-    const activeUserCount = allUsers.filter(user => user.is_active !== false).length;
-    const licenseStatus = await licenseManager.getLicenseStatus(currentUser.id);
-    console.log("licenseStatus post", licenseStatus);
-    if (licenseStatus.hasLicense && licenseStatus.userLimits) {
-      console.log("Inside license check saksham");
-      const { maximum } = licenseStatus.userLimits;
-      console.log("max", maximum, "active", activeUserCount);
-      if (activeUserCount >= maximum) {
-        return res.status(400).json({
-          error: `Cannot create or activate user. License limit reached (${activeUserCount}/${maximum} users). Please upgrade your license or deactivate existing users.`,
-          licenseLimit: maximum,
-          currentUsers: activeUserCount
-        });
-      }
-    }
-    else{
-      console.log('saskham license not found');
-    }
-    // --- End of license check ---
+app.post("/api/users", requireAdmin, async (req, res) => {
+  try {
+    // --- License check logic (no changes) ---
+    const actingUserId = req.headers["x-user-id"] as string;
+    const currentUser = await storage.getUser(actingUserId);
 
-
-    // --- START OF CORRECTION: Password Hashing, Validation, and Role Assignment ---
-
-    console.log("[DEBUG 1] Raw Request Body:", JSON.stringify(req.body));
-    
-    // 1. Extract the raw password, role, and the rest of the body fields.
-    const { password, role, ...restOfBody } = req.body;
-    const roleId = role;
-
-    // 2. Hash the password before database interaction
-    let password_hash = null;
-    if (password && typeof password === 'string' && password.length > 0) {
-      const saltRounds = 10;
-      password_hash = await bcrypt.hash(password, saltRounds);
-      console.log("[DEBUG 2] Password Hashed. Hash starts with:", password_hash.substring(0, 10));
-    } else {
-      console.log("[DEBUG 2] WARNING: Raw password field was missing or empty in request body. Cannot hash.");
-      // Added explicit error return if password is required for new user creation
-      return res.status(400).json({ error: "Password is required for new user creation." });
+    if (!currentUser) {
+      return res.status(403).json({ error: "User not found" });
     }
-    
-    // 3. Construct the final user data payload using the HASHED password
-    // Include is_active default for new users
-    const userPayload = {
-      ...restOfBody,
-      password_hash: password_hash,
+
+    const allUsers = await storage.getAllUsers();
+    const activeUserCount =
+      allUsers.filter((user) => user.is_active !== false).length;
+
+    const licenseStatus = await licenseManager.getLicenseStatus(currentUser.id);
+
+    if (licenseStatus.hasLicense && licenseStatus.userLimits) {
+      const { maximum } = licenseStatus.userLimits;
+      if (activeUserCount >= maximum) {
+        return res.status(400).json({
+          error: `Cannot create or activate user. License limit reached (${activeUserCount}/${maximum} users).`,
+          licenseLimit: maximum,
+          currentUsers: activeUserCount,
+        });
+      }
+    }
+
+    // ----------------------------------------------------------
+    // STEP 1: Extract fields & hash password
+    // ----------------------------------------------------------
+    const { password, role, ...restOfBody } = req.body;
+    const roleId = role;
+
+    let password_hash = null;
+
+    if (password && typeof password === "string" && password.length > 0) {
+      const saltRounds = 10;
+      password_hash = await bcrypt.hash(password, saltRounds);
+    } else {
+      return res
+        .status(400)
+        .json({ error: "Password is required for new user creation." });
+    }
+
+    // Construct final payload
+    const userPayload = {
+      ...restOfBody,
+      password_hash,
       is_active: true,
-    };
+    };
 
-    // 4. Validate the payload against the schema 
-    // This step validates the data (including the newly added password_hash)
-    const userData = insertUserSchema.parse(userPayload);
-    
-    // Diagnostic check
-    console.log("[DEBUG 3] Data after Zod parse (userData). Check if 'password_hash' is present:", JSON.stringify(userData));
+    // Validate with Zod
+    const userData = insertUserSchema.parse(userPayload);
 
-    if (!userData.password_hash) {
-      console.error("[DEBUG 3 ERROR] password_hash was stripped by insertUserSchema! Please verify shared/schema.ts is updated.");
+    // ----------------------------------------------------------
+    // STEP 2: Create the user
+    // ----------------------------------------------------------
+    const user = await storage.createUser(userData);
+
+    // ----------------------------------------------------------
+    // STEP 3: Assign Role
+    // ----------------------------------------------------------
+    if (user && user.id && roleId) {
+      try {
+        await storage.assignUserRole(user.id, roleId);
+
+        // ⭐ Log role assignment also
+        await storage.logActivity({
+          source_table: "user_roles",
+          event_type: "ROLE_ADDED",
+          record_id: user.id,
+          summary: { role_added: roleId },
+          performed_by: actingUserId,
+        });
+      } catch (err) {
+        console.error(
+          `Failed to assign role ${roleId} to new user ${user.id}:`,
+          err
+        );
+      }
     }
-    
-    // 5. Create the user in the 'users' table
-    const user = await storage.createUser(userData);
-    console.log("[DEBUG 4] User successfully created in DB. ID:", user?.id);
 
-    // 6. Assign the role.
-    if (user && user.id && roleId) {
-      try {
-        // This is the correct role assignment logic
-        await storage.assignUserRole(user.id, roleId);
-      } catch (roleError) {
-        // If this fails, the user is still created, but without a role.
-        console.error(`Failed to assign role ${roleId} to new user ${user.id}:`, roleError);
-      }
-    }
-    
-    // --- END OF CORRECTION: Password Hashing, Validation, and Role Assignment ---
+    // ----------------------------------------------------------
+    // ⭐ STEP 4: Log USER CREATION EVENT
+    // ----------------------------------------------------------
+    await storage.logActivity({
+      source_table: "users",
+      event_type: "CREATED_USER",
+      record_id: user.id,
+      summary: {
+        user_name: user.user_name,
+        email: user.email,
+        department: user.department,
+      },
+      performed_by: actingUserId, // Admin who created the user
+    });
 
-    res.status(201).json(user);
+    // ----------------------------------------------------------
+    // STEP 5: Respond
+    // ----------------------------------------------------------
+    return res.status(201).json(user);
+  } catch (error: any) {
+    console.error("API ERROR:", error);
 
-  } catch (error: any) {
-  console.error("API ERROR:", error);
+    if (error.name === "ZodError") {
+      return res.status(400).json({
+        error: "Invalid input",
+        details: error.errors,
+      });
+    }
 
-  // Zod validation errors
-  if (error.name === "ZodError") {
-    return res.status(400).json({
-      error: "Invalid input",
-      details: error.errors,
-    });
-  }
+    if (
+      error.code === "23505" ||
+      error?.message?.includes("duplicate key") ||
+      error?.detail?.includes("already exists")
+    ) {
+      return res.status(400).json({ error: "Email already exists" });
+    }
 
-  // Postgres duplicate email
-  if (error.code === "23505" ||
-      error?.message?.includes("duplicate key") ||
-      error?.detail?.includes("already exists")
-  ) {
-    return res.status(400).json({ error: "Email already exists" });
-  }
+    if (error.message?.includes("License limit reached")) {
+      return res.status(400).json({ error: error.message });
+    }
 
-  // License limit error
-  if (error.message?.includes("License limit reached")) {
-    return res.status(400).json({ error: error.message });
-  }
+    return res.status(400).json({ error: "Invalid user data" });
+  }
+});
 
-  return res.status(400).json({ error: "Invalid user data" });
-}
-  });
 // ... (End of surrounding code context)
 
   app.patch("/api/users/:id", requireManagerOrAdmin, async (req, res) => {
@@ -518,6 +570,7 @@ app.patch("/api/users/:id/deactivate", requireAdmin, async (req, res) => {
       const activeAdmins = allUsers.filter(
         user => user.role_name === "admin" && user.is_active === true
       );
+      
 
       // If only one admin remains, block deactivation
       if (activeAdmins.length <= 1) {
@@ -530,6 +583,19 @@ app.patch("/api/users/:id/deactivate", requireAdmin, async (req, res) => {
     // Proceed with deactivation
     const user = await storage.deactivateUser(targetUserId);
     res.json(user);
+    await storage.logActivity({
+  source_table: "users",
+  event_type: "DEACTIVATED",
+  record_id: targetUserId,
+  summary: { message: "User deactivated",
+  user_name: user.user_name,
+  email: user.email
+   },
+   performed_by: Array.isArray(req.headers["x-user-id"])
+    ? req.headers["x-user-id"][0]
+    : req.headers["x-user-id"] ?? null,
+});
+
 
   } catch (error) {
     console.error("Error deactivating user:", error);
@@ -574,6 +640,21 @@ app.patch("/api/users/:id/deactivate", requireAdmin, async (req, res) => {
       }
 
       const user = await storage.activateUser(req.params.id);
+      await storage.logActivity({
+  source_table: "users",
+  event_type: "ACTIVATED",
+  record_id: req.params.id,
+  summary: { 
+  message: "User activated",
+  user_name: user.user_name,
+  email: user.email
+},
+
+  performed_by: Array.isArray(req.headers["x-user-id"])
+    ? req.headers["x-user-id"][0]
+    : req.headers["x-user-id"] ?? null,
+});
+
       res.json(user);
     } catch (error) {
       console.error("Error activating user:", error);
@@ -599,6 +680,16 @@ app.patch("/api/users/:id/deactivate", requireAdmin, async (req, res) => {
         password_hash: hashedPassword,
         updated_at: new Date()
       });
+      await storage.logActivity({
+  source_table: "users",
+  event_type: "PASSWORD_RESET",
+  record_id: id,
+  summary: { message: "Password reset by admin" },
+performed_by: Array.isArray(req.headers["x-user-id"])
+    ? req.headers["x-user-id"][0]
+    : req.headers["x-user-id"] ?? null,
+});
+
 
       res.json({ message: "Password reset successfully" });
     } catch (error) {
@@ -608,21 +699,88 @@ app.patch("/api/users/:id/deactivate", requireAdmin, async (req, res) => {
   });
 
   // Delete user (admin only)
-  app.delete("/api/users/:id", requireAdmin, async (req, res) => {
-    try {
-      const deletedBy = req.headers['x-user-id'];
-      if (!deletedBy) {
-        return res.status(401).json({ error: "User not authenticated" });
-      }
-      console.log('Deleting user', req.params.id, 'by', deletedBy);
-      const result = await storage.deleteUser(req.params.id, deletedBy);
-      res.json(result);
-    } catch (error) {
-      console.error("Error deleting user:", error);
-      res.status(500).json({ error: "Failed to delete user" });
-    }
+  // app.delete("/api/users/:id", requireAdmin, async (req, res) => {
+  //   try {
+  //     const deletedBy = req.headers['x-user-id'];
+  //     if (!deletedBy) {
+  //       return res.status(401).json({ error: "User not authenticated" });
+  //     }
+  //     console.log('Deleting user', req.params.id, 'by', deletedBy);
+  //     const result = await storage.deleteUser(req.params.id, deletedBy);
+    //   await storage.logActivity({
+    //   source_table: "users",
+    //   event_type: "DELETE",
+    //   record_id: userId,
+    //   summary: {
+    //     email: oldUser.email,
+    //     user_name: oldUser.user_name,
+    //     department: oldUser.department,
+    //   },
+    //   performed_by: deletedBy,
+    // });
+  //     res.json(result);
+  //   } catch (error) {
+  //     console.error("Error deleting user:", error);
+  //     res.status(500).json({ error: "Failed to delete user" });
+  //   }
      
-  });
+  // });
+app.delete("/api/users/:id", requireAdmin, async (req, res) => {
+  try {
+    const deletedBy = Array.isArray(req.headers["x-user-id"])
+      ? req.headers["x-user-id"][0]
+      : req.headers["x-user-id"] ?? null;
+
+    const userId = req.params.id;
+    if (!deletedBy) return res.status(401).json({ error: "User not authenticated" });
+
+    const oldUser = await storage.getUser(userId);
+    if (!oldUser) return res.status(404).json({ error: "User not found" });
+
+    // 1️⃣ Log activity BEFORE deletion
+    const tasksAssigned = await storage.getTasksByUser(userId);
+    const taskAssignedTitles = tasksAssigned.map(t => t.title).join(", ");
+    console.log("saksham", taskAssignedTitles);
+    await storage.logActivity({
+      source_table: "users",
+      event_type: "DELETED_USER",
+      record_id: userId,
+      summary: {
+      email: oldUser.email,
+      user_name: oldUser.user_name,
+      department: oldUser.department,
+      tasks_assigned_count: tasksAssigned.length,
+}
+,
+      performed_by: deletedBy,
+    });
+
+    // 2️⃣ Remove MANAGER references (teams where user is manager)
+    const teamsManaged = await storage.getTeamsManagedBy(userId);
+    for (const team of teamsManaged) {
+      await storage.updateTeam(team.id, { manager_id: null });
+    }
+
+    // 3️⃣ Remove USER from team MEMBERSHIPS
+    const teamsWhereMember = await storage.getTeamsByUser(userId);
+    for (const team of teamsWhereMember) {
+      await storage.removeTeamMember(team.id, userId);
+    }
+
+    // 4️⃣ Finally delete user
+    const result = await storage.deleteUser(userId, deletedBy);
+
+    res.json(result);
+  } catch (error) {
+    console.error("Error deleting user:", error);
+    res.status(500).json({ error: "Failed to delete user" });
+  }
+});
+
+
+
+
+
 
   // Get deleted users (admin only)
   app.get("/api/deleted-users", requireAdmin, async (req, res) => {
@@ -839,12 +997,26 @@ app.patch("/api/users/:id/deactivate", requireAdmin, async (req, res) => {
     const taskData = insertTaskSchema.parse(req.body);
     const task = await storage.createTask(taskData);
 
+
     await storage.logTaskActivity({
       task_id: task.id,
       action_type: "created",
       new_value: task.assigned_to,
       acted_by: task.created_by,
     });
+    // AFTER task is created
+await storage.logActivity({
+  source_table: "tasks",
+  event_type: "CREATED_TASK",
+  record_id: task.id,
+  summary: {
+    title: task.title,
+    assigned_to: task.assigned_to,
+    created_at: task.created_at,
+  },
+  performed_by: userId,
+});
+
 
     return res.status(201).json(task);
   } catch (error) {
@@ -930,6 +1102,19 @@ app.patch("/api/users/:id/deactivate", requireAdmin, async (req, res) => {
             new_value: req.body.status,
             acted_by: userId,
           });
+          await storage.logActivity({
+  source_table: "tasks",
+  event_type: "STATUS_CHANGED",
+  record_id: task.id,
+  summary: {
+    title: task.title,
+     old_value: oldTask.status,
+            new_value: req.body.status,
+    assigned_to: task.assigned_to,
+    created_at: task.created_at,
+  },
+  performed_by: userId,
+});
           console.log("[DEBUG] Status change activity logged");
         }
         
@@ -944,6 +1129,22 @@ app.patch("/api/users/:id/deactivate", requireAdmin, async (req, res) => {
             new_value: newUser?.user_name || "Unassigned",
             acted_by: userId,
           });
+            await storage.logActivity({
+  source_table: "tasks",
+  event_type: "ASSIGNMENT_CHANGED",
+  record_id: task.id,
+  summary: {
+            title:task.title,
+            task_id: task.id,
+            action_type: "assignment_changed",
+            old_value: oldUser?.user_name || "Unassigned",
+            new_value: newUser?.user_name || "Unassigned",
+            acted_by: userId,
+  },
+  performed_by: userId,
+});
+
+          
         }
         
         // Priority change
@@ -956,6 +1157,18 @@ app.patch("/api/users/:id/deactivate", requireAdmin, async (req, res) => {
             new_value: priorityNames[req.body.priority as keyof typeof priorityNames] || `${req.body.priority}`,
             acted_by: userId,
           });
+            await storage.logActivity({
+  source_table: "tasks",
+  event_type: "PRIORITY_CHANGED",
+  record_id: task.id,
+  summary: {
+     task_id: task.id,  
+     task_id: task.id,
+            action_type: "priority_changed",
+            old_value: priorityNames[oldTask.priority as keyof typeof priorityNames] || `${oldTask.priority}`,
+            new_value: priorityNames[req.body.priority as keyof typeof priorityNames] || `${req.body.priority}`,
+            acted_by: userId}});
+
         }
         
         // Due date change
@@ -993,6 +1206,19 @@ if (req.body.due_date) {
             new_value: req.body.title,
             acted_by: userId,
           });
+          await storage.logActivity({
+  source_table: "tasks",
+  event_type: "TITLE_CHANGED",
+  record_id: task.id,
+  summary: {
+    title: task.title,
+    old_value: oldTask.title,
+    new_value: req.body.title,
+    assigned_to: task.assigned_to,
+    created_at: task.created_at,
+  },
+  performed_by: userId,
+});
         }
         
         // Description change
@@ -1028,19 +1254,40 @@ app.delete("/api/tasks/:id", requireAnyAuthenticated, async (req, res) => {
     // 2. You were trying to use req.params.id here, but without defining a variable
     const task = await storage.getTask(taskId); 
     const userId = req.headers['x-user-id'] as string;
+    const user = await storage.getUser(userId);
     
     if (task) {
       await storage.logTaskActivity({
+        message:"Task deleted",
         task_id: task.id,
         action_type: "deleted",
+
         old_value: null,
         new_value: `Task "${task.title}" was deleted`,
         acted_by: userId,
       });
+
     }
 
     // 3. The fix: Use the ID from the request parameters
-    await storage.deleteTask(taskId); 
+    await storage.deleteTask(taskId);
+    await storage.logActivity({
+  source_table: "tasks",
+  event_type: "DELETE",
+  record_id: taskId,
+  summary: {
+    title: task.title,
+     
+        action_type: "deleted",
+       
+        // new_value: `Task "${task.title}" was deleted`,
+        acted_by: user?.email,
+
+
+  },
+  performed_by: userId
+});
+
     
     console.log("✅ Task deleted successfully!");
     res.status(204).send();
@@ -1057,6 +1304,7 @@ app.delete("/api/tasks/:id", requireAnyAuthenticated, async (req, res) => {
   app.get("/api/tasks/:id/activity", async (req, res) => {
     try {
       const activity = await storage.getTaskActivity(req.params.id);
+      
       res.json(activity);
     } catch (error) {
       res.status(500).json({ error: "Failed to fetch task activity" });
@@ -1080,6 +1328,7 @@ app.delete("/api/tasks/:id", requireAnyAuthenticated, async (req, res) => {
         new_value: new_value ?? null,
         acted_by: acted_by ?? req.headers['x-user-id'] ?? null,
       };
+      
 
       const saved = await storage.logTaskActivity(logEntry as any);
       res.status(201).json(saved);
@@ -1175,6 +1424,14 @@ app.delete("/api/tasks/:id", requireAnyAuthenticated, async (req, res) => {
       const teamData = insertTeamSchema.parse(payload);
       const team = await storage.createTeam(teamData);
       console.debug("Team created by:", userId, "payload:", payload);
+      await storage.logActivity({
+  source_table: "teams",
+  event_type: "CREATE",
+  record_id: team.id,
+  summary: { name: team.name },
+  performed_by: userId,
+});
+
       res.status(201).json(team);
     } catch (error) {
       console.error("Team creation error:", error);
@@ -1197,7 +1454,7 @@ app.delete("/api/tasks/:id", requireAnyAuthenticated, async (req, res) => {
     }
   });
 
-  app.delete("/api/teams/:id", requireAdmin, async (req, res) => {
+  app.delete("/api/teams/:id", requireManagerOrAdmin, async (req, res) => {
     try {
       await storage.deleteTeam(req.params.id);
       res.status(204).send();
@@ -1216,24 +1473,100 @@ app.delete("/api/tasks/:id", requireAnyAuthenticated, async (req, res) => {
     }
   });
 
-  app.post("/api/teams/:teamId/members", async (req, res) => {
-    try {
-      const { userId, role } = req.body;
-      const membership = await storage.addTeamMember(req.params.teamId, userId, role);
-      res.status(201).json(membership);
-    } catch (error) {
-      res.status(400).json({ error: "Failed to add team member" });
-    }
-  });
+app.post("/api/teams/:teamId/members", async (req, res) => {
+  try {
+    const { userId, role } = req.body;
+    const teamId = req.params.teamId;
 
-  app.delete("/api/teams/:teamId/members/:userId", async (req, res) => {
-    try {
-      await storage.removeTeamMember(req.params.teamId, req.params.userId);
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ error: "Failed to remove team member" });
+    // Fetch readable info
+    const team = await storage.getTeam(teamId);
+    const user = await storage.getUser(userId);
+    
+    const membership = await storage.addTeamMember(teamId, userId, role);
+
+    await storage.logActivity({
+      source_table: "team_members",
+      event_type: "ADD_MEMBER",
+      record_id: teamId,
+      summary: {
+        // teamId,
+        team_name: team?.name,
+        added_user_name: user?.user_name,
+        role_assigned: role,
+        message: `${user?.user_name} was added to team ${team?.name} as ${role}`
+      },
+      performed_by: Array.isArray(req.headers["x-user-id"])
+        ? req.headers["x-user-id"][0]
+        : req.headers["x-user-id"] ?? null,
+    });
+
+    res.status(201).json(membership);
+  } catch (error) {
+    console.log(error);
+    res.status(400).json({ error: "Failed to add team member" });
+  }
+});
+
+
+ app.delete("/api/teams/:teamId/members/:userId", async (req, res) => {
+  const teamId = req.params.teamId;
+  const userId = req.params.userId;
+
+  // helper to read performed_by header consistently
+  const getPerformingUserId = () =>
+    Array.isArray(req.headers["x-user-id"])
+      ? req.headers["x-user-id"][0]
+      : req.headers["x-user-id"] ?? null;
+
+  try {
+    // Fetch readable data BEFORE removing the membership (so we can log it)
+    const [team, removedUser, performingUser] = await Promise.all([
+      storage.getTeam(teamId),              // { id, name, ... }
+      storage.getUser(userId),              // { id, user_name, email, ... }
+      getPerformingUserId()                 // id string or null
+        ? storage.getUser(getPerformingUserId() as string)
+        : Promise.resolve(null),
+    ]);
+
+    if (!team) {
+      return res.status(404).json({ error: "Team not found" });
     }
-  });
+    if (!removedUser) {
+      return res.status(404).json({ error: "User not found" });
+    }
+
+    // Optionally: if you store a team-member record, fetch it to log the assigned role
+    const membership = await storage.getTeamMembers(teamId, userId); // may return null
+
+    // Remove member
+    await storage.removeTeamMember(teamId, userId);
+
+    // Build a friendly, useful summary for UI
+    const summary = {
+      teamId: team.id,
+      team_name: team.name,
+      // removed_user_id: removedUser.id,
+      removed_user_name: removedUser.user_name,
+      removed_user_email: removedUser.email,
+      role_assigned: membership?.role ?? null,
+      message: `${removedUser.user_name} (${removedUser.email}) was removed from team "${team.name}"${membership?.role ? ` (role: ${membership.role})` : ""}`
+    };
+
+    await storage.logActivity({
+      source_table: "team_members",
+      event_type: "REMOVE_MEMBER",
+      record_id: teamId,
+      summary,
+      performed_by: getPerformingUserId(),
+    });
+
+    return res.status(204).send();
+  } catch (error) {
+    console.error("Failed to remove team member:", error);
+    return res.status(500).json({ error: "Failed to remove team member" });
+  }
+});
+
 
   // Role management routes - Admin only for modifications, authenticated for read
   app.get("/api/roles", requireAnyAuthenticated, async (req, res) => {
@@ -1291,25 +1624,90 @@ app.delete("/api/tasks/:id", requireAnyAuthenticated, async (req, res) => {
       res.status(500).json({ error: "Failed to fetch user roles" });
     }
   });
+app.post("/api/users/:userId/roles", requireAdmin, async (req, res) => {
+  try {
+    const actingUserId = Array.isArray(req.headers["x-user-id"])
+      ? req.headers["x-user-id"][0]
+      : req.headers["x-user-id"] ?? null;
 
-  app.post("/api/users/:userId/roles", requireAdmin, async (req, res) => {
-    try {
-      const { roleId } = req.body;
-      const userRole = await storage.assignUserRole(req.params.userId, roleId);
-      res.status(201).json(userRole);
-    } catch (error) {
-      res.status(400).json({ error: "Failed to assign role" });
-    }
-  });
+    const { roleId } = req.body;
+    const userId = req.params.userId;
 
-  app.delete("/api/users/:userId/roles/:roleId", requireAdmin, async (req, res) => {
-    try {
-      await storage.removeUserRole(req.params.userId, req.params.roleId);
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ error: "Failed to remove role" });
-    }
-  });
+    // Get roles BEFORE update
+    const beforeRoles = await storage.getUserRoles(userId);
+    const beforeRoleNames = beforeRoles.map(r => r.role?.name);
+
+    // Assign the new role
+    const userRole = await storage.assignUserRole(userId, roleId);
+
+    // Get roles AFTER update
+    const afterRoles = await storage.getUserRoles(userId);
+    const afterRoleNames = afterRoles.map(r => r.role?.name);
+
+    // Get user email only
+    const user = await storage.getUser(userId);
+    const userName = user?.user_name || "Unknown User";
+
+    // Log activity
+    await storage.logActivity({
+      source_table: "user_roles",
+      event_type: "ROLE_CHANGED",
+      record_id: userId,
+      performed_by: actingUserId,
+      summary: {
+        user_name: userName,
+        // user_email: userEmail,
+        roles_before: beforeRoleNames,
+        roles_after: afterRoleNames,
+        added_role: afterRoleNames.filter(r => !beforeRoleNames.includes(r))[0] || null
+      },
+    });
+
+    res.status(201).json(userRole);
+
+  } catch (error) {
+    console.error(error);
+    res.status(400).json({ error: "Failed to assign role" });
+  }
+});
+
+
+
+
+  // app.post("/api/users/:userId/roles", requireAdmin, async (req, res) => {
+  //   try {
+  //     const { roleId } = req.body;
+  //     const userRole = await storage.assignUserRole(req.params.userId, roleId);
+  //     res.status(201).json(userRole);
+  //   } catch (error) {
+  //     res.status(400).json({ error: "Failed to assign role" });
+  //   }
+  // });
+
+app.delete("/api/users/:userId/roles/:roleId", requireAdmin, async (req, res) => {
+  try {
+    const actingUserId = Array.isArray(req.headers["x-user-id"])
+  ? req.headers["x-user-id"][0]
+  : req.headers["x-user-id"] ?? null;
+
+
+    await storage.removeUserRole(req.params.userId, req.params.roleId);
+
+    // 🔥 Log role removal
+    await storage.logActivity({
+      source_table: "user_roles",
+      event_type: "ROLE_REMOVED",
+      record_id: req.params.userId,
+      summary: { role_removed: req.params.roleId },
+      performed_by: actingUserId,
+    });
+
+    res.status(204).send();
+  } catch (error) {
+    res.status(500).json({ error: "Failed to remove role" });
+  }
+});
+
 
   // Task group routes
   app.get("/api/task-groups", requireAnyAuthenticated, async (req, res) => {

@@ -1,7 +1,9 @@
-import { pgTable, text, uuid, timestamp, integer, boolean, pgEnum, serial, decimal ,unique} from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, timestamp, integer, boolean, pgEnum, serial, decimal ,unique,bigserial, jsonb} from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
+
 import { relations } from "drizzle-orm";
+
 
 // Organization settings table
 export const organizationSettings = pgTable("organization_settings", {
@@ -134,6 +136,32 @@ export const teams = pgTable("teams", {
   manager_id: uuid("manager_id").references(() => users.id), // Team manager
   created_at: timestamp("created_at").defaultNow(),
 });
+
+
+// Activity Log Table
+export const activityLog = pgTable("activity_log", {
+  id: uuid("id").defaultRandom().primaryKey(),
+
+  source_table: text("source_table").notNull(),
+  event_type: text("event_type").notNull(),
+
+  record_id: text("record_id"),
+  summary: jsonb("summary"),
+  performed_by: text("performed_by"),
+
+  occurred_at: timestamp("occurred_at", { withTimezone: true }).defaultNow(),
+});
+
+
+
+
+
+
+
+
+
+
+
 
 // Team memberships
 export const teamMemberships = pgTable(

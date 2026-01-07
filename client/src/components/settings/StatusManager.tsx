@@ -12,6 +12,7 @@ import StatusLifecycleGraphDraggable from "./StatusLifecycleGraphDraggable";
 import { StatusDeletionDialog } from "@/components/StatusDeletionDialog";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useRole } from "@/contexts/RoleProvider";
+import { useRolePermissions } from "@/hooks/useRolePermissions";  
 
 type TaskStatus = {
   id: string;
@@ -202,6 +203,7 @@ const StatusManager: React.FC = () => {
       statusName: '',
     });
   };
+  const { canCreateSettings, canEditSettings, canDeleteSettings } = useRolePermissions();
 
   return (
     <div className="w-full space-y-6">
@@ -327,12 +329,12 @@ const StatusManager: React.FC = () => {
                               <Button size="sm" variant="default" onClick={() => handleSaveStatus(status.id)}>Save</Button>
                             ) : highestRole === "admin" ? (
                               <>
-                                <Button variant="outline" size="sm" onClick={() => handleEditStatus(status.id)}>
+                              {canEditSettings &&  <Button variant="outline" size="sm" onClick={() => handleEditStatus(status.id)}>
                                   Edit
-                                </Button>
-                                <Button variant="destructive" size="sm" onClick={() => handleDeleteStatus(status.id)}>
+                                </Button>}
+                              {canDeleteSettings &&  <Button variant="destructive" size="sm" onClick={() => handleDeleteStatus(status.id)}>
                                   Delete
-                                </Button>
+                                </Button>}
                               </>
                             ) : null}
                           </div>
@@ -401,9 +403,9 @@ const StatusManager: React.FC = () => {
                   Allow task deletion for this status
                 </label>
               </div>
-              <Button onClick={handleAddStatus} variant="default" className="w-full sm:w-auto">
+             {canCreateSettings && <Button onClick={handleAddStatus} variant="default" className="w-full sm:w-auto">
                 Add Status
-              </Button>
+              </Button>}
             </div>
           </CardContent>
         </Card>

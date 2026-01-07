@@ -4,6 +4,8 @@ import { apiClient } from '@/lib/api';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
+import { useRolePermissions } from '@/hooks/useRolePermissions';
+
 import {
   Table,
   TableBody,
@@ -59,6 +61,7 @@ export default function AdminRoles() {
       return response.json();
     },
   });
+  const { canCreateRoles,canEditRoles } = useRolePermissions();
 
   const createRoleMutation = useMutation({
     mutationFn: (data: RoleFormData) => apiClient.createRole(data),
@@ -167,10 +170,10 @@ export default function AdminRoles() {
         
         <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
           <DialogTrigger asChild>
-            <Button>
+    {canCreateRoles &&       <Button>
               <Plus className="w-4 h-4 mr-2" />
               Create Role
-            </Button>
+            </Button>}
           </DialogTrigger>
           <DialogContent>
             <DialogHeader>
@@ -254,7 +257,7 @@ export default function AdminRoles() {
                   {new Date(role.created_at).toLocaleDateString()}
                 </TableCell>
                 <TableCell className="text-right">
-                  <div className="flex justify-end gap-2">
+               {canEditRoles &&   <div className="flex justify-end gap-2">
                     <Button
                       size="sm"
                       variant="outline"
@@ -270,7 +273,7 @@ export default function AdminRoles() {
                     >
                       <Trash2 className="w-4 h-4" />
                     </Button>
-                  </div>
+                  </div>}
                 </TableCell>
               </TableRow>
             ))}

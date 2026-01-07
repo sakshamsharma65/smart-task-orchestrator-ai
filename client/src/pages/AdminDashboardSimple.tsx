@@ -357,7 +357,7 @@ const AdminDashboard = () => {
                 <span className="font-medium">{teams.length}</span>
               </div>
               <div className="flex justify-between items-center">
-                <span className="text-sm text-gray-900">Tasks of This Month</span>
+                <span className="text-sm text-gray-900">Total Tasks</span>
                 <span className="font-medium">{stats.totalTasks}</span>
               </div>
               <div className="flex justify-between items-center">

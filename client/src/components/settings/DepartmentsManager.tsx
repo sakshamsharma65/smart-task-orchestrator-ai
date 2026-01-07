@@ -7,6 +7,7 @@ import { useDepartments } from "@/hooks/useDepartments";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useRole } from "@/contexts/RoleProvider";
 import { apiClient } from "@/lib/api";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
 
 const DepartmentsManager: React.FC = () => {
   const { departments, loading, refetch } = useDepartments();
@@ -76,6 +77,7 @@ const DepartmentsManager: React.FC = () => {
       toast({ title: "Error", description: error instanceof Error ? error.message : "Failed to delete department" });
     }
   };
+  const {canCreateSettings,canEditSettings,canDeleteSettings} = useRolePermissions();
 
   return (
     <div className="w-full space-y-6">
@@ -150,20 +152,20 @@ const DepartmentsManager: React.FC = () => {
                             </Button>
                           ) : highestRole === "admin" ? (
                             <>
-                              <Button
+                         {canEditSettings  &&   <Button
                                 variant="outline"
                                 size="sm"
                                 onClick={() => handleEditDepartment(department.id)}
                               >
                                 Edit
-                              </Button>
-                              <Button
+                              </Button>}
+                            {canDeleteSettings && <Button
                                 variant="destructive"
                                 size="sm"
                                 onClick={() => handleDeleteDepartment(department.id)}
                               >
                                 Delete
-                              </Button>
+                              </Button>}
                             </>
                           ) : null}
                         </div>
@@ -203,9 +205,9 @@ const DepartmentsManager: React.FC = () => {
                   rows={3}
                 />
               </div>
-              <Button onClick={handleAddDepartment} variant="default" className="w-full sm:w-auto">
+       {canCreateSettings &&      <Button onClick={handleAddDepartment} variant="default" className="w-full sm:w-auto">
                 Add Department
-              </Button>
+              </Button>}
             </div>
           </CardContent>
         </Card>

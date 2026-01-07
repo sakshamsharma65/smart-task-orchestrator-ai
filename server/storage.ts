@@ -53,7 +53,8 @@ import {
   Department,
   InsertDepartment,
   License,
-  InsertLicense
+  InsertLicense,
+  activityLog
 } from "@shared/schema";
 
 export interface IStorage {
@@ -214,16 +215,39 @@ async updateTaskStatusForTask(taskId: string, newStatus: string) {
 
   return result[0];
 }
-
+async  logActivity({
+  source_table,
+  event_type,
+  record_id = null,
+  summary = {},
+  performed_by = null,
+}: {
+  source_table: string;
+  event_type: string;
+  record_id?: string | null;
+  summary?: any;
+  performed_by?: string | null;
+}) {
+  try {
+    await db.insert(activityLog).values({
+      source_table,
+      event_type,
+      record_id,
+      summary,
+      performed_by,
+    });
+  } catch (error) {
+    console.error("Activity Log Error:", error);
+  }
+}
 
 
   async updateUser(id: string, updates: Partial<User>): Promise<User> {
     const result = await db.update(users).set(updates).where(eq(users.id, id)).returning();
     console.log("🧩 updateUser() called with:", { id, updates });
 
-    return result[0];
-  }
-
+    return result[0];}
+ 
 async getAllUsers(): Promise<any[]> { // Note: Return type is now 'any[]' or a custom type
   return await db.select({
     ...getTableColumns(users), // Selects all columns from the 'users' table
@@ -447,6 +471,20 @@ async getTasksByUser(userId: string): Promise<Task[]> {
       .where(eq(teamMemberships.user_id, userId))
       .orderBy(teams.name);
   }
+  async getTeamsManagedBy(userId: string): Promise<Team[]> {
+  return await db
+    .select({
+      id: teams.id,
+      name: teams.name,
+      description: teams.description,
+      created_by: teams.created_by,
+      manager_id: teams.manager_id,
+      created_at: teams.created_at
+    })
+    .from(teams)
+    .where(eq(teams.manager_id, userId));
+}
+
   async  getTasksForManager(userId: string) {
   // 1. Get all teams managed by this user
   const managedTeams = await db

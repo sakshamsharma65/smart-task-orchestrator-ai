@@ -4,9 +4,11 @@ import { useLocation, NavLink } from "react-router-dom";
 import { CheckSquare, FolderOpen, User, History, Clock, Target } from "lucide-react";
 import { useQuery } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
 
 export default function TaskManagementMenu({ collapsed }: { collapsed: boolean }) {
   const location = useLocation();
+  const { canViewTask,canViewtask_Groups,canViewMy_Tasks,canViewHistorical_Tasks,canViewBenchmarks } = useRolePermissions();
   
   // Fetch organization settings to check if benchmarking is enabled
   const { data: settings } = useQuery({
@@ -22,7 +24,7 @@ export default function TaskManagementMenu({ collapsed }: { collapsed: boolean }
       <div className="text-xs font-semibold uppercase tracking-wider mb-2 px-2 text-[#021133]">Task Management</div>
       <div>
         <ul className="flex w-full min-w-0 flex-col gap-1">
-          <li className="group/menu-item relative">
+          {canViewTask&&<li className="group/menu-item relative">
             <NavLink
               to="/admin/tasks"
               end
@@ -34,8 +36,8 @@ export default function TaskManagementMenu({ collapsed }: { collapsed: boolean }
               <CheckSquare className="w-4 h-4 shrink-0" />
               {!collapsed && <span className="truncate">Tasks</span>}
             </NavLink>
-          </li>
-          <li className="group/menu-item relative">
+          </li>}
+         {canViewtask_Groups && <li className="group/menu-item relative">
             <NavLink
               to="/admin/task-groups"
               end
@@ -47,8 +49,8 @@ export default function TaskManagementMenu({ collapsed }: { collapsed: boolean }
               <FolderOpen className="w-4 h-4 shrink-0" />
               {!collapsed && <span className="truncate">Task Groups</span>}
             </NavLink>
-          </li>
-          <li className="group/menu-item relative">
+          </li>}
+          {canViewMy_Tasks && <li className="group/menu-item relative">
             <NavLink
               to="/admin/my-tasks"
               end
@@ -60,8 +62,8 @@ export default function TaskManagementMenu({ collapsed }: { collapsed: boolean }
               <User className="w-4 h-4 shrink-0" />
               {!collapsed && <span className="truncate">My Tasks</span>}
             </NavLink>
-          </li>
-          <li className="group/menu-item relative">
+          </li>}
+      {canViewHistorical_Tasks &&    <li className="group/menu-item relative">
             <NavLink
               to="/admin/historical-tasks"
               end
@@ -73,9 +75,9 @@ export default function TaskManagementMenu({ collapsed }: { collapsed: boolean }
               <History className="w-4 h-4 shrink-0" />
               {!collapsed && <span className="truncate">Historical Tasks</span>}
             </NavLink>
-          </li>
-          {settings?.benchmarking_enabled && (
-            <li className="group/menu-item relative">
+          </li>}
+          {  canViewBenchmarks && settings?.benchmarking_enabled && (
+           <li className="group/menu-item relative">
               <NavLink
                 to="/benchmarking"
                 end

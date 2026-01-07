@@ -9,6 +9,7 @@ import { Separator } from "@/components/ui/separator";
 import { toast } from "@/hooks/use-toast";
 import { apiClient } from "@/lib/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
 
 type OrganizationSettings = {
   id: string;
@@ -128,6 +129,7 @@ const GeneralSettings: React.FC = () => {
       });
     }
   });
+  const {canEditSettings, canCreateSettings} = useRolePermissions();
 
 const handleSave = () => {
   // Validation checks
@@ -214,6 +216,7 @@ const handleSave = () => {
       </Card>
     );
   }
+  
 
   return (
     <div className="space-y-6">
@@ -445,13 +448,13 @@ const handleSave = () => {
 
       {/* Save Button */}
       <div className="flex justify-end">
-        <Button 
+       { canEditSettings &&<Button 
           onClick={handleSave} 
           disabled={saveSettingsMutation.isPending}
           size="lg"
         >
           {saveSettingsMutation.isPending ? "Saving..." : "Save Settings"}
-        </Button>
+        </Button>}
       </div>
     </div>
   );

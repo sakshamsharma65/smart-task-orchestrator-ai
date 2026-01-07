@@ -9,6 +9,7 @@ import { useRole } from "@/contexts/RoleProvider";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
 import type { OfficeLocation, InsertOfficeLocation } from "@shared/schema";
+import { useRolePermissions } from "@/hooks/useRolePermissions";
 
 const OfficeLocationsManager: React.FC = () => {
   const [editing, setEditing] = useState<{ [id: string]: boolean }>({});
@@ -133,7 +134,7 @@ const OfficeLocationsManager: React.FC = () => {
     if (!window.confirm("Are you sure you want to delete this office location?")) return;
     deleteLocationMutation.mutate(id);
   };
-
+const {canCreateSettings, canEditSettings, canDeleteSettings} = useRolePermissions();
   return (
     <div className="w-full space-y-6">
       <Card className="w-full">
@@ -214,20 +215,20 @@ const OfficeLocationsManager: React.FC = () => {
                             </Button>
                           ) : highestRole === "admin" ? (
                             <>
-                              <Button
+                           {canEditSettings &&   <Button
                                 variant="outline"
                                 size="sm"
                                 onClick={() => handleEditLocation(location.id)}
                               >
                                 Edit
-                              </Button>
-                              <Button
+                              </Button>}
+                            {canDeleteSettings &&  <Button
                                 variant="destructive"
                                 size="sm"
                                 onClick={() => handleDeleteLocation(location.id)}
                               >
                                 Delete
-                              </Button>
+                              </Button>}
                             </>
                           ) : null}
                         </div>
@@ -266,9 +267,9 @@ const OfficeLocationsManager: React.FC = () => {
                   rows={3}
                 />
               </div>
-              <Button onClick={handleAddLocation} variant="default" className="w-full sm:w-auto">
+    {canCreateSettings &&          <Button onClick={handleAddLocation} variant="default" className="w-full sm:w-auto">
                 Add Office Location
-              </Button>
+              </Button>}
             </div>
           </CardContent>
         </Card>

@@ -50,10 +50,23 @@ export default function HistoricalTasksPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [showFilters, setShowFilters] = useState(false);
   const [preset, setPreset] = useState<string>("Last Month");
+  const filteredTasks = useMemo(() => {
+  if (!searchQuery.trim()) return tasks;
+
+  const q = searchQuery.toLowerCase();
+
+  return tasks.filter(task =>
+    task.title?.toLowerCase().includes(q) ||
+    task.description?.toLowerCase().includes(q) ||
+    task.assigned_user?.user_name?.toLowerCase().includes(q) ||
+    task.assigned_user?.email?.toLowerCase().includes(q)
+  );
+}, [tasks, searchQuery]);
+
 
   function handlePresetChange(range: { from: Date | null; to: Date | null }, p: string) {
     setPreset(p);
-    if (p === "custom") return;
+    
     filters.setDateRange(range);
   }
 
@@ -196,7 +209,7 @@ export default function HistoricalTasksPage() {
           <div className="text-muted-foreground mb-4 text-center">Loading...</div>
         )}
         
-        {!loading && searched && tasks.length === 0 && !showTooManyWarning && (
+        {!loading && searched && filteredTasks.length === 0 && !showTooManyWarning && (
           <div className="flex flex-col items-center justify-center mt-16">
             <div className="w-40 h-40 bg-gray-100 rounded-lg mb-4 flex items-center justify-center">
               <Search className="w-16 h-16 text-gray-400" />
@@ -206,13 +219,13 @@ export default function HistoricalTasksPage() {
           </div>
         )}
 
-        {!loading && searched && tasks.length > 0 && (
+        {!loading && searched && filteredTasks.length > 0 && (
           <>
             <div className="mb-4 text-sm text-gray-600">
-              Showing {tasks.length} of {totalTasks} historical tasks
+              Showing {filteredTasks.length} of {totalTasks} historical tasks
             </div>
             <div className="grid gap-4">
-              {tasks.map((task) => {
+              {filteredTasks.map((task) => {
                 const statusObj = statuses.find(s => s.name.trim().toLowerCase().replace(/_/g, " ") === task.status.trim().toLowerCase().replace(/_/g, " "));
                 return (
                   <TaskCard 
@@ -228,9 +241,9 @@ export default function HistoricalTasksPage() {
             <TasksPagination
               page={page}
               pageSize={pageSize}
-              total={totalTasks}
-              onPageChange={setPage}
-              onPageSizeChange={setPageSize}
+              totalTasks={totalTasks}
+              setPage={setPage}
+              setPageSize={setPageSize} 
               pageSizeOptions={pageSizeOptions}
             />
           </>

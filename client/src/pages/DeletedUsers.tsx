@@ -8,6 +8,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Archive, Calendar, FileText, Search, Download, User, Mail, Building, Phone } from "lucide-react";
 import { apiClient } from "@/lib/api";
 import { formatOrgDate } from "@/lib/utils";
+import { useUserDisplayNames } from "@/hooks/useUserDisplayNames";
 
 interface DeletedUser {
   id: string;
@@ -44,6 +45,7 @@ interface DeletedTask {
 }
 
 const DeletedUsers: React.FC = () => {
+  const { usersMap } = useUserDisplayNames();
   const [search, setSearch] = React.useState("");
   const [selectedUser, setSelectedUser] = React.useState<DeletedUser | null>(null);
 
@@ -91,7 +93,7 @@ const exportUserData = (user: DeletedUser) => {
     ["Email", user.email],
     ["Department", user.department || "-"],
     ["Phone", user.phone || "-"],
-    ["Manager", user.manager || "-"],
+    ["Manager", usersMap?.[user.manager] || "-"],
     ["Created At", formatOrgDate(user.created_at)],
     ["Deleted At", formatOrgDate(user.deleted_at)],
   ];
@@ -141,6 +143,7 @@ const exportUserData = (user: DeletedUser) => {
   link.click();
   URL.revokeObjectURL(url);
 };
+
 
 
   return (
@@ -336,7 +339,9 @@ const exportUserData = (user: DeletedUser) => {
                 </div>
               </CardContent>
             </Card>
+            
           )}
+
         </div>
       </div>
     </div>

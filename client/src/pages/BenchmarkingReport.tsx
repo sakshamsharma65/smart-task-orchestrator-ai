@@ -258,7 +258,7 @@ const BenchmarkingReport: React.FC = () => {
         console.log(`${user.user_name || user.email} weekly hours breakdown:`, weeklyHours);
         console.log(`${user.user_name || user.email} daily hours breakdown:`, dailyHours);
       }
-
+  
       const averageDailyHours = dailyValues.length > 0 ? dailyValues.reduce((a, b) => a + b, 0) / dailyValues.length : 0;
       const averageWeeklyHours = weeklyValues.length > 0 ? weeklyValues.reduce((a, b) => a + b, 0) / weeklyValues.length : 0;
       const averageMonthlyHours = monthlyValues.length > 0 ? monthlyValues.reduce((a, b) => a + b, 0) / monthlyValues.length : 0;
@@ -442,7 +442,19 @@ const BenchmarkingReport: React.FC = () => {
         return { users: [], queryType: "error", description: "Could not determine time period", matchedPattern: "time_period_error" };
       }
     },
-    
+    {
+  name: "exact_hours_match",
+  test: (query: string) => query.includes("exact"),
+  process: (query: string, data: BenchmarkData[]) => {
+    const exactUsers = data.filter(user => user.isExactHours);
+    return {
+      users: exactUsers,
+      queryType: "exact_hours",
+      description: `Users with exact benchmark hours matches (${exactUsers.length} users)`,
+      matchedPattern: "exact benchmark hours"
+    };
+  }
+},
     // Percentage-based performance analysis - BELOW target
     {
       name: "short_below_percentage",
@@ -1484,11 +1496,13 @@ const BenchmarkingReport: React.FC = () => {
                   </thead>
                   <tbody>
                     {queryResult.users.map((user) => {
+                        console.log("saksham Rendering user:", user);
                       const status = getBenchmarkStatus(user);
                       return (
                         <tr key={user.userId} className="border-b hover:bg-muted/50">
                           <td className="p-3">
                             <div>
+                              
                               <div className="font-medium">{user.userName}</div>
                             </div>
                           </td>
@@ -1502,6 +1516,7 @@ const BenchmarkingReport: React.FC = () => {
                           <td className="p-3 text-right">{user.averageDailyHours.toFixed(1)}h</td>
                           <td className="p-3 text-right">{user.averageWeeklyHours.toFixed(1)}h</td>
                           <td className="p-3 text-right">{user.totalTasks}</td>
+                          
                           <td className="p-3 text-right">{user.daysBelowMin}</td>
                           <td className="p-3 text-right">{user.daysAboveMax}</td>
                         </tr>

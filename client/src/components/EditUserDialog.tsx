@@ -7,6 +7,7 @@ import { toast } from "@/components/ui/use-toast";
 import { apiClient } from "@/lib/api";
 import { useUserList } from "@/hooks/useUserList";
 import { useQuery } from "@tanstack/react-query";
+import { useDepartments } from "@/hooks/useDepartments";
 
 interface User {
   id: string;
@@ -53,8 +54,9 @@ const EditUserDialog: React.FC<EditUserDialogProps> = ({
     custom_min_hours_per_month: user?.custom_min_hours_per_month?.toString() ?? "",
     custom_max_hours_per_month: user?.custom_max_hours_per_month?.toString() ?? "",
   });
-  const [departments, setDepartments] = useState<string[]>([]);
-  const [departmentsLoading, setDepartmentsLoading] = useState(false);
+  // const [departments, setDepartments] = useState<string[]>([]);
+  // const [departmentsLoading, setDepartmentsLoading] = useState(false);
+  const { departments, loading: departmentsLoading } = useDepartments();
 
   // User list for manager dropdown
   const { users: allUsers, loading: usersLoading } = useUserList();
@@ -65,24 +67,24 @@ const EditUserDialog: React.FC<EditUserDialogProps> = ({
   });
 
   // Fetch departments dynamically from API
-  useEffect(() => {
-    async function fetchDepartments() {
-      setDepartmentsLoading(true);
-      try {
-        // For now, use hardcoded departments since we don't have a departments API
-        const hardcodedDepartments = ["Administration",  "Engineering", "Marketing"];
-        setDepartments(hardcodedDepartments);
-      } catch (error) {
-        console.error('Error fetching departments:', error);
-        toast({ title: "Failed to load departments" });
-        setDepartments([]);
-      }
-      setDepartmentsLoading(false);
-    }
-    if (open) {
-      fetchDepartments();
-    }
-  }, [open]);
+  // useEffect(() => {
+  //   async function fetchDepartments() {
+  //     setDepartmentsLoading(true);
+  //     try {
+  //       // For now, use hardcoded departments since we don't have a departments API
+  //       const hardcodedDepartments = ["Administration",  "Engineering", "Marketing"];
+  //       setDepartments(hardcodedDepartments);
+  //     } catch (error) {
+  //       console.error('Error fetching departments:', error);
+  //       toast({ title: "Failed to load departments" });
+  //       setDepartments([]);
+  //     }
+  //     setDepartmentsLoading(false);
+  //   }
+  //   if (open) {
+  //     fetchDepartments();
+  //   }
+  // }, [open]);
 
   React.useEffect(() => {
     if (user) {
@@ -173,24 +175,32 @@ const EditUserDialog: React.FC<EditUserDialogProps> = ({
               name="user_name"
               value={form.user_name}
               onChange={handleChange}
+              disabled
               required
               autoFocus
             />
           </div>
           <div>
             <label className="block text-xs mb-1 font-medium text-muted-foreground">Department</label>
-            <select
-              name="department"
-              value={form.department}
-              onChange={handleChange}
-              className="border rounded px-2 py-1 w-full"
-              disabled={departmentsLoading}
-            >
-              <option value="">-- Select --</option>
-              {departments.map((dep) => (
-                <option value={dep} key={dep}>{dep}</option>
-              ))}
-            </select>
+     <select
+  name="department"
+  className="border rounded px-2 py-1 w-full"
+  value={form.department}
+  onChange={handleChange}
+  disabled={departmentsLoading}
+  required
+>
+  <option value="">
+    {departmentsLoading ? "Loading departments..." : "Select department"}
+  </option>
+
+  {departments.map((dept) => (
+    <option key={dept.id} value={dept.name}>
+      {dept.name}
+    </option>
+  ))}
+</select>
+
           </div>
           <div>
             <label className="block text-xs mb-1 font-medium text-muted-foreground">Phone</label>
