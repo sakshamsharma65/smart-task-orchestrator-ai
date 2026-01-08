@@ -86,6 +86,9 @@ export default function AnalyticsReport() {
     let completed = 0;
     let overdue = 0;
     let inProgress = 0;
+    let todo = 0;
+    let review = 0;
+    
     const today = new Date();
     
     filteredTasks.forEach(task => {
@@ -99,7 +102,10 @@ export default function AnalyticsReport() {
       
       // KPIs
       if (task.status.toLowerCase() === "completed") completed++;
+      if (task.status.toLowerCase().includes("to do")) todo++;
+      if (task.status.toLowerCase().includes("review")) review++;
       else if (task.status.toLowerCase().includes("progress")) inProgress++;
+
       
       if (task.due_date && task.status.toLowerCase() !== "completed" && new Date(task.due_date) < today) {
         overdue++;
@@ -124,6 +130,8 @@ export default function AnalyticsReport() {
       userStats,
       kpis: {
         total: filteredTasks.length,
+        todo,
+        review,
         completed,
         overdue,
         inProgress
@@ -211,19 +219,28 @@ export default function AnalyticsReport() {
       </div>
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-6 gap-3 mb-8">
         <div className="bg-white p-6 rounded-lg border shadow-sm">
           <h3 className="text-sm font-medium text-gray-500">Total Tasks</h3>
           <p className="text-3xl font-bold text-blue-600">{analytics.kpis.total}</p>
         </div>
         <div className="bg-white p-6 rounded-lg border shadow-sm">
-          <h3 className="text-sm font-medium text-gray-500">Completed</h3>
-          <p className="text-3xl font-bold text-green-600">{analytics.kpis.completed}</p>
+          <h3 className="text-sm font-medium text-gray-500">To Do</h3>
+          <p className="text-3xl font-bold text-blue-600">{analytics.kpis.todo}</p>
         </div>
-        <div className="bg-white p-6 rounded-lg border shadow-sm">
+         <div className="bg-white p-6 rounded-lg border shadow-sm">
           <h3 className="text-sm font-medium text-gray-500">In Progress</h3>
           <p className="text-3xl font-bold text-yellow-600">{analytics.kpis.inProgress}</p>
         </div>
+         <div className="bg-white p-6 rounded-lg border shadow-sm">
+          <h3 className="text-sm font-medium text-gray-500">Review</h3>
+          <p className="text-3xl font-bold text-yellow-600">{analytics.kpis.review}</p>
+        </div>
+        <div className="bg-white p-6 rounded-lg border shadow-sm">
+          <h3 className="text-sm font-medium text-gray-500">Completed</h3>
+          <p className="text-3xl font-bold text-green-600">{analytics.kpis.completed}</p>
+        </div>
+       
         <div className="bg-white p-6 rounded-lg border shadow-sm">
           <h3 className="text-sm font-medium text-gray-500">Overdue</h3>
           <p className="text-3xl font-bold text-red-600">{analytics.kpis.overdue}</p>

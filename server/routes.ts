@@ -1454,14 +1454,37 @@ app.delete("/api/tasks/:id", requireAnyAuthenticated, async (req, res) => {
     }
   });
 
-  app.delete("/api/teams/:id", requireManagerOrAdmin, async (req, res) => {
-    try {
-      await storage.deleteTeam(req.params.id);
-      res.status(204).send();
-    } catch (error) {
-      res.status(500).json({ error: "Failed to delete team" });
+app.delete("/api/teams/:id", requireManagerOrAdmin, async (req, res) => {
+  try {
+    const team = await storage.getTeam(req.params.id); // Fetch team details BEFORE deletion
+    
+    if (!team) {
+      return res.status(404).json({ error: "Team not found" });
     }
-  });
+    
+    await storage.deleteTeam(req.params.id);
+    
+    // fire-and-forget logging
+    storage.logActivity({
+      source_table: "teams",
+      event_type: "DELETE_TEAM",
+      record_id: req.params.id,
+      summary: { name: team.name,
+        message: "Team deleted" },
+      performed_by: Array.isArray(req.headers["x-user-id"])
+        ? req.headers["x-user-id"][0]
+        : req.headers["x-user-id"] ?? null,
+    }).catch(err => {
+      console.error("Activity log failed:", err);
+    });
+
+    return res.status(204).send();
+  } catch (error) {
+    console.error("Delete team error:", error);
+    return res.status(500).json({ error: "Failed to delete team" });
+  }
+});
+
 
   // Team membership routes
   app.get("/api/teams/:id/members", async (req, res) => {

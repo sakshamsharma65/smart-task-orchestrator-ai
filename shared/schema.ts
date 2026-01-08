@@ -1,8 +1,9 @@
-import { pgTable, text, uuid, timestamp, integer, boolean, pgEnum, serial, decimal ,unique,bigserial, jsonb} from "drizzle-orm/pg-core";
+import { pgTable, text, uuid, timestamp, integer, boolean, pgEnum, serial, decimal ,unique,bigserial, jsonb,numeric} from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 import { relations } from "drizzle-orm";
+
 
 
 // Organization settings table
@@ -237,7 +238,7 @@ export const tasks = pgTable("tasks", {
   priority: integer("priority"),
   due_date: timestamp("due_date"),
   start_date: timestamp("start_date"),
-  estimated_hours: integer("estimated_hours"),
+  estimated_hours: numeric("estimated_hours"),
   status: text("status").notNull().default("pending"),
   type: text("type").notNull(),
   created_by: uuid("created_by").notNull().references(() => users.id),

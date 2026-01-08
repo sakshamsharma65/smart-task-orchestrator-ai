@@ -4,6 +4,7 @@ import { Card, CardHeader, CardContent, CardTitle } from "@/components/ui/card";
 import { useUserDisplayNames } from "@/hooks/useUserDisplayNames";
 import { useQueryClient } from "@tanstack/react-query";
 import {useState,useMemo} from "react";
+import { Switch } from "@radix-ui/react-switch";
 
 
 export default function ActivityLogPage() {
@@ -98,9 +99,15 @@ function renderSummary(log: any) {
 
   // ===== TEAMS =====
   if (log.source_table === "teams") {
-    return <>Team “{s.name}” was updated by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
+  switch (log.event_type) {
+    case "CREATE":
+      return <>Team “{s.name}” was created by {usersMap?.[log.performed_by] || "Unknown User"}.</>;      
+    case "DELETE_TEAM":
+      return <>Team “{s.name}” was deleted by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
+    case "UPDATE_TEAM":
+      return <>Team “{s.name}” was updated by {usersMap?.[log.performed_by] || "Unknown User"}.</>;      
   }
-
+  }
   // ===== TEAM MEMBERS =====
   if (log.source_table === "team_members") {
     if (s.added_user_name) {
