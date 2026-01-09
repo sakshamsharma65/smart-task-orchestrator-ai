@@ -1163,7 +1163,7 @@ await storage.logActivity({
   record_id: task.id,
   summary: {
      task_id: task.id,  
-     task_id: task.id,
+     
             action_type: "priority_changed",
             old_value: priorityNames[oldTask.priority as keyof typeof priorityNames] || `${oldTask.priority}`,
             new_value: priorityNames[req.body.priority as keyof typeof priorityNames] || `${req.body.priority}`,
