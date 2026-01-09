@@ -111,7 +111,7 @@ async function initializeRoles() {
           });
           console.log(`     ✓ ${permConfig.resource}: Level ${permConfig.permission_level}`);
         } catch (error) {
-          console.log(`     ⚠  Failed to create permission for ${permConfig.resource}`);
+          console.log(` ⚠ Failed to create permission for ${permConfig.resource}`);
         }
       }
     }

@@ -740,7 +740,7 @@ app.delete("/api/users/:id", requireAdmin, async (req, res) => {
     // 1️⃣ Log activity BEFORE deletion
     const tasksAssigned = await storage.getTasksByUser(userId);
     const taskAssignedTitles = tasksAssigned.map(t => t.title).join(", ");
-    console.log("saksham", taskAssignedTitles);
+   
     await storage.logActivity({
       source_table: "users",
       event_type: "DELETED_USER",
@@ -1158,8 +1158,8 @@ await storage.logActivity({
             acted_by: userId,
           });
             await storage.logActivity({
-  source_table: "tasks",
-  event_type: "PRIORITY_CHANGED",
+        source_table: "tasks",
+        event_type: "PRIORITY_CHANGED",
   record_id: task.id,
   summary: {
      task_id: task.id,  
