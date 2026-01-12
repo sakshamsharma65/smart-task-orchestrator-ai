@@ -114,7 +114,7 @@ const AuthPage: React.FC = () => {
               <div className="flex items-center space-x-3">
                 {/* <Logo /> */}
               <img
-  src="/tazq-logo-blue.png"
+  src="/tazq-logo.png"
   alt="Tazq Logo"
   className="
     w-32        /* mobile */

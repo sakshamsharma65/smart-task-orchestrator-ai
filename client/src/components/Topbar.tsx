@@ -57,7 +57,7 @@ const Topbar: React.FC<TopbarProps> = ({ sidebarOpen, setSidebarOpen }) => {
         <div className="flex items-center gap-2 lg:hidden">
           <div className="w-8 h-8 bg-blue-600 rounded-lg flex items-center justify-center">
             <span className="text-white font-bold text-sm">
-                <img src="/tazq-logo-blue.png" alt="Logo" style={{ width: '100px', height: '50px' }} />
+                <img src="/tazq-logo.png" alt="Logo" style={{ width: '100px', height: '50px' }} />
   </span>
           </div>
           <span className="text-lg font-semibold text-gray-800">

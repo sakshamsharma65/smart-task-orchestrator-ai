@@ -69,16 +69,27 @@ const SuperAdminRegistration: React.FC = () => {
           <div className="hidden lg:block space-y-8 text-white">
             <div className="space-y-6">
               <div className="flex items-center space-x-3">
-                <Logo />
+               
                 <span className="text-2xl font-bold bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-                  TaskRep
+                            <img
+  src="/tazq-logo.png"
+  alt="Tazq Logo"
+  className="
+    w-32        /* mobile */
+    sm:w-40     /* ≥640px */
+    md:w-48     /* ≥768px */
+    lg:w-52     /* ≥1024px */
+    h-auto
+    
+  "
+/>
                 </span>
               </div>
               <div className="space-y-4">
                 <h1 className="text-5xl font-bold leading-tight">
                   Welcome to
                   <span className="block bg-gradient-to-r from-blue-400 to-purple-400 bg-clip-text text-transparent">
-                    TaskRep
+                    Tazq
                   </span>
                 </h1>
                 <p className="text-xl text-slate-300 leading-relaxed max-w-lg">
