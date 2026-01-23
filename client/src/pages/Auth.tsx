@@ -266,7 +266,7 @@ const AuthPage: React.FC = () => {
                   
 
                   {/* Demo login instruction */}
-                  <div className="text-center">
+                  {/* <div className="text-center">
                     <div className="bg-blue-500/20 border border-blue-500/30 rounded-xl p-3">
                       <p className="text-blue-200 text-sm font-medium mb-1">Demo Access</p>
                       <p className="text-blue-300 text-xs">
@@ -274,7 +274,7 @@ const AuthPage: React.FC = () => {
                         Password: <span className="font-mono">tempPassword123</span>
                       </p>
                     </div>
-                  </div>
+                  </div> */}
                 </form>
 
                 {/* Additional info */}
