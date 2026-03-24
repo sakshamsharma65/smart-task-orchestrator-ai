@@ -10,13 +10,13 @@ export default function ManagementMenu({ isAdmin, isManager, collapsed }: { isAd
   if (!(isAdmin || isManager)) return null;
   return (
     <div>
-      <div className="text-xs font-semibold uppercase tracking-wider mb-2 px-2 text-[#021133]">Management</div>
+
       <div>
         <ul className="flex w-full min-w-0 flex-col gap-1">
           
           {canViewUsers &&  <li className="group/menu-item relative">
               <NavLink
-                to="/admin/users"
+                to="/users"
                 end
                 className={({ isActive }) =>
                   "flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none transition-[width,height,padding] hover:bg-gray-100 focus-visible:ring-2 " +
@@ -31,7 +31,7 @@ export default function ManagementMenu({ isAdmin, isManager, collapsed }: { isAd
           {isAdmin && (
             <li className="group/menu-item relative">
               <NavLink
-                to="/admin/deleted-users"
+                to="/deleted-users"
                 end
                 className={({ isActive }) =>
                   "flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none transition-[width,height,padding] hover:bg-gray-100 focus-visible:ring-2 " +
@@ -45,7 +45,7 @@ export default function ManagementMenu({ isAdmin, isManager, collapsed }: { isAd
           )}
      {canViewTeams &&      <li className="group/menu-item relative">
             <NavLink
-              to="/admin/teams"
+              to="/teams"
               end
               className={({ isActive }) =>
                 "flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none transition-[width,height,padding] hover:bg-gray-100 focus-visible:ring-2 " +
@@ -59,7 +59,7 @@ export default function ManagementMenu({ isAdmin, isManager, collapsed }: { isAd
           {canViewRolePermissions && (
             <li className="group/menu-item relative">
               <NavLink
-                to="/admin/role-permissions"
+                to="/role-permissions"
                 end
                 className={({ isActive }) =>
                   "flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none transition-[width,height,padding] hover:bg-gray-100 focus-visible:ring-2 " +

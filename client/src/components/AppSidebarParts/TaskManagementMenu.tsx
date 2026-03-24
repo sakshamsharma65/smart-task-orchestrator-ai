@@ -21,12 +21,12 @@ export default function TaskManagementMenu({ collapsed }: { collapsed: boolean }
   
   return (
     <div>
-      <div className="text-xs font-semibold uppercase tracking-wider mb-2 px-2 text-[#021133]">Task Management</div>
+      {/* <div className="text-xs font-semibold uppercase tracking-wider mb-2 px-2 text-[#021133]">Task Management</div> */}
       <div>
         <ul className="flex w-full min-w-0 flex-col gap-1">
           {canViewTask&&<li className="group/menu-item relative">
             <NavLink
-              to="/admin/tasks"
+              to="/tasks"
               end
               className={({ isActive }) =>
                 "flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none transition-[width,height,padding] hover:bg-gray-100 focus-visible:ring-2 " +
@@ -39,7 +39,7 @@ export default function TaskManagementMenu({ collapsed }: { collapsed: boolean }
           </li>}
          {canViewtask_Groups && <li className="group/menu-item relative">
             <NavLink
-              to="/admin/task-groups"
+              to="/task-groups"
               end
               className={({ isActive }) =>
                 "flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none transition-[width,height,padding] hover:bg-gray-100 focus-visible:ring-2 " +
@@ -52,7 +52,7 @@ export default function TaskManagementMenu({ collapsed }: { collapsed: boolean }
           </li>}
           {canViewMy_Tasks && <li className="group/menu-item relative">
             <NavLink
-              to="/admin/my-tasks"
+              to="/my-tasks"
               end
               className={({ isActive }) =>
                 "flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none transition-[width,height,padding] hover:bg-gray-100 focus-visible:ring-2 " +
@@ -65,7 +65,7 @@ export default function TaskManagementMenu({ collapsed }: { collapsed: boolean }
           </li>}
       {canViewHistorical_Tasks &&    <li className="group/menu-item relative">
             <NavLink
-              to="/admin/historical-tasks"
+              to="/historical-tasks"
               end
               className={({ isActive }) =>
                 "flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none transition-[width,height,padding] hover:bg-gray-100 focus-visible:ring-2 " +

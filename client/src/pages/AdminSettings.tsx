@@ -10,7 +10,10 @@ import DepartmentsManager from "@/components/settings/DepartmentsManager";
 import OfficeLocationsManager from "@/components/settings/OfficeLocationsManager";
 import StatusManager from "@/components/settings/StatusManager";
 import GeneralSettings from "@/components/settings/GeneralSettings";
+import EmailManager from "@/components/settings/EmailManager";
+import Notificationsettings from "@/components/settings/Notificationsettings";
 import { LicenseManager } from "@/components/settings/LicenseManager";
+import GlobalTodoSettings from "@/components/settings/GlobalTodoSettings";
 
 const AdminSettings: React.FC = () => {
   const [tab, setTab] = useState("general");
@@ -51,6 +54,21 @@ const AdminSettings: React.FC = () => {
             >
               License Manager
             </TabsTrigger>
+             <TabsTrigger
+              value="email"
+              className="px-6 py-3 text-left justify-start"
+            >
+             Email Configuration
+            </TabsTrigger>
+               <TabsTrigger
+              value="notifications"
+              className="px-6 py-3 text-left justify-start"
+            >
+            Notification Settings
+            </TabsTrigger>
+            <TabsTrigger value="Todos" className="px-6 py-3 text-left justify-start">
+              Todos
+            </TabsTrigger>
           </TabsList>
           <TabsContent value="general" className="w-full">
             <GeneralSettings />
@@ -64,6 +82,16 @@ const AdminSettings: React.FC = () => {
           <TabsContent value="statuses" className="w-full">
             <StatusManager />
           </TabsContent>
+          <TabsContent value="email" className="w-full">
+  <EmailManager />
+</TabsContent>
+          <TabsContent value="notifications" className="w-full">
+            <Notificationsettings />
+          </TabsContent>  
+<TabsContent value="Todos" className="w-full">
+            <GlobalTodoSettings />
+          </TabsContent>  
+
           <TabsContent value="license" className="w-full">
             <LicenseManager />
           </TabsContent>

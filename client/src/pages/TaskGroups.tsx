@@ -265,18 +265,47 @@ async function refetchDetails() {
         <form className="space-y-4 border rounded-lg p-4 mb-8 bg-white shadow" onSubmit={handleCreate}>
           <div>
             <label className="block font-medium mb-1">Group Name</label>
-            <Input
-              value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))}
-              required
-              placeholder="Enter group name"
-            />
+       <Input
+  value={form.name}
+  onChange={(e) => {
+    const value = e.target.value;
+
+    if (value.length == 50) {
+      toast({
+        title: "Name too long",
+        description: "Group name cannot exceed 50 characters."
+      });
+
+      setForm(f => ({ ...f, name: value.slice(0, 50) }));
+      return;
+    }
+
+    setForm(f => ({ ...f, name: value }));
+  }}
+  className="w-full"
+  required
+  maxLength={50}
+  placeholder="Enter group name"
+/>
           </div>
           <div>
             <label className="block font-medium mb-1">Description</label>
             <Textarea
               value={form.description}
-              onChange={e => setForm(f => ({ ...f, description: e.target.value }))}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value.length ==  200) {
+                  toast({
+                    title: "Description too long",
+                    description: "Group description cannot exceed 200 characters."
+                  });
+                  setForm(f => ({ ...f, description: value.slice(0, 200) }));
+                  return;
+                }
+                setForm(f => ({ ...f, description: value }));
+              }}
               placeholder="Enter description"
+              maxLength={200}
             />
           </div>
           <div>

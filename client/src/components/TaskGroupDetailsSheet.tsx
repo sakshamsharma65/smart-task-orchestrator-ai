@@ -8,6 +8,7 @@ import {
   SheetFooter,
   SheetClose,
 } from "@/components/ui/sheet";
+import { useEffect } from "react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent } from "@/components/ui/card";
@@ -63,25 +64,27 @@ type Props = {
 };
 
 export default function TaskGroupDetailsSheet({ open, onOpenChange, group, refetchDetails }: Props) {
+  const [userSource,setUserSource] = useState<"all" | "team">("all");
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([]);
   const [selectedTeamId, setSelectedTeamId] = useState<string>("");
   const [selectedRole, setSelectedRole] = useState<string>("member");
   const [userSearchOpen, setUserSearchOpen] = useState(false);
   const [userSearchValue, setUserSearchValue] = useState("");
   const { toast } = useToast();
+  const [teamUsers,setTeamUsers]=useState<any[]>([]);
   const queryClient = useQueryClient();
 
   // Fetch all users for member selection
   const { data: users = [] } = useQuery({
     queryKey: ['/api/users'],
     enabled: open,
-  });
+  }) as { data: any[] };
 
   // Fetch all teams for team selection
   const { data: teams = [] } = useQuery({
     queryKey: ['/api/teams'],
     enabled: open,
-  });
+  }) as { data: any[] };
 
   const getStatusColor = (status: string) => {
     switch (status.toLowerCase()) {
@@ -129,64 +132,49 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group, refet
       year: 'numeric'
     });
   };
+useEffect(() => {
+  setSelectedUserIds([]);
+}, [selectedTeamId, userSource, selectedRole]);
 
 
-  const handleAddTeam = async () => {
-    if (!group?.id || !selectedTeamId) return;
-    
-    try {
-      // Get team members
-      const teamMembers = await apiClient.getTeamMembers(selectedTeamId);
-      
-      // Filter out members already in the group
-      const currentMemberIds = group?.members?.map((m: any) => m.user_id) || [];
-      const newMembers = teamMembers.filter((member: any) => !currentMemberIds.includes(member.user_id));
-      
-      if (newMembers.length === 0) {
-        toast({
-          title: "No new members to add",
-          description: "All team members are already in this group.",
-        });
-        setSelectedTeamId("");
-        return;
-      }
-      
-      // Add only new team members to the task group
-      for (const member of newMembers) {
-        await apiClient.addTaskGroupMember(group.id, member.user_id, selectedRole);
-      }
-      
-      // Get team tasks and assign them to the group
-      const teamTasks = await apiClient.getTeamTasks(selectedTeamId);
-      for (const task of teamTasks) {
-        try {
-          await apiClient.addTaskToGroup(group.id, task.id);
-        } catch (error) {
-          console.log("Task might already be in group:", task.id);
-        }
-      }
-      
-      await refetchDetails();   // ⬅️ THIS refreshes UI instantly
+
+const handleAddTeam = async () => {
+  if (!selectedTeamId || !selectedRole || !group?.id) return;
+
+  try {
+    // Fetch only the users that match the selected role for this team
+    const response = await fetch(`/api/teams/${selectedTeamId}/members?role=${selectedRole}`);
+    const membersToAdd = await response.json();
+
+    if (membersToAdd.length === 0) {
+      toast({ title: "No members found", description: `No ${selectedRole}s found for this team.` });
+      return;
+    }
+
+    // Add them to the Task Group
+    for (const member of membersToAdd) {
+      await fetch(`/api/task-groups/${group.id}/members`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ 
+          userId: member.user_id,
+          role: selectedRole // Use selectedRole instead of hardcoded 'member'
+        }),
+      });
+    }
+    await refetchDetails();   // ⬅️ THIS refreshes UI instantly
 
       // Refresh the group details immediately
       queryClient.invalidateQueries({ queryKey: ['/api/task-groups'] });
       queryClient.invalidateQueries({ queryKey: [`/api/task-groups/${group.id}/details`] });
       
       setSelectedTeamId("");
-      setSelectedRole("member");
-      toast({
-        title: "Team added successfully",
-        description: `${newMembers.length} new team members and their tasks have been added to the group.`,
-      });
-    } catch (error: any) {
-      toast({
-        title: "Failed to add team",
-        description: error.message || "Unknown error occurred",
-        variant: "destructive",
-      });
-    }
-  };
+    toast({ title: "Success", description: `Added ${membersToAdd.length} ${selectedRole}(s) to the group.` });
 
+  } catch (error) {
+    console.error(error);
+  }
+};
   const handleAddMembers = async () => {
     if (!group?.id || selectedUserIds.length === 0) return;
     
@@ -206,23 +194,23 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group, refet
       
       // Add only new users to the task group
       for (const userId of newUserIds) {
-        await apiClient.addTaskGroupMember(group.id, userId, selectedRole);
+                                                            addTaskGroupMember(group.id, userId, selectedRole);
       }
       
       // Get user tasks and assign them to the group
-      for (const userId of newUserIds) {
-        const userTasks = await apiClient.getUserTasks(userId);
-        // Filter out personal tasks - only add team/work tasks
-        const workTasks = userTasks.filter((task: any) => task.team_id || !task.is_personal);
+      // for (const userId of newUserIds) {
+      //   const userTasks = await apiClient.getUserTasks(userId);
+      //   // Filter out personal tasks - only add team/work tasks
+      //   const workTasks = userTasks.filter((task: any) => task.team_id || !task.is_personal);
         
-        for (const task of workTasks) {
-          try {
-            await apiClient.addTaskToGroup(group.id, task.id);
-          } catch (error) {
-            console.log("Task might already be in group:", task.id);
-          }
-        }
-      }
+      //   for (const task of workTasks) {
+      //     try {
+      //       await apiClient.addTaskToGroup(group.id, task.id);
+      //     } catch (error) {
+      //       console.log("Task might already be in group:", task.id);
+      //     }
+      //   }
+      // }
       
       // Refresh the group details immediately
       queryClient.invalidateQueries({ queryKey: ['/api/task-groups'] });
@@ -234,7 +222,8 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group, refet
       setSelectedRole("member");
       toast({
         title: "Members added successfully",
-        description: `${newUserIds.length} new member(s) and their work tasks have been added to the group.`,
+        description: `Added ${newUserIds.length} new member(s) to the group.`,
+        // description: `${newUserIds.length} new member(s) and their work tasks have been added to the group.`,
       });
     } catch (error: any) {
       toast({
@@ -276,13 +265,25 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group, refet
     return role === 'manager' ? 'bg-purple-100 text-purple-800 border-purple-200' : 'bg-blue-100 text-blue-800 border-blue-200';
   };
 
-  const getAvailableUsers = () => {
-    const currentMemberIds = group?.members?.map((m: any) => m.user_id) || [];
-    return users.filter((user: any) => !currentMemberIds.includes(user.id));
-  };
+const getAvailableUsers = () => {
+  const currentMemberIds =
+    group?.members?.map((m: any) => m.user_id) || [];
+
+  let sourceUsers = users;
+
+  if (userSource === "team" && selectedTeamId) {
+    sourceUsers = teamUsers;
+  }
+
+  return sourceUsers.filter(
+    (user: any) => !currentMemberIds.includes(user.id)
+  );
+};
+
+
   
   const getAvailableTeams = () => {
-    return teams || [];
+    return Array.isArray(teams) ? teams : [];
   };
 
   const toggleUserSelection = (userId: string) => {
@@ -299,6 +300,42 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group, refet
       return user?.user_name || user?.email || 'Unknown';
     }).join(', ');
   };
+
+
+useEffect(() => {
+  const fetchTeamUsers = async () => {
+    if (!selectedTeamId) {
+      setTeamUsers([]);
+      return;
+    }
+
+    try {
+      const res = await fetch(
+        `/api/teams/${selectedTeamId}/members?role=${selectedRole}`
+      );
+
+      const data = await res.json();
+
+      // normalize structure to match users[]
+      const normalized = data.map((m: any) => ({
+        id: m.user_id,
+        user_name: m.user?.user_name,
+        email: m.user?.email,
+      }));
+
+      setTeamUsers(normalized);
+
+    } catch (err) {
+      console.error(err);
+      setTeamUsers([]);
+    }
+  };
+
+  fetchTeamUsers();
+}, [selectedTeamId, selectedRole]);
+
+
+
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
@@ -377,18 +414,48 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group, refet
                 {/* Team Selection */}
                 <div className="flex items-center gap-2">
                   <Building2 className="h-4 w-4 text-gray-500" />
-                  <Select value={selectedTeamId} onValueChange={setSelectedTeamId}>
-                    <SelectTrigger className="w-48">
-                      <SelectValue placeholder="Select team..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {getAvailableTeams().map((team: any) => (
-                        <SelectItem key={team.id} value={team.id}>
-                          {team.name}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+<Select
+  value={selectedTeamId || "all"}
+  onValueChange={(value) => {
+    if (value === "all") {
+      setSelectedTeamId("");
+      setUserSource("all");
+    } else {
+      setSelectedTeamId(value);
+      setUserSource("team");
+    }
+  }}
+>
+  <SelectTrigger className="w-48">
+    {/* Agar 'all' selected hai, to "Select Team" dikhayega, warna team ka naam */}
+    <SelectValue>
+      {selectedTeamId 
+        ? getAvailableTeams().find(t => t.id === selectedTeamId)?.name 
+        : "Select Team"}
+    </SelectValue>
+  </SelectTrigger>
+
+  <SelectContent>
+    {/* Teams ki list */}
+    {getAvailableTeams().map((team: any) => (
+      <SelectItem key={team.id} value={team.id}>
+        {team.name}
+      </SelectItem>
+    ))}
+
+    {/* Divider */}
+    <div className="border-t my-1 opacity-50"></div>
+
+    {/* Niche wala option "All Users" hona chahiye */}
+    <SelectItem value="all">
+      <div className="flex items-center gap-2">
+        <Users className="h-4 w-4" />
+        <span>All Users</span>
+      </div>
+    </SelectItem>
+  </SelectContent>
+</Select>
+
                   <Select value={selectedRole} onValueChange={setSelectedRole}>
                     <SelectTrigger className="w-32">
                       <SelectValue />
@@ -398,14 +465,14 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group, refet
                       <SelectItem value="manager">Manager</SelectItem>
                     </SelectContent>
                   </Select>
-               {canEdittask_Groups &&   <Button 
+               {/* {canEdittask_Groups &&   <Button 
                     onClick={handleAddTeam}
                     disabled={!selectedTeamId}
                     size="sm"
                   >
                     <Building2 className="h-4 w-4 mr-1" />
                     Add Team
-                  </Button>}
+                  </Button>} */}
                 </div>
 
                 {/* Individual User Selection */}
@@ -427,7 +494,7 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group, refet
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent  align="start" sideOffset={5} className="w-[280px] max-h-[320px] p-0 bg-white border shadow-lg rounded-md overflow-hidden">
-                      <Command>
+                      <Command shouldFilter={false}>
                         <CommandInput 
                           placeholder="Search users..." 
                           value={userSearchValue}
@@ -481,57 +548,74 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group, refet
             </div>
 
             <div className="space-y-3">
-              {group?.members?.length ? (
-                group.members.map((member: any) => {
-                  const RoleIcon = getRoleIcon(member.role);
-                  
-                  return (
-                    <Card key={member.id} className="hover:shadow-md transition-shadow">
-                      <CardContent className="p-4">
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
-                            <Avatar className="h-10 w-10">
-                              <AvatarFallback>
-                                {member.user?.user_name?.charAt(0)?.toUpperCase() || 'U'}
-                              </AvatarFallback>
-                            </Avatar>
-                            <div>
-                              <div className="font-medium text-gray-900">
-                                {member.user?.user_name || 'Unknown User'}
-                              </div>
-                              <div className="text-sm text-gray-500">
-                                {member.user?.email || 'No email'}
-                              </div>
-                              {member.user?.department && (
-                                <div className="text-xs text-gray-400">
-                                  {member.user.department}
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Badge 
-                              variant="outline"
-                              className={`text-xs ${getRoleColor(member.role)}`}
-                            >
-                              <RoleIcon className="h-3 w-3 mr-1" />
-                              {member.role.charAt(0).toUpperCase() + member.role.slice(1)}
-                            </Badge>
-                         { canDeletetask_Groups &&   <Button
-                              variant="ghost"
-                              size="sm"
-                              onClick={() => handleRemoveMember(member.user_id)}
-                              className="text-red-600 hover:text-red-700 hover:bg-red-50"
-                            >
-                              <UserMinus className="h-4 w-4" />
-                            </Button>}
-                          </div>
-                        </div>
-                      </CardContent>
-                    </Card>
-                  );
-                })
-              ) : (
+   {group?.members?.length ? (
+  group.members
+    .slice()
+    .sort((a: any, b: any) =>
+      (a.user?.user_name || "")
+        .toLowerCase()
+        .localeCompare((b.user?.user_name || "").toLowerCase())
+    )
+    .map((member: any) => {
+      const RoleIcon = getRoleIcon(member.role);
+
+      return (
+        <Card key={member.id} className="hover:shadow-md transition-shadow">
+          <CardContent className="p-4">
+            <div className="flex items-center justify-between">
+
+              <div className="flex items-center gap-3">
+                <Avatar className="h-10 w-10">
+                  <AvatarFallback>
+                    {member.user?.user_name?.charAt(0)?.toUpperCase() || "U"}
+                  </AvatarFallback>
+                </Avatar>
+
+                <div>
+                  <div className="font-medium text-gray-900">
+                    {member.user?.user_name || "Unknown User"}
+                  </div>
+
+                  <div className="text-sm text-gray-500">
+                    {member.user?.email || "No email"}
+                  </div>
+
+                  {member.user?.department && (
+                    <div className="text-xs text-gray-400">
+                      {member.user.department}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <Badge
+                  variant="outline"
+                  className={`text-xs ${getRoleColor(member.role)}`}
+                >
+                  <RoleIcon className="h-3 w-3 mr-1" />
+                  {member.role.charAt(0).toUpperCase() + member.role.slice(1)}
+                </Badge>
+
+                {canDeletetask_Groups && (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => handleRemoveMember(member.user_id)}
+                    className="text-red-600 hover:text-red-700 hover:bg-red-50"
+                  >
+                    <UserMinus className="h-4 w-4" />
+                  </Button>
+                )}
+
+              </div>
+
+            </div>
+          </CardContent>
+        </Card>
+      );
+    })
+) :  (
                 <Card className="text-center py-8">
                   <CardContent>
                     <Users className="h-12 w-12 mx-auto text-gray-400 mb-4" />
@@ -591,9 +675,7 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group, refet
                             </h4>
                             
                             {task?.description && (
-                              <p className="text-sm text-gray-600 mb-3 line-clamp-2">
-                                {task.description}
-                              </p>
+                              <p className="text-sm text-gray-600 mb-3 line-clamp-2" dangerouslySetInnerHTML={{ __html: task.description }} />
                             )}
                             
                             <div className="flex items-center gap-4 text-xs text-gray-500">

@@ -106,23 +106,32 @@ export default function RolePermissions() {
   }, [selectedRole]);
 
 
-   const loadRoles = async () => {
-    try {
-      const rolesData = await apiClient.getRoles();
-      setRoles(rolesData);
-      if (rolesData.length > 0) {
+  const loadRoles = async () => {
+  try {
+    const rolesData = await apiClient.getRoles();
+    setRoles(rolesData);
+    
+    if (rolesData.length > 0) {
+      // 1. Check if we already have a selectedRole ID
+      const currentSelectedId = selectedRole?.id;
+      
+      // 2. Try to find that same role in the fresh data
+      const stillExists = rolesData.find(r => r.id === currentSelectedId);
+      
+      if (stillExists) {
+        // Keep the current selection, but update with fresh data
+        setSelectedRole(stillExists);
+      } else if (!selectedRole) {
+        // Only default to index 0 if we don't have a selection yet
         setSelectedRole(rolesData[0]);
       }
-    } catch (error) {
-      toast({
-        title: "Error loading roles",
-        description: "Failed to load roles from server",
-        variant: "destructive",
-      });
-    } finally {
-      setLoading(false);
     }
-  };
+  } catch (error) {
+    // ... error handling
+  } finally {
+    setLoading(false);
+  }
+};
 
   const loadRolePermissions = async (roleId: string) => {
     try {
@@ -280,7 +289,7 @@ export default function RolePermissions() {
   }
 
   return (
-    <div className="p-6 max-w-7xl">
+    <div className="p-6 w-full">
       <div className="flex justify-between items-center mb-6">
         <div>
           <h1 className="text-3xl font-bold flex items-center gap-2">

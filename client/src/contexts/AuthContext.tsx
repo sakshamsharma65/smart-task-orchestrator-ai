@@ -1,3 +1,4 @@
+import { toast } from '@/components/ui/sonner';
 import React, { createContext, useContext, useState, useEffect } from 'react';
 
 // Simple auth context to replace Supabase auth
@@ -11,6 +12,12 @@ interface User {
 interface AuthContextType {
   user: User | null;
   login: (email: string, password: string) => Promise<void>;
+  /// NEW: 2FA State and Methods
+  mfaPending: boolean;
+  tempToken: string | null;
+  verify2FA: (code: string) => Promise<void>;
+  resend2FA: () => Promise<void>;
+  setMfaPending: (pending: boolean) => void;
   logout: () => void;
   loading: boolean;
   checkSystemStatus: () => Promise<{ hasUsers: boolean }>;
@@ -22,6 +29,10 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
+  // NEW: Internal 2FA State
+  const [mfaPending, setMfaPending] = useState(false);
+  const [tempToken, setTempToken] = useState<string | null>(null);
+const [limitReached, setLimitReached] = useState(false);
 
   useEffect(() => {
     // Check for stored session
@@ -54,6 +65,51 @@ const login = async (email: string, password: string) => {
         message: data.error || "Login failed",
       };
     }
+    // THE FORK: If 2FA is required, update internal state and return
+      if (response.status === 202 && data.mfaRequired) {
+        setTempToken(data.tempToken);
+        setMfaPending(true);
+        return; // Exits without calling setUser, keeping user as null
+      }
+
+      // SUCCESS: No 2FA required
+      setUser(data);
+      localStorage.setItem('user', JSON.stringify(data));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // NEW: Verification Logic
+  const verify2FA = async (code: string) => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/auth/verify-2fa', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tempToken, code }),
+      });
+
+      const data = await response.json();
+    if (response.status === 429) {
+    
+  setLimitReached(true);
+
+  toast({
+    title: "Limit reached",
+    description: "Too many attempts. Please login again after 15 minutes.",
+    variant: "destructive",
+  });
+
+  return;
+}
+      if (!response.ok) {
+        throw { status: response.status, message: data.error || "Verification failed" };
+      }
+
+      // Success! Clear MFA state and set user
+      setMfaPending(false);
+      setTempToken(null);
 
     setUser(data);
     localStorage.setItem('user', JSON.stringify(data));
@@ -61,6 +117,21 @@ const login = async (email: string, password: string) => {
     setLoading(false);
   }
 };
+const resend2FA = async () => {
+    if (!tempToken) return;
+    const response = await fetch('/api/auth/resend-2fa', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tempToken }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      throw { status: response.status, message: data.error || "Failed to resend" };
+    }
+    // Update with the new token returned by the resend route
+    setTempToken(data.tempToken);
+  };
 
 
   const logout = () => {
@@ -99,7 +170,7 @@ const login = async (email: string, password: string) => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading, checkSystemStatus, registerSuperAdmin }}>
+    <AuthContext.Provider value={{ user, login, logout, loading, checkSystemStatus, registerSuperAdmin,mfaPending, tempToken, verify2FA, resend2FA, setMfaPending }}>
       {children}
     </AuthContext.Provider>
   );

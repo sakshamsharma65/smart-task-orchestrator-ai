@@ -49,6 +49,7 @@ const UserTableActions: React.FC<UserTableActionsProps> = ({ user, onEdit, onRef
   const [deactivateDialogOpen, setDeactivateDialogOpen] = React.useState(false);
   const [activateDialogOpen, setActivateDialogOpen] = React.useState(false);
   const [deleteDialogOpen, setDeleteDialogOpen] = React.useState(false);
+  const [otpDialogOpen, setOtpDialogOpen] = React.useState(false);
 
   const { toast } = useToast();
   const { data: licenseInfo, isLoading: licenseLoading, refetch: refetchLicense } = useQuery({
@@ -126,6 +127,24 @@ const UserTableActions: React.FC<UserTableActionsProps> = ({ user, onEdit, onRef
       });
     },
   });
+  const enableOtpMutation = useMutation({
+  mutationFn: () => apiClient.toggleTwoFactor(user.id, !user.is_2fa_enabled), 
+  onSuccess: () => {
+    toast({
+      title: user.is_2fa_enabled ? "2FA Disabled" : "2FA Enabled",
+      description: `OTP login has been ${user.is_2fa_enabled ? 'disabled' : 'enabled'} for ${user.user_name || user.email}.`,
+    });
+    onRefresh?.();
+    setOtpDialogOpen(false);
+  },
+    onError: (error) => {
+      toast({ 
+        title: "Error",       
+        description: `Failed to enable OTP: ${error.message}`,
+        variant: "destructive",
+      });
+    }
+  });
 
   function handleEditUser() {
     onEdit(user);
@@ -159,6 +178,9 @@ const UserTableActions: React.FC<UserTableActionsProps> = ({ user, onEdit, onRef
 
   function handleDeleteUser() {
     setDeleteDialogOpen(true);
+  }
+  function handleEnableOtp() {
+    setOtpDialogOpen(true);
   }
 
   function handleResetPassword() {
@@ -204,6 +226,30 @@ const UserTableActions: React.FC<UserTableActionsProps> = ({ user, onEdit, onRef
             <span className="inline-flex items-center">
               <svg className="w-4 h-4 mr-2" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path d="M12 15v2m0 4v-2m6.364-1.636A9 9 0 103 12.055M21 12a8.966 8.966 0 01-1.636 5.364"></path></svg>
               Reset Password
+            </span>
+          </DropdownMenuItem >
+           <DropdownMenuItem onClick={handleEnableOtp}>
+            <span className="inline-flex items-center">
+<svg
+  xmlns="http://www.w3.org/2000/svg"
+  className="w-4 h-4 mr-2"
+  fill="none"
+  viewBox="0 0 24 24"
+  stroke="currentColor"
+  strokeWidth={2}
+>
+  <path
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    d="M12 3l7 4v5c0 5-3.5 9-7 10-3.5-1-7-5-7-10V7l7-4z"
+  />
+  <path
+    strokeLinecap="round"
+    strokeLinejoin="round"
+    d="M9 12l2 2 4-4"
+  />
+</svg>
+            {user.is_2fa_enabled ? "Disable OTP Login" : "Enable OTP Login"}
             </span>
           </DropdownMenuItem>
         </DropdownMenuContent>
@@ -290,6 +336,40 @@ const UserTableActions: React.FC<UserTableActionsProps> = ({ user, onEdit, onRef
               className="bg-destructive hover:bg-destructive/90"
             >
               {deleteUserMutation.isPending ? "Deleting..." : "Delete User"}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+      <AlertDialog open={otpDialogOpen} onOpenChange={setOtpDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-destructive" />
+            Enable OTP based login for enhanced security
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              <div className="mb-4">
+                Are you sure you want to enable OTP for <strong>{user.user_name || user.email}</strong>?
+              </div>
+              <div className="bg-red-50 border border-red-200 rounded-md p-3 text-sm">
+                <div className="font-semibold">⚠️ This action can be reverted</div>
+                <ul className="mt-2 space-y-1 list-disc list-inside">
+                  <li>User will be enabled for OTP-based login</li>
+                  <li>User will receive OTP via email for authentication</li>
+                </ul>
+              </div>
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>cancel</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => enableOtpMutation.mutate()}
+              disabled={enableOtpMutation.isPending}
+              className="bg-green-600 hover:bg-green-700"
+            >
+{enableOtpMutation.isPending 
+          ? (user.is_2fa_enabled ? "Disabling..." : "Enabling...") 
+          : (user.is_2fa_enabled ? "Disable OTP Login" : "Enable OTP Login")}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

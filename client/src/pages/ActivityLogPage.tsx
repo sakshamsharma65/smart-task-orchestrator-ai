@@ -4,15 +4,38 @@ import { Card, CardHeader, CardContent, CardTitle } from "@/components/ui/card";
 import { useUserDisplayNames } from "@/hooks/useUserDisplayNames";
 import { useQueryClient } from "@tanstack/react-query";
 import {useState,useMemo} from "react";
+import { useQuery } from "@tanstack/react-query";
+import {apiClient} from "@/lib/api";
 import { Switch } from "@radix-ui/react-switch";
 
 
 export default function ActivityLogPage() {
-  
+  const [selectedUser,setSelectedUser] = useState("");
+  const [selectedActivity, setSelectedActivity] = useState("");
+const [selectedDate, setSelectedDate] = useState("");
+
   const { data, isLoading } = useActivityLog(50, 0);
   const { usersMap } = useUserDisplayNames();
+
   const [searchTerm,setSearchTerm]= useState("");
-   const filteredLogs = useMemo(() => {
+   const clearFilters = () => {
+    setSearchTerm("");
+    setSelectedUser("");
+    setSelectedActivity("");
+    setSelectedDate("");
+  };
+   const { data: users = [], isLoading: usersLoading } = useQuery({
+    queryKey: ["/api/users"],
+    queryFn: () => apiClient.getUsers(),
+  });
+    const activityTypes = useMemo(() => {
+  if (!data) return [];
+
+  const unique = new Set(data.map((log: any) => log.event_type));
+  return Array.from(unique);
+}, [data]);
+
+ const filteredLogs = useMemo(() => {
   if (!data) return [];
 
   const query = searchTerm.toLowerCase();
@@ -28,18 +51,42 @@ export default function ActivityLogPage() {
       summary.email,
       usersMap?.[log.performed_by],
       usersMap?.[summary.assigned_to],
-      JSON.stringify(summary) // fallback for anything extra
+      JSON.stringify(summary)
     ]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
 
-    return searchableText.includes(query);
+    const matchesSearch = searchableText.includes(query);
+
+    const matchesUser =
+      !selectedUser ||
+      log.performed_by === selectedUser ||
+      summary.assigned_to === selectedUser;
+
+    const matchesActivity =
+      !selectedActivity || log.event_type === selectedActivity;
+
+    // DATE FILTER
+    const matchesDate =
+      !selectedDate ||
+      new Date(log.occurred_at).toISOString().slice(0, 10) === selectedDate;
+
+    return (
+      matchesSearch &&
+      matchesUser &&
+      matchesActivity &&
+      matchesDate
+    );
   });
-}, [data, searchTerm, usersMap]);
-
-
-
+}, [
+  data,
+  searchTerm,
+  usersMap,
+  selectedUser,
+  selectedActivity,
+  selectedDate
+]);
 
   // Get the query client instance
   const queryClient = useQueryClient();
@@ -55,8 +102,9 @@ function renderSummary(log: any) {
       case "CREATED_USER":
         return <>User {s.user_name}  was created in {s.department} by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
 
-      case "DELETED":
-        return <>User {s.user_name} from {s.department} was deleted by {usersMap?.[log.performed_by] || "Unknown User"} (Tasks: {s.tasks_assigned_count}).</>;
+      case "DELETED_USER":
+        return <>User {s.user_name} from {s.department} was deleted by {usersMap?.[log.performed_by] || "Unknown User"}</>;
+        // (Tasks: {s.tasks_assigned_count})
 
       case "ACTIVATED":
         return <>User {s.user_name}  was activated by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
@@ -137,14 +185,68 @@ function renderSummary(log: any) {
 
       <CardContent>
   <div className="mb-4">
+  <div className="mb-4 grid grid-cols-2 md:grid-cols-5 gap-2">
+
+  {/* Search input */}
   <input
     type="text"
-    placeholder="Search by event, user, task, role..."
+    placeholder="Search activity..."
     value={searchTerm}
     onChange={(e) => setSearchTerm(e.target.value)}
-    className="w-full px-3 py-2 border rounded-md focus:outline-none focus:ring focus:border-blue-300"
+    className="px-3 py-2 border rounded-md"
   />
+
+  {/* User dropdown */}
+   <select
+            value={selectedUser}
+            onChange={(e) => setSelectedUser(e.target.value)}
+            className="px-3 py-2 border rounded-md"
+          >
+            <option value="">All Users</option>
+
+            {usersLoading && (
+              <option disabled>Loading users...</option>
+            )}
+
+            {users.map((user: any) => (
+              <option key={user.id} value={user.id}>
+                {user.user_name || user.email}
+              </option>
+            ))}
+         
+          </select>
+
+  {/* Activity dropdown */}
+  <select
+    value={selectedActivity}
+    onChange={(e) => setSelectedActivity(e.target.value)}
+    className="px-3 py-2 border rounded-md"
+  >
+    <option value="">All Activities</option>
+    {activityTypes.map((activity: string) => (
+      <option key={activity} value={activity}>
+        {activity}
+      </option>
+    ))}
+  </select>
+<input
+  type="date"
+  value={selectedDate}
+  onChange={(e) => setSelectedDate(e.target.value)}
+  className="px-3 py-2 border rounded-md"
+/>
+
+
+ <button
+            onClick={clearFilters}
+            className="px-3 py-2 bg-gray-500 text-white rounded-md hover:bg-gray-600 transition"
+          >
+            Clear Filters
+          </button>
+
 </div>
+</div>
+   
 
         <div className="space-y-3">
 

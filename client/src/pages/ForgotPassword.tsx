@@ -34,7 +34,7 @@ const ForgotPassword = ({ onOtpSent }: { onOtpSent: (email: string) => void }) =
         <form onSubmit={handleSubmit} className="flex flex-col gap-4">
           <Input
             type="email"
-            value={email}
+            value={email} 
             onChange={(e) => setEmail(e.target.value)}
             placeholder="Enter your email"
             required

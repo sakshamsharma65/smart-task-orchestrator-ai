@@ -93,7 +93,7 @@ const Topbar: React.FC<TopbarProps> = ({ sidebarOpen, setSidebarOpen }) => {
           <div className="relative inline-block group">
   <button
     aria-label="Settings"
-    onClick={() => navigate("/admin/settings")}
+    onClick={() => navigate("/settings")}
     className="rounded-full p-1.5 hover:bg-accent text-muted-foreground focus:outline-none focus:ring-2 focus:ring-primary hover:text-foreground"
   >
     <Settings className="w-5 h-5 sm:w-6 sm:h-6" />

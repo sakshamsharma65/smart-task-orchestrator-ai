@@ -139,13 +139,13 @@ export const useHelp = () => {
 
   // Get page category based on current route
   const getPageCategory = (pathname: string): string => {
-    if (pathname.includes('/admin/users') || pathname.includes('/admin/roles')) return 'user-management';
-    if (pathname.includes('/admin/teams')) return 'team-management';
-    if (pathname.includes('/admin/settings')) return 'settings';
-    if (pathname.includes('/admin/reports') || pathname.includes('/admin/analytics')) return 'reporting';
+    if (pathname.includes('/users') || pathname.includes('/roles')) return 'user-management';
+    if (pathname.includes('/teams')) return 'team-management';
+    if (pathname.includes('/settings')) return 'settings';
+    if (pathname.includes('/reports') || pathname.includes('/analytics')) return 'reporting';
     if (pathname.includes('/tasks') || pathname.includes('/my-tasks')) return 'task-management';
     if (pathname.includes('/benchmarking')) return 'benchmarking';
-    if (pathname.includes('/admin/dashboard') || pathname === '/') return 'getting-started';
+    if (pathname.includes('/dashboard') || pathname === '/') return 'getting-started';
     return 'getting-started';
   };
 

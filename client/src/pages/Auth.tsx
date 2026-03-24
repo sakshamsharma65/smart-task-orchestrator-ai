@@ -10,15 +10,19 @@ import Logo from "@/components/Logo";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
 import SuperAdminRegistration from "@/components/SuperAdminRegistration";
 
-
 const AuthPage: React.FC = () => {
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState<string | null>(null);
   const [systemHasUsers, setSystemHasUsers] = useState<boolean | null>(null);
+  const {mfaPending, verify2FA, resend2FA, setMfaPending } = useAuth();
+  const [otpCode, setOtpCode] = useState("");
+  const [resendTimer, setResendTimer] = useState(0);
   const [checkingSystem, setCheckingSystem] = useState(true);
   const navigate = useNavigate();
   const { user, login, loading, checkSystemStatus } = useAuth();
   const [showPassword, setShowPassword] = useState(false);
+  const [resendClicks, setResendClicks] = useState(false);
+  const [isLockedOut, setIsLockedOut] = useState(false);
   // useEffect(() => {
   //   if (user) {
   //     // If user is already logged in, redirect to home (which will handle role-based routing)
@@ -38,7 +42,7 @@ const AuthPage: React.FC = () => {
         setSystemHasUsers(true);
       } finally {
         setCheckingSystem(false);
-      }
+      }        
     };
 
     checkSystem();
@@ -54,8 +58,8 @@ const AuthPage: React.FC = () => {
     
     try {
       await login(form.email, form.password);
-      toast({ title: "Login successful!" });
-      navigate("/admin/dashboard", { replace: true });
+      // toast({ title: "Login successful!" });
+      // navigate("/admin/dashboard", { replace: true });
 
       // Navigation will happen automatically via useEffect when user state changes
     } 
@@ -65,7 +69,8 @@ const AuthPage: React.FC = () => {
       title: "Account Deactivated",
       description: "Your account is deactivated. Please contact your admin.",
       variant: "destructive",
-    });
+    }
+  );
     return;
   }
 
@@ -77,6 +82,58 @@ const AuthPage: React.FC = () => {
 }
 
   };
+  // Handle Navigation after Login or MFA
+useEffect(() => {
+  // Only navigate if we have a user and we aren't waiting for MFA
+  if (user && !mfaPending) {
+    navigate("/dashboard", { replace: true });
+  }
+}, [user, mfaPending, navigate]);
+// Inside your AuthPage component...
+useEffect(() => {
+  let interval: NodeJS.Timeout;
+  if (resendTimer > 0) {
+    interval = setInterval(() => {
+      setResendTimer((prev) => prev - 1);
+    }, 1000);
+  }
+  return () => clearInterval(interval);
+}, [resendTimer]);
+
+const handleResend = async () => {
+  if (resendTimer > 0 || isLockedOut) return;
+  setError(null);
+  try {
+    await resend2FA();
+    setResendTimer(60);
+    toast({ title: "New code sent!" });
+  } catch (error: any) {
+    if (error.status === 429) {
+      setIsLockedOut(true);
+      setError("Resend limit reached. Please try again later.");
+    } else {
+      setError(error.message || "Failed to resend");
+    }
+  }
+};
+// New OTP Submission
+const onOtpSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+  setError(null);
+  try {
+    await verify2FA(otpCode);
+    toast({ title: "Verification successful!" });
+  } catch (error: any) {
+    // Check for Rate Limit status
+    if (error.status === 429) {
+      setIsLockedOut(true);
+      setError("Too many attempts. Please wait 15 minutes or contact admin.");
+    } else {
+      setError(error.message || "Invalid code");
+    }
+  }
+};
+
 
   // Show loading spinner while checking system status
   if (checkingSystem) {
@@ -179,120 +236,159 @@ const AuthPage: React.FC = () => {
           </div>
 
           {/* Right Side - Login Form */}
-          <div className="flex items-center justify-center">
-            <div className="w-full max-w-md">
-              {/* Glass morphism card */}
-              <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl p-8 shadow-2xl">
-                <div className="text-center mb-8">
-                  <div className="lg:hidden flex justify-center mb-6">
-                    <Logo />
-                  </div>
-                  <h2 className="text-3xl font-bold text-white mb-2">
-                    Welcome Back
-                  </h2>
-                  <p className="text-slate-300">
-                    Sign in to your account to continue
-                  </p>
-                </div>
+        {/* Right Side - Login Form */}
+{/* Right Side - Login Form */}
+<div className="flex items-center justify-center">
+  <div className="w-full max-w-md">
+    {/* Glass morphism card */}
+    <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl p-8 shadow-2xl">
+      
+      {!mfaPending ? (
+        /* --- LOGIN STATE --- */
+        <>
+          <div className="text-center mb-8">
+            <div className="lg:hidden flex justify-center mb-6">
+              <Logo />
+            </div>
+            <h2 className="text-3xl font-bold text-white mb-2">Welcome Back</h2>
+            <p className="text-slate-300">Sign in to your account to continue</p>
+          </div>
 
-                <form onSubmit={onSubmit} className="space-y-6">
-                  <div className="space-y-4">
-                    <div className="relative">
-                      <Input
-                        type="email"
-                        name="email"
-                        placeholder="Enter your email"
-                        required
-                        value={form.email}
-                        onChange={handleInput}
-                        autoComplete="username"
-                        disabled={loading}
-                        className="w-full h-12 bg-white/10 border-white/20 text-white placeholder:text-slate-300 focus:border-blue-400 focus:ring-blue-400/20 rounded-xl"
-                      />
-                      
-                    </div>
-                    <div className="relative">
-                      <Input
-                         type={showPassword ? "text" : "password"}
-                        name="password"
-                        placeholder="Enter your password"
-                        required
-                        value={form.password}
-                        onChange={handleInput}
-                        autoComplete="current-password"
-                        disabled={loading}
-                        className="w-full h-12 bg-white/10 border-white/20 text-white placeholder:text-slate-300 focus:border-blue-400 focus:ring-blue-400/20 rounded-xl"
-                      />
-                      <button
-                         type="button"
-    onClick={() => setShowPassword(!showPassword)}
-    className="absolute inset-y-0 right-3 flex items-center text-white/70 hover:text-white"
-  >
-    {showPassword ? <FaEye size={20}  color="black"/> : <FaEyeSlash size={20} color="black" />}
-  </button>
-                    </div>
-                  </div>
-
-                  {error && (
-                    <div className="bg-red-500/20 border border-red-500/30 rounded-xl p-3">
-                      <p className="text-red-300 text-sm text-center">{error}</p>
-                    </div>
-                  )}
-
-                  <Button 
-                    type="submit" 
-                    disabled={loading}
-                    className="w-full h-12 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold rounded-xl shadow-lg hover:shadow-xl transition-all duration-300 transform hover:scale-[1.02] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none"
-                  >
-                    {loading ? (
-                      <div className="flex items-center space-x-2">
-                        <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
-                        <span>Signing in...</span>
-                      </div>
-                    ) : (
-                      "Sign In"
-                    )}
-                  </Button>
-                   <div className="text-center mt-1 ">
-                      <button
-                     type="button"
-                     onClick={() => navigate("/forgot-password")} // or setModalOpen(true)
-                     className="text-sm text-white hover:text-blue-800 hover:underline transition-colors duration-200"
-                              >
-                            Forgot Password?
-                               </button>
-                       </div>
-
-                  
-
-                  {/* Demo login instruction */}
-                  {/* <div className="text-center">
-                    <div className="bg-blue-500/20 border border-blue-500/30 rounded-xl p-3">
-                      <p className="text-blue-200 text-sm font-medium mb-1">Demo Access</p>
-                      <p className="text-blue-300 text-xs">
-                        Email: <span className="font-mono">ss@sumits.me</span><br />
-                        Password: <span className="font-mono">tempPassword123</span>
-                      </p>
-                    </div>
-                  </div> */}
-                </form>
-
-                {/* Additional info */}
-                <div className="mt-8 text-center">
-                  <p className="text-slate-400 text-sm">
-                    Secured by enterprise-grade encryption
-                  </p>
-                  <div className="flex items-center justify-center space-x-2 mt-2">
-                    <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
-                    <span className="text-green-400 text-sm font-medium">System Online</span>
-                  </div>
-                  <div className="mt-4 text-xs text-slate-500">
-                    &copy; {new Date().getFullYear()} TaskRep. All rights reserved.
-                  </div>
-                </div>
+          <form onSubmit={onSubmit} className="space-y-6">
+            <div className="space-y-4">
+              <Input
+                type="email"
+                name="email"
+                placeholder="Enter your email"
+                required
+                value={form.email}
+                onChange={handleInput}
+                disabled={loading}
+                className="w-full h-12 bg-white/10 border-white/20 text-white rounded-xl placeholder:text-slate-400"
+              />
+              <div className="relative">
+                <Input
+                  type={showPassword ? "text" : "password"}
+                  name="password"
+                  placeholder="Enter your password"
+                  required
+                  value={form.password}
+                  onChange={handleInput}
+                  disabled={loading}
+                  className="w-full h-12 bg-white/10 border-white/20 text-white rounded-xl placeholder:text-slate-400"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowPassword(!showPassword)}
+                  className="absolute inset-y-0 right-3 flex items-center text-white/70 hover:text-white"
+                >
+                  {showPassword ? <FaEye size={20} /> : <FaEyeSlash size={20} />}
+                </button>
               </div>
             </div>
+
+            <Button 
+              type="submit" 
+              disabled={loading} 
+              className="w-full h-12 bg-gradient-to-r from-blue-500 to-purple-600 hover:from-blue-600 hover:to-purple-700 text-white font-semibold rounded-xl shadow-lg transition-all transform hover:scale-[1.02]"
+            >
+              {loading ? (
+                <div className="flex items-center space-x-2">
+                  <div className="w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                  <span>Signing in...</span>
+                </div>
+              ) : "Sign In"}
+            </Button>
+
+            <div className="text-center">
+              <button 
+                type="button" 
+                onClick={() => navigate("/forgot-password")} 
+                className="text-sm text-white hover:text-blue-300 transition-colors"
+              >
+                Forgot Password?
+              </button>
+            </div>
+          </form>
+        </>
+      ) : (
+        /* --- MFA / OTP STATE --- */
+        <>
+          <div className="text-center mb-8">
+            <h2 className="text-2xl font-bold text-white mb-2">Verify Your Identity</h2>
+            <p className="text-slate-300 text-sm">We've sent a 6-digit code to your email.</p>
           </div>
+
+          <form onSubmit={onOtpSubmit} className="space-y-6">
+            <div className="space-y-4">
+              <Input
+                type="text"
+                placeholder="000000"
+                maxLength={6}
+                value={otpCode}
+                onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, ''))}
+                disabled={loading}
+                className="w-full h-14 text-center text-2xl tracking-[0.5em] bg-white/10 border-white/20 text-white rounded-xl font-mono focus:border-blue-400 focus:ring-blue-400/20"
+              />
+            </div>
+
+            {error && (
+              <div className="bg-red-500/20 border border-red-500/30 rounded-xl p-3">
+                <p className="text-red-300 text-sm text-center">{error}</p>
+              </div>
+            )}
+
+            <Button 
+              type="submit" 
+              disabled={loading || otpCode.length !== 6|| isLockedOut} 
+              className="w-full h-12 bg-blue-600 hover:bg-blue-700 text-white font-semibold rounded-xl shadow-lg transition-all transform hover:scale-[1.02]"
+            >
+              {loading ? "Verifying..." : "Verify & Login"}
+            </Button>
+
+            <div className="text-center space-y-4">
+    
+<button 
+  type="button" 
+  onClick={handleResend}
+  // Disable if timer is active OR if locked out
+  disabled={resendTimer > 0 || isLockedOut || loading}
+  className="text-sm text-slate-300 hover:text-white disabled:opacity-30 disabled:cursor-not-allowed"
+>
+  {isLockedOut 
+    ? "Action Blocked" 
+    : resendTimer > 0 
+      ? `Resend code in ${resendTimer}s` 
+      : "Didn't get a code? Resend"}
+</button>
+              
+              <button 
+                type="button" 
+                onClick={() => setMfaPending(false)}
+                className="block w-full text-xs text-blue-400 hover:text-blue-300 hover:underline transition-colors"
+              >
+                Back to Login
+              </button>
+            </div>
+          </form>
+        </>
+      )}
+
+      {/* Shared Footer Info */}
+      <div className="mt-8 text-center border-t border-white/10 pt-6">
+        <p className="text-slate-400 text-sm">Secured by enterprise-grade encryption</p>
+        <div className="flex items-center justify-center space-x-2 mt-2">
+          <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
+          <span className="text-green-400 text-sm font-medium">System Online</span>
+        </div>
+        <div className="mt-4 text-xs text-slate-500">
+          &copy; {new Date().getFullYear()} TaskRep. All rights reserved.
+        </div>
+      </div>
+
+    </div>
+  </div>
+</div>
         </div>
       </div>
     </div>

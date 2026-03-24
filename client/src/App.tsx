@@ -17,7 +17,7 @@ import TasksPage from "./pages/Tasks";
 import MyTasksPage from "./pages/MyTasks";
 import HistoricalTasks from "./pages/HistoricalTasks";
 import AdminDashboard from "./pages/AdminDashboardSimple";
-import TaskReport from "@/pages/TaskReportSimple";TasksPage
+import TaskReport from "@/pages/TaskReportSimple";
 import AnalyticsReport from "@/pages/AnalyticsReportSimple";
 import TaskOverdueReport from "@/pages/TaskOverdueReportAdvanced";
 import TaskGroupsPage from "./pages/TaskGroups";
@@ -47,7 +47,7 @@ const App = () => (
               <Route path="/" element={<AuthPage />} />
               <Route path="/auth" element={<AuthPage />} />
             <Route
-              path="/admin/users"
+              path="/users"
               element={
                 <AdminLayout>
                   <AdminUsers />
@@ -60,7 +60,7 @@ const App = () => (
               } />
 
             <Route
-              path="/admin/teams"
+              path="/teams"
               element={
                 <AdminLayout>
                   <AdminTeams />
@@ -68,7 +68,7 @@ const App = () => (
               }
             />
             <Route
-              path="/admin/deleted-users"
+              path="/deleted-users"
               element={
                 <AdminLayout>
                   <DeletedUsers />
@@ -76,7 +76,7 @@ const App = () => (
               }
             />
             <Route
-              path="/admin/role-permissions"
+              path="/role-permissions"
               element={
                 <AdminLayout>
                   <RolePermissions />
@@ -84,7 +84,7 @@ const App = () => (
               }
             />
             <Route
-              path="/admin/settings"
+              path="/settings"
               element={
                 <AdminLayout>
                   <AdminSettings />
@@ -92,7 +92,7 @@ const App = () => (
               }
             />
             <Route
-              path="/admin/tasks"
+              path="/tasks"
               element={
                 <AdminLayout>
                   <TasksPage />
@@ -101,7 +101,7 @@ const App = () => (
             />
             {/* Task Groups route */}
             <Route
-              path="/admin/task-groups"
+              path="/task-groups"
               element={
                 <AdminLayout>
                   <TaskGroupsPage />
@@ -109,7 +109,7 @@ const App = () => (
               }
             />
             <Route
-              path="/admin/my-tasks"
+              path="/my-tasks"
               element={
                 <AdminLayout>
                   <MyTasksPage />
@@ -117,7 +117,7 @@ const App = () => (
               }
             />
             <Route
-              path="/admin/historical-tasks"
+              path="/historical-tasks"
               element={
                 <AdminLayout>
                   <HistoricalTasks />
@@ -125,7 +125,7 @@ const App = () => (
               }
             />
             <Route
-              path="/admin/dashboard"
+              path="/dashboard"
               element={
                 <AdminLayout>
                   <AdminDashboard />
@@ -133,7 +133,7 @@ const App = () => (
               }
             />
             <Route
-              path="/admin/reports/task"
+              path="/reports/task"
               element={
                 <AdminLayout>
                   <TaskReport />
@@ -141,7 +141,7 @@ const App = () => (
               }
             />
             <Route
-              path="/admin/reports/overdue"
+              path="/reports/overdue"
               element={
                 <AdminLayout>
                   <TaskOverdueReport />
@@ -149,7 +149,7 @@ const App = () => (
               }
             />
             <Route
-              path="/admin/reports/analytics"
+              path="/reports/analytics"
               element={
                 <AdminLayout>
                   <AnalyticsReport />
@@ -157,7 +157,7 @@ const App = () => (
               }
             />
             <Route
-              path="/admin/reports/benchmarking"
+              path="/reports/benchmarking"
               element={
                 <AdminLayout>
                   <BenchmarkingReport />

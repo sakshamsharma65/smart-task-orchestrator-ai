@@ -71,7 +71,7 @@ export function usePaginatedTasks(options: {
 
   // Filters and pagination state
   const [priorityFilter, setPriorityFilter] = useState<string>("all");
-  const [statusFilter, setStatusFilter] = useState<string>("all");
+  const [statusFilter, setStatusFilter] = useState<string>("Completed");
   const [userFilter, setUserFilter] = useState<string>("all");
   const [teamFilter, setTeamFilter] = useState<string>("all");
   const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>({ from: null, to: null });

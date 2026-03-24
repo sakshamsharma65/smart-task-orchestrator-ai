@@ -180,24 +180,25 @@ const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
       {/* Only show trigger if not externally controlled */}
       {open === undefined && (
         <DialogTrigger asChild>
-          <Button className="w-full md:w-auto gap-2" size="sm">
+          <Button className="w-1/4 md:w-auto gap-2 h-screen" size="sm">
             <span>+ Create User</span>
           </Button>
         </DialogTrigger>
       )}
       <DialogContent>
-        <form onSubmit={handleSubmit} className="space-y-4">
+        <form onSubmit={handleSubmit} className="space-y-1 ">
           <DialogHeader>
             <DialogTitle>Create New User</DialogTitle>
             <DialogDescription>
               Fill in the details to register a new user.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-2">
+          <div className="grid gap-1">
             <Input
               name="email"
               type="email"
               placeholder="Email"
+              max={30}
               required
               value={values.email}
               onChange={handleChange}
@@ -215,6 +216,7 @@ const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
             <Input
               name="user_name"
               required
+              maxLength={50}
               placeholder="Full Name"
               value={values.user_name}
               onChange={handleChange}
@@ -222,7 +224,7 @@ const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
             />
           <select
   name="role"
-  className="border rounded px-2 py-2 text-sm bg-background"
+  className="border rounded px-1  py-1 text-sm bg-background"
   value={values.role}
   onChange={handleChange}
   disabled={loading || rolesLoading}
@@ -240,7 +242,7 @@ const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
 
             <select
               name="department"
-              className="border rounded px-2 py-2 text-sm bg-background"
+              className="border rounded px-1 py-1 text-sm bg-background"
               value={values.department}
               onChange={handleChange}
               disabled={loading || departmentsLoading}
@@ -257,13 +259,14 @@ const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
               name="phone"
               placeholder="Phone"
               value={values.phone}
+              max={10}
               onChange={handleChange}
               disabled={loading}
             />
             {/* MANAGER DROPDOWN */}
             <select
               name="manager"
-              className="border rounded px-2 py-2 text-sm bg-background"
+              className="border rounded px-1 py-1 text-sm bg-background"
               value={values.manager}
               onChange={handleChange}
               disabled={loading || usersLoading}
@@ -278,9 +281,9 @@ const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
             
             {/* BENCHMARKING OVERRIDES SECTION */}
             {orgSettings?.benchmarking_enabled && orgSettings?.allow_user_level_override && (
-              <div className="space-y-3 border rounded-lg p-4 bg-muted/30">
+              <div className="space-y-2 border rounded-lg p-4 bg-muted/30">
                 <h4 className="text-sm font-semibold">Benchmarking Overrides</h4>
-                <div className="flex items-center space-x-2">
+                <div className="flex items-center space-x-1">
                   <input
                     type="checkbox"
                     id="benchmarking_excluded"
@@ -296,7 +299,7 @@ const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
                 </div>
                 
                 {!values.benchmarking_excluded && (
-                  <div className="grid grid-cols-2 gap-2">
+                  <div className="grid grid-cols-2 gap-1">
                     <div>
                       <label className="text-xs text-muted-foreground">Min Hours/Day</label>
                       <Input

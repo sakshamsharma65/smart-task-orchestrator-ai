@@ -1,4 +1,5 @@
 import type { Express } from "express";
+import express from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import passwordResetRouter from "./passwordResetRoutes";
@@ -10,6 +11,35 @@ import { toast } from "@/hooks/use-toast";
 import { log } from "console";
 import { activityLog } from "@shared/schema";
 import { eq, desc } from "drizzle-orm";
+import rateLimit from "express-rate-limit";
+import {
+  insertEmailSettingsSchema,
+} from "@shared/schema";
+
+import { EmailService } from "./services/email.service";
+import multer from "multer";
+import path from "path";
+import { v4 as uuidv4 } from "uuid";
+import { taskAttachments } from "@shared/schema";
+
+import fs from "fs";
+
+// Multer configuration for file uploads
+const storageConfig = multer.diskStorage({
+  destination: function (req, file, cb) {
+    const uploadsDir = path.join(process.cwd(), "uploads");
+    if (!fs.existsSync(uploadsDir)) {
+      fs.mkdirSync(uploadsDir, { recursive: true });
+    }
+    cb(null, uploadsDir);
+  },
+  filename: function (req, file, cb) {
+    const uniqueSuffix = uuidv4();
+    const ext = path.extname(file.originalname);
+    cb(null, `${file.fieldname}-${uniqueSuffix}${ext}`);
+  }
+});
+const upload = multer({ storage: storageConfig });
 
 // Role-based access control middleware
 // Cache roles and user roles to avoid repeated database calls
@@ -18,7 +48,21 @@ let rolesCacheTime = 0;
 const userRolesCache = new Map<string, { roles: string[]; time: number }>();
 const CACHE_TTL = 60000; // 1 minute 
 
+// Rate limiter for 2FA verification to prevent brute force
+const verify2FALimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // Limit each IP to 5 verify attempts per window
+  message: { error: "Too many verification attempts, please try again later." },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
+// Rate limiter for resending emails to prevent spam
+const resend2FALimiter = rateLimit({
+  windowMs: 5 * 60 * 1000, // 5 minutes
+  max: 3, // Limit each IP to 3 resend requests per window
+  message: { error: "Too many resend requests, please wait a few minutes." },
+});
  // Add this helper function in routes.ts (near requireRole)
 
 
@@ -139,6 +183,13 @@ async function getUserVisibilityScope(userId: string): Promise<{ scope: string; 
 export async function registerRoutes(app: Express): Promise<Server> {
   // Authentication routes
   // Check if system has any users (for initial setup)
+const uploadsDir = path.join(process.cwd(), "uploads");
+  
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+    console.log("📁 'uploads' directory created.");
+  }
+  app.use('/uploads', express.static('uploads'));
   app.get("/api/auth/system-status", async (req, res) => {
     try {
       const users = await storage.getAllUsers();
@@ -206,39 +257,238 @@ export async function registerRoutes(app: Express): Promise<Server> {
       res.status(500).json({ error: "Registration failed" });
     }
   });
-
   app.post("/api/auth/login", async (req, res) => {
-    try {
-      const { email, password } = req.body;
-      
-      if (!email || !password) {
-        return res.status(400).json({ error: "Email and password required" });
-      }
-      
-      const user = await storage.getUserByEmail(email);
-      if(user?.is_active === false){
-        
-        return res.status(403).json({ error: "User account is deactivated" });
-      }
-      if (!user) {
+  try {
+    const { email, password } = req.body;
+    
+    if (!email || !password) {
+      return res.status(400).json({ error: "Email and password required" });
+    }
+    
+    const user = await storage.getUserByEmail(email);
+    
+    if (user?.is_active === false) {
+      return res.status(403).json({ error: "User account is deactivated" });
+    }
+    
+    if (!user) {
+      return res.status(401).json({ error: "Invalid credentials" });
+    }
+    
+    if (user.password_hash) {
+      const isValid = await bcrypt.compare(password, user.password_hash);
+      if (!isValid) {
         return res.status(401).json({ error: "Invalid credentials" });
       }
+    }
+    
+    // ==========================================
+    // THE FORK: Check if 2FA is enabled
+    // ==========================================
+    if (user.is_2fa_enabled) {
+      const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const otpHash = await bcrypt.hash(otpCode, 10);
+      const tempToken = uuidv4();
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes expiry
       
-      // Check password if user has one, otherwise allow login with any password (for migrated users)
-      if (user.password_hash) {
-        const isValid = await bcrypt.compare(password, user.password_hash);
-        if (!isValid) {
-          return res.status(401).json({ error: "Invalid credentials" });
-        }
+      // Clear old OTPs and create new one
+      await storage.invalidateOldLoginOtps(user.id);
+      await storage.createLoginOtp(user.id, tempToken, otpHash, expiresAt);
+      
+      // Fetch dynamic email settings
+      const emailSettings = await storage.getEmailSettings();
+      if (!emailSettings || !emailSettings.isActive) {
+        return res.status(500).json({ error: "System error: Email provider not configured." });
       }
       
-      // Return user info (excluding password)
-      const { password_hash, ...userInfo } = user;
-      res.json(userInfo);
-    } catch (error) {
-      res.status(500).json({ error: "Login failed" });
+      const emailService = new EmailService(emailSettings);
+      
+      try {
+        // You will need to ensure this method exists in your EmailService class
+        await emailService.sendLoginOTP(user.email, otpCode, user.user_name || "User");
+      } catch (emailError) {
+        console.error("Failed to send 2FA email:", emailError);
+        return res.status(500).json({ error: "Failed to send verification code." });
+      }
+      
+      // Return 202 Accepted. Do NOT return user info yet.
+      return res.status(202).json({ 
+        mfaRequired: true, 
+        tempToken: tempToken,
+        message: "Verification code sent to your email." 
+      });
     }
-  });
+
+    // ==========================================
+    // LEGACY FLOW: 2FA Disabled
+    // ==========================================
+    const { password_hash, ...userInfo } = user;
+    res.json(userInfo);
+    
+  } catch (error) {
+    console.error('Login error:', error);
+    res.status(500).json({ error: "Login failed" });
+  }
+});
+
+app.post("/api/auth/verify-2fa", verify2FALimiter, async (req, res) => {
+  try {
+    const { tempToken, code } = req.body;
+
+    if (!tempToken || !code) {
+      return res.status(400).json({ error: "Token and code are required" });
+    }
+
+    const otpRecord = await storage.getLoginOtpByTempToken(tempToken);
+
+    if (!otpRecord) {
+      return res.status(401).json({ error: "Invalid session. Please log in again." });
+    }
+
+    if (otpRecord.used) {
+      return res.status(401).json({ error: "This code has already been used." });
+    }
+
+    if (new Date() > new Date(otpRecord.expires_at)) {
+      return res.status(401).json({ error: "This code has expired. Please request a new one." });
+    }
+
+    if (otpRecord.attempts >= 5) {
+      await storage.invalidateOldLoginOtps(otpRecord.user_id);
+      return res.status(429).json({ error: "Too many failed attempts. Please log in again." });
+    }
+
+    const isValidCode = await bcrypt.compare(code, otpRecord.otp_hash);
+
+    if (!isValidCode) {
+      await storage.incrementOtpAttempts(otpRecord.id);
+      return res.status(401).json({ error: "Invalid verification code." });
+    }
+
+    // Success! 
+    await storage.markOtpAsUsed(otpRecord.id);
+    
+    const user = await storage.getUser(otpRecord.user_id); 
+    
+    if (!user || user.is_active === false) {
+      return res.status(403).json({ error: "User account is deactivated" });
+    }
+
+    const { password_hash, ...userInfo } = user;
+    
+    // Return the full user info so the frontend can complete the login
+    res.status(200).json(userInfo);
+
+  } catch (error) {
+    console.error('2FA verification error:', error);
+    res.status(500).json({ error: "Verification failed" });
+  }
+});
+app.post("/api/auth/resend-2fa", resend2FALimiter, async (req, res) => {
+  try {
+    const { tempToken } = req.body;
+
+    if (!tempToken) {
+      return res.status(400).json({ error: "Session token required" });
+    }
+
+    // Identify the user from the existing temp token
+    const oldOtpRecord = await storage.getLoginOtpByTempToken(tempToken);
+    
+    if (!oldOtpRecord) {
+      return res.status(401).json({ error: "Session invalid or expired. Please log in again." });
+    }
+
+    const user = await storage.getUser(oldOtpRecord.user_id);
+    if (!user || !user.is_active) {
+      return res.status(403).json({ error: "Account unavailable" });
+    }
+
+    // Generate new code and new token
+    const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+    const otpHash = await bcrypt.hash(otpCode, 10);
+    const newTempToken = uuidv4();
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+    // Invalidate the old ones, create the new one
+    await storage.invalidateOldLoginOtps(user.id);
+    await storage.createLoginOtp(user.id, newTempToken, otpHash, expiresAt);
+
+    // Send the email
+    const emailSettings = await storage.getEmailSettings();
+    if (emailSettings && emailSettings.isActive) {
+      const emailService = new EmailService(emailSettings);
+      await emailService.sendLoginOTP(user.email, otpCode, user.user_name || "User");
+    } else {
+      return res.status(500).json({ error: "Email service unavailable." });
+    }
+
+    // Return the new token to the frontend
+    res.status(200).json({ 
+      tempToken: newTempToken, 
+      message: "A new verification code has been sent." 
+    });
+
+  } catch (error) {
+    console.error('2FA resend error:', error);
+    res.status(500).json({ error: "Failed to resend code" });
+  }
+});
+// Add this to your Express routes file
+app.patch("/api/users/:id/2fa", requireAdmin, async (req, res) => {
+  try {
+    const userId = req.params.id;
+    const { enabled } = req.body; // Expecting { enabled: true/false }
+
+    if (typeof enabled !== 'boolean') {
+      return res.status(400).json({ error: "Invalid 'enabled' value. Must be boolean." });
+    }
+
+    // Update the user record in the DB
+    await storage.updateUser2FAStatus(userId, enabled);
+
+    res.json({ 
+      success: true, 
+      message: `2FA has been ${enabled ? 'enabled' : 'disabled'} for this user.` 
+    });
+  } catch (error) {
+    console.error("Error toggling 2FA:", error);
+    res.status(500).json({ error: "Failed to update 2FA status" });
+  }
+});
+
+  // app.post("/api/auth/login", async (req, res) => {
+  //   try {
+  //     const { email, password } = req.body;
+      
+  //     if (!email || !password) {
+  //       return res.status(400).json({ error: "Email and password required" });
+  //     }
+      
+  //     const user = await storage.getUserByEmail(email);
+  //     if(user?.is_active === false){
+        
+  //       return res.status(403).json({ error: "User account is deactivated" });
+  //     }
+  //     if (!user) {
+  //       return res.status(401).json({ error: "Invalid credentials" });
+  //     }
+      
+  //     // Check password if user has one, otherwise allow login with any password (for migrated users)
+  //     if (user.password_hash) {
+  //       const isValid = await bcrypt.compare(password, user.password_hash);
+  //       if (!isValid) {
+  //         return res.status(401).json({ error: "Invalid credentials" });
+  //       }
+  //     }
+      
+  //     // Return user info (excluding password)
+  //     const { password_hash, ...userInfo } = user;
+  //     res.json(userInfo);
+  //   } catch (error) {
+  //     res.status(500).json({ error: "Login failed" });
+  //   }
+  // });
 
   // Mount password reset routes (forgot password flow)
   app.use(passwordResetRouter);
@@ -400,6 +650,32 @@ app.get("/api/activity-log",  async (req, res) => {
     res.status(500).json({ error: "Error fetching activity log" });
   }
 });
+// Inside registerRoutes in routes.ts
+
+// PATCH: Update specific email/notification settings
+app.patch("/api/email-settings/:id", requireAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ error: "Invalid ID" });
+
+    // Partial update allows us to send only the toggles
+    const updatedSettings = await storage.updateEmailSettings(id, req.body);
+    
+    // await storage.logActivity({
+    //   source_table: "email_settings",
+    //   event_type: "UPDATE_NOTIFICATIONS",
+    //   record_id: id.toString(),
+    //   summary: req.body,
+    //   performed_by: req.headers["x-user-id"] as string,
+    // });
+
+    res.json(updatedSettings);
+  } catch (error: any) {
+    console.error("Failed to update notification settings:", error);
+    res.status(500).json({ error: "Failed to update settings" });
+  }
+});
+
 
 
 
@@ -421,6 +697,13 @@ app.post("/api/users", requireAdmin, async (req, res) => {
     // --- License check logic (no changes) ---
     const actingUserId = req.headers["x-user-id"] as string;
     const currentUser = await storage.getUser(actingUserId);
+    const settings = await storage.getOrganizationSettings(); 
+  
+  // 2. Set the default 2FA status based on org requirements
+  const newUser = {
+    ...req.body,
+    is_2fa_enabled: settings?.user_2fa_required || false 
+  };
 
     if (!currentUser) {
       return res.status(403).json({ error: "User not found" });
@@ -697,7 +980,103 @@ performed_by: Array.isArray(req.headers["x-user-id"])
       res.status(500).json({ error: "Failed to reset password" });
     }
   });
+app.post("/api/tasks", requireAnyAuthenticated, upload.array('attachments'), async (req, res) => {
+    try {
+      const userId = req.headers["x-user-id"] as string;
+      const currentUser = await storage.getUser(userId);
 
+      if (!currentUser) {
+        return res.status(403).json({ error: "User not found or deleted" });
+      }
+
+      // Convert Multer's string-based body back to proper types for Zod
+      const rawBody = {
+        ...req.body,
+        priority: req.body.priority ? Number(req.body.priority) : 2,
+        estimated_hours: req.body.estimated_hours ? Number(req.body.estimated_hours) : null,
+        is_time_managed: req.body.is_time_managed === 'true',
+        // If team_id is an empty string, set it to null
+        team_id: req.body.team_id || null,
+        todos_enabled: req.body.todos_enabled === 'true'
+      };
+
+      // 1. Create the Task
+      const taskData = insertTaskSchema.parse(rawBody);
+      const task = await storage.createTask(taskData);
+
+      // 2. Handle File Attachments (if any)
+      if (req.files && Array.isArray(req.files)) {
+        const filePromises = (req.files as Express.Multer.File[]).map(file => {
+          return storage.createTaskAttachment({
+            task_id: task.id,
+            filename: file.originalname,
+            file_url: `/uploads/${file.filename}`, // Virtual path
+            mimetype: file.mimetype,
+            uploaded_by: userId
+          });
+        });
+        await Promise.all(filePromises);
+      }
+      const settings = await storage.getEmailSettings();
+if (settings && task.assigned_to) {
+  const assignee = await storage.getUser(task.assigned_to);
+  if (assignee?.email) {
+    const emailService = new EmailService(settings);
+    // Fires notification only if sendOnTaskCreate is true
+    emailService.sendNotification({
+      event: "sendOnTaskCreate",
+      to: assignee.email,
+      subject: `New Task: ${task.title}`,
+      html: `<p>Hi ${assignee.user_name}, you have a new task: <b>${task.title}</b></p>`
+    });
+  }
+}
+      await storage.logTaskActivity({
+      task_id: task.id,
+      action_type: "created",
+      old_value: null,
+      new_value: task.assigned_to,
+      acted_by: task.created_by,
+    });
+
+      // 3. Log Activity
+      await storage.logActivity({
+        source_table: "tasks",
+        event_type: "created",
+        record_id: task.id,
+        summary: { 
+          title: task.title, 
+          has_attachments: !!req.files?.length ,
+          assigned_to: task.assigned_to,
+        },
+        performed_by: userId,
+      });
+
+      return res.status(201).json(task);
+    } catch (error: any) {
+      console.error("[ERROR] Task creation failed:", error);
+      return res.status(400).json({ 
+        error: "Invalid task data", 
+        details: error.message 
+      });
+    }
+  });
+  app.get("/api/tasks/:id/attachments", requireAnyAuthenticated, async (req, res) => {
+try{
+  const { id } = req.params;
+  const attachments = await storage.getTaskAttachments(id);
+  return res.json(attachments);
+
+}
+catch(error){
+
+  console.error("Failed to fetch attachments:", error);
+  return res.status(500).json({error:"failed to load attachments"})
+}
+
+
+
+  });
   // Delete user (admin only)
   // app.delete("/api/users/:id", requireAdmin, async (req, res) => {
   //   try {
@@ -877,76 +1256,39 @@ app.delete("/api/users/:id", requireAdmin, async (req, res) => {
   });
 
   // Task management routes - Visibility-aware access
-  // app.get("/api/tasks", requireAnyAuthenticated, async (req, res) => {
-  //   try {
-  //     const userId = req.headers['x-user-id'] as string;
-  //     const { scope, roleNames } = await getUserVisibilityScope(userId);
-
-      
-  //     let tasks;
-      
-  //     if (scope === "organization") {
-  //       // Admin can see all tasks
-  //       tasks = await storage.getAllTasks();
-  //     } else if (scope === "team") {
-  //       // Manager/Team Manager can see tasks for their team members
-  //       const user = await storage.getUser(userId);
-  //       if (!user) {
-  //         return res.status(404).json({ error: "User not found" });
-  //       }
-        
-  //       // Get all users that this manager can see (including themselves)
-  //       const allUsers = await storage.getAllUsers();
-  //       const visibleUserIds = allUsers
-  //         .filter(u => u.manager === userId || u.id === userId)
-  //         .map(u => u.id);
-        
-  //       // Get tasks for visible users only
-  //       const allTasks = await storage.getAllTasks();
-  //       tasks = allTasks.filter(task => visibleUserIds.includes(task.assigned_to));
-  //     } else {
-  //       // User scope - can only see their own tasks
-  //       tasks = await storage.getTasksByUser(userId);
-  //     }
-      
-  //     res.json(tasks);
-  //   } catch (error) {
-  //     console.error('Error fetching tasks with visibility scope:', error);
-  //     res.status(500).json({ error: "Failed to fetch tasks" });
-  //   }
-  // });
   app.get("/api/tasks", requireAnyAuthenticated, async (req, res) => {
     try {
-      const userId = req.headers["x-user-id"] as string;
+      const userId = req.headers['x-user-id'] as string;
+      const { scope, roleNames } = await getUserVisibilityScope(userId);
 
-      // === NORMAL EXISTING LOGIC (unchanged) ===
+      
       let tasks;
-
-      const user = await storage.getUser(userId);
-      if (!user) {
-        return res.status(404).json({ error: "User not found" });
-      }
-
-      if (user.isAdmin) {
-        // Admin logic
+      
+      if (scope === "organization") {
+        // Admin can see all tasks
         tasks = await storage.getAllTasks();
-      } else if (user.isManager) {
-        // Old manager logic
+      } else if (scope === "team") {
+        // Manager/Team Manager can see tasks for their team members
+        const user = await storage.getUser(userId);
+        if (!user) {
+          return res.status(404).json({ error: "User not found" });
+        }
+        
+        // Get all users that this manager can see (including themselves)
         const allUsers = await storage.getAllUsers();
         const visibleUserIds = allUsers
-          .filter((u) => u.manager === userId || u.id === userId)
-          .map((u) => u.id);
-
+          .filter(u => u.manager === userId || u.id === userId)
+          .map(u => u.id);
+        
+        // Get tasks for visible users only
         const allTasks = await storage.getAllTasks();
-        tasks = allTasks.filter((task) =>
-          visibleUserIds.includes(task.assigned_to)
-        );
+        tasks = allTasks.filter(task => visibleUserIds.includes(task.assigned_to));
       } else {
-        // Normal user logic
+        // User scope - can only see their own tasks
         tasks = await storage.getTasksByUser(userId);
       }
-
-      // === NEW MANAGER TEAM LOGIC (attach additional tasks) ===
+      
+          // === NEW MANAGER TEAM LOGIC (attach additional tasks) ===
       const managerTeamTasks = await storage.getTasksForManager(userId);
 
       // Combine tasks + managerTeamTasks safely
@@ -958,12 +1300,60 @@ app.delete("/api/users/:id", requireAdmin, async (req, res) => {
       );
 
       return res.json(dedupedTasks);
-
     } catch (error) {
-      console.error("Error fetching tasks:", error);
-      return res.status(500).json({ error: "Failed to fetch tasks" });
+      console.error('Error fetching tasks with visibility scope:', error);
+      res.status(500).json({ error: "Failed to fetch tasks" });
     }
   });
+  // app.get("/api/tasks", requireAnyAuthenticated, async (req, res) => {
+  //   try {
+  //     const userId = req.headers["x-user-id"] as string;
+
+  //     // === NORMAL EXISTING LOGIC (unchanged) ===
+  //     let tasks;
+
+  //     const user = await storage.getUser(userId);
+  //     if (!user) {
+  //       return res.status(404).json({ error: "User not found" });
+  //     }
+
+  //     if (user.isAdmin) {
+  //       // Admin logic
+  //       tasks = await storage.getAllTasks();
+  //     } else if (user.isManager) {
+  //       // Old manager logic
+  //       const allUsers = await storage.getAllUsers();
+  //       const visibleUserIds = allUsers
+  //         .filter((u) => u.manager === userId || u.id === userId)
+  //         .map((u) => u.id);
+
+  //       const allTasks = await storage.getAllTasks();
+  //       tasks = allTasks.filter((task) =>
+  //         visibleUserIds.includes(task.assigned_to)
+  //       );
+  //     } else {
+  //       // Normal user logic
+  //       tasks = await storage.getTasksByUser(userId);
+  //     }
+
+  //     // === NEW MANAGER TEAM LOGIC (attach additional tasks) ===
+  //     const managerTeamTasks = await storage.getTasksForManager(userId);
+
+  //     // Combine tasks + managerTeamTasks safely
+  //     const merged = [...tasks, ...managerTeamTasks];
+
+  //     // === REMOVE DUPLICATES BY task.id ===
+  //     const dedupedTasks = Array.from(
+  //       new Map(merged.map((task) => [task.id, task])).values()
+  //     );
+
+  //     return res.json(dedupedTasks);
+
+  //   } catch (error) {
+  //     console.error("Error fetching tasks:", error);
+  //     return res.status(500).json({ error: "Failed to fetch tasks" });
+  //   }
+  // });
 
 
 
@@ -993,14 +1383,12 @@ app.delete("/api/users/:id", requireAdmin, async (req, res) => {
     }
 
     console.log("[DEBUG] Task creation request body:", JSON.stringify(req.body, null, 2));
-
     const taskData = insertTaskSchema.parse(req.body);
     const task = await storage.createTask(taskData);
-
-
     await storage.logTaskActivity({
       task_id: task.id,
       action_type: "created",
+      old_value: null,
       new_value: task.assigned_to,
       acted_by: task.created_by,
     });
@@ -1016,6 +1404,26 @@ await storage.logActivity({
   },
   performed_by: userId,
 });
+// After const task = await storage.createTask(taskData);
+
+  const settings = await storage.getEmailSettings();
+
+  // PRODUCTION LOGIC: Skip email if creator is the assignee or if it's a personal task
+  const isSelfAssignment = task.created_by === task.assigned_to;
+  const isPersonal = req.body.type?.toLowerCase() === "personal";
+
+  if (settings?.sendOnTaskCreate && task.assigned_to && !isSelfAssignment && !isPersonal) {
+    const assignee = await storage.getUser(task.assigned_to);
+    if (assignee?.email) {
+      const service = new EmailService(settings);
+      service.sendNotification({
+        event: "sendOnTaskCreate",
+        to: assignee.email,
+        subject: `New Assignment: ${task.title}`,
+        html: `<p>Hi ${assignee.user_name}, a new task has been assigned to you by a team member.</p>`
+      });
+    }
+  }
 
 
     return res.status(201).json(task);
@@ -1033,9 +1441,25 @@ await storage.logActivity({
     try {
       console.log("[DEBUG] Task update request body:", JSON.stringify(req.body, null, 2));
       const oldTask = await storage.getTask(req.params.id);
-      
+      const actingUserId = req.headers['x-user-id'] as string;
+      const taskId = req.params.id;
+      if (req.body.status.toLowerCase() === "completed") {
+      // Check if this task has todos enabled
+      if (oldTask?.todos_enabled) {
+        const pendingCount = await storage.countPendingTaskTodos(taskId);
+        
+        if (pendingCount > 0) {
+          // We return a 400 with a specific error code so the UI knows to show the POPUP
+          return res.status(400).json({ 
+            error: "PENDING_TODOS_REMAINING", 
+            count: pendingCount,
+            message: `Cannot complete task. There are ${pendingCount} pending todos that must be finished first.` 
+          });
+        }
+      }
+    }
       // Check daily hour limit if task is being Completed
-      if (req.body.status === "Completed" && oldTask && oldTask.status !== "Completed") {
+      if (req.body.status === "Completed" && oldTask && oldTask.status.toLowerCase() !== "completed") {
         const userId = req.headers['x-user-id'] as string || oldTask.assigned_to || oldTask.created_by;
         const settings = await storage.getOrganizationSettings();
         
@@ -1087,6 +1511,10 @@ await storage.logActivity({
       const updateData = insertTaskSchema.partial().parse(req.body);
       
       const task = await storage.updateTask(req.params.id, updateData);
+      const emailSettings = await storage.getEmailSettings();
+const assignedUser = task.assigned_to
+  ? await storage.getUser(task.assigned_to)
+  : null;
       const userId = req.headers['x-user-id'] as string || task.assigned_to || task.created_by;
       
       // Log various activity changes
@@ -1095,6 +1523,7 @@ await storage.logActivity({
         // Status change
         if (req.body.status && oldTask.status !== req.body.status) {
           console.log("[DEBUG] Status change detected:", oldTask.status, "->", req.body.status);
+          
           await storage.logTaskActivity({
             task_id: task.id,
             action_type: "status_changed",
@@ -1115,13 +1544,40 @@ await storage.logActivity({
   },
   performed_by: userId,
 });
+
+ if (emailSettings && assignedUser?.email) {
+    await new EmailService(emailSettings).sendNotification({
+      event: "sendOnTaskUpdate",
+      to: assignedUser.email,
+      subject: `Task Status Updated: ${task.title}`,
+      html: `
+        <p>Status of task <b>${task.title}</b> has been updated.</p>
+        <p><b>Old Status:</b> ${oldTask.status}</p>
+        <p><b>New Status:</b> ${req.body.status}</p>
+      `,
+    });
+  }
           console.log("[DEBUG] Status change activity logged");
         }
-        
+          // const emailSettings = await storage.getEmailSettings();
+          const newUser = req.body.assigned_to ? await storage.getUser(req.body.assigned_to) : null;
         // Assignment change
         if (req.body.assigned_to && oldTask.assigned_to !== req.body.assigned_to) {
           const oldUser = oldTask.assigned_to ? await storage.getUser(oldTask.assigned_to) : null;
-          const newUser = req.body.assigned_to ? await storage.getUser(req.body.assigned_to) : null;
+          
+        
+          console.log("Email settings:", emailSettings);
+          console.log("New user:", newUser);
+
+  if (emailSettings && newUser?.email) {
+    new EmailService(emailSettings).sendNotification({
+      event: "sendOnTaskUpdate",
+      to: newUser.email,
+      subject: `Task Assigned: ${task.title}`,
+      html: `<p>The task <b>${task.title}</b> is now assigned to you.</p>`
+    });
+  }
+
           await storage.logTaskActivity({
             task_id: task.id,
             action_type: "assignment_changed",
@@ -1182,8 +1638,20 @@ if (req.body.due_date) {
   const oldDateStr = normalize(oldDate);
   const newDateStr = normalize(newDate);
 
+const assignedUser = task.assigned_to
+  ? await storage.getUser(task.assigned_to)
+  : null;
+
   // ✅ Only log if the normalized date values differ
   if (oldDateStr !== newDateStr) {
+     if (emailSettings && assignedUser?.email) {
+    await new EmailService(emailSettings).sendNotification({
+      event: "sendOnTaskUpdate",
+      to: assignedUser.email,
+      subject: `Due Date Updated: ${task.title}`,
+      html: `<p>The due date for task <b>${task.title}</b> has been updated to ${new Date(newDateStr).toLocaleDateString()}.</p>`
+    });
+  }
     await storage.logTaskActivity({
       task_id: task.id,
       action_type: "due_date_changed",
@@ -1388,9 +1856,81 @@ app.delete("/api/tasks/:id", requireAnyAuthenticated, async (req, res) => {
       res.status(400).json({ error: error instanceof Error ? error.message : "Failed to stop timer" });
     }
   });
+  // --- TASK-SPECIFIC TODOS ---
+
+// Get todos for a specific task
+app.get("/api/tasks/:id/todos", requireAnyAuthenticated, async (req, res) => {
+  try {
+    const todos = await storage.getTaskTodos(req.params.id);
+    res.json(todos);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch task todos" });
+  }
+});
+
+// Toggle a todo (Checked/Unchecked)
+app.patch("/api/task-todos/:id/toggle", requireAnyAuthenticated, async (req, res) => {
+  try {
+    const { is_completed } = req.body;
+    const todo = await storage.updateTaskTodoStatus(req.params.id, is_completed);
+    
+    // Optional: Log activity on the parent task
+    await storage.logTaskActivity({
+      task_id: todo.task_id,
+      action_type: "todo_toggled",
+      old_value: (!is_completed).toString(),
+      new_value: is_completed.toString(),
+      acted_by: req.headers['x-user-id'] as string,
+    });
+
+    res.json(todo);
+  } catch (error) {
+    res.status(400).json({ error: "Failed to update todo status" });
+  }
+});
+  // --- GLOBAL TODO DEFINITIONS (ADMIN) ---
+
+// Get all master todos
+app.get("/api/global-todos", requireAnyAuthenticated, async (req, res) => {
+  try {
+    const todos = await storage.getAllGlobalTodoDefinitions();
+    res.json(todos);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch global todos" });
+  }
+});
+
+// Create a new master todo
+app.post("/api/global-todos", requireAdmin, async (req, res) => {
+  try {
+    const todo = await storage.createGlobalTodoDefinition(req.body);
+    
+    await storage.logActivity({
+      source_table: "global_todo_definitions",
+      event_type: "CREATE",
+      record_id: todo.id,
+      summary: { title: todo.title },
+      performed_by: req.headers['x-user-id'] as string,
+    });
+
+    res.status(201).json(todo);
+  } catch (error) {
+    res.status(400).json({ error: "Failed to create global todo" });
+  }
+});
+
+// Update or Deactivate a master todo
+app.patch("/api/global-todos/:id", requireAdmin, async (req, res) => {
+  try {
+    const todo = await storage.updateGlobalTodoDefinition(req.params.id, req.body);
+    res.json(todo);
+  } catch (error) {
+    res.status(400).json({ error: "Failed to update global todo" });
+  }
+});
 
   // Team management routes - Manager/Admin only
-  app.get("/api/teams", requireManagerOrAdmin, async (req, res) => {
+  app.get("/api/teams",  async (req, res) => {
     try {
       const teams = await storage.getAllTeams();
       res.json(teams);
@@ -1487,14 +2027,15 @@ app.delete("/api/teams/:id", requireManagerOrAdmin, async (req, res) => {
 
 
   // Team membership routes
-  app.get("/api/teams/:id/members", async (req, res) => {
-    try {
-      const members = await storage.getTeamMembers(req.params.id);
-      res.json(members);
-    } catch (error) {
-      res.status(500).json({ error: "Failed to fetch team members" });
-    }
-  });
+ app.get("/api/teams/:id/members", async (req, res) => {
+  try {
+    const { role } = req.query; // e.g., ?role=manager or ?role=member
+    const members = await storage.getTeamMembers(req.params.id, role as string);
+    res.json(members);
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch team members" });
+  }
+});
 
 app.post("/api/teams/:teamId/members", async (req, res) => {
   try {
@@ -1781,10 +2322,21 @@ app.delete("/api/users/:userId/roles/:roleId", requireAdmin, async (req, res) =>
     }
   });
 
-  app.post("/api/task-groups/:id/members", requireManagerOrAdmin, async (req, res) => {
+  app.post("/api/task-groups/:id/members",  async (req, res) => {
     try {
       const { userId, role } = req.body;
       const member = await storage.addTaskGroupMember(req.params.id, userId, role);
+      // After const member = await storage.addTaskGroupMember(...)
+const emailSettings = await storage.getEmailSettings();
+const addedUser = await storage.getUser(userId);
+if (emailSettings && addedUser?.email) {
+  new EmailService(emailSettings).sendNotification({
+    event: "sendOnGroupAddition",
+    to: addedUser.email,
+    subject: `Added to Group`,
+    html: `<p>You have been added to a new task group.</p>`
+  });
+}
       res.status(201).json(member);
     } catch (error) {
       res.status(400).json({ error: "Failed to add task group member" });
@@ -1966,7 +2518,88 @@ app.delete("/api/users/:userId/roles/:roleId", requireAdmin, async (req, res) =>
       res.status(500).json({ error: "Failed to update role" });
     }
   });
+app.get("/api/email-settings", async (req, res) => {
+  try {
+    const settings = await storage.getEmailSettings();
+    // Return null if not found so the frontend knows it's a 'Create' mode
+    res.json(settings ?? null);
+  } catch (error: any) {
+    res.status(500).json({ message: "Failed to fetch email settings" });
+  }
+});
 
+// 2. POST: Create new settings
+app.post("/api/email-settings", async (req, res) => {
+  try {
+    // Validate request body against Zod schema
+    const data = insertEmailSettingsSchema.parse(req.body);
+    const settings = await storage.createEmailSettings(data);
+    res.status(201).json(settings);
+  } catch (error: any) {
+    console.error("Create Error:", error);
+    res.status(400).json({ message: error.message || "Validation failed" });
+  }
+});
+
+// 3. PUT: Update existing settings
+app.put("/api/email-settings/:id", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    if (isNaN(id)) return res.status(400).json({ message: "Invalid ID" });
+
+    const settings = await storage.updateEmailSettings(id, req.body);
+    res.json(settings);
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+// 4. DELETE: Remove settings
+app.delete("/api/email-settings/:id", async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    await storage.deleteEmailSettings(id);
+    res.json({ success: true });
+  } catch (error: any) {
+    res.status(400).json({ message: error.message });
+  }
+});
+
+// 5. POST: Test connection and send test email
+app.post("/api/email-settings/test", async (req, res) => {
+  try {
+    const { verificationTestEmail, ...config } = req.body;
+
+    if (!verificationTestEmail) {
+      return res.status(400).json({ message: "Test email address is required" });
+    }
+
+    // Initialize service with the values currently in the form
+    const emailService = new EmailService(config);
+
+    // Step A: Verify connection
+    const isConnected = await emailService.testConnection();
+    if (!isConnected) {
+      return res.status(400).json({ message: "SMTP Connection failed. Check your host/port/credentials." });
+    }
+
+    // Step B: Send the test email
+    const isSent = await emailService.sendTestEmail(verificationTestEmail);
+    if (!isSent) {
+      return res.status(400).json({ message: "Connection succeeded, but failed to send the test email." });
+    }
+
+    // Step C: If these settings exist in DB, mark them as verified
+    const currentSettings = await storage.getEmailSettings();
+    if (currentSettings?.id) {
+      await storage.markEmailSettingsAsVerified(currentSettings.id);
+    }
+
+    res.json({ success: true, message: "Verification email sent!" });
+  } catch (error: any) {
+    res.status(500).json({ message: error.message });
+  }
+});
   // Task status management routes - Admin only
   app.post("/api/task-statuses", requireAdmin, async (req, res) => {
     try {
@@ -2086,7 +2719,7 @@ app.delete("/api/users/:userId/roles/:roleId", requireAdmin, async (req, res) =>
   });
 
   // Organization settings routes - Managers can read, Admin can modify
-  app.get("/api/organization-settings", requireManagerOrAdmin, async (req, res) => {
+  app.get("/api/organization-settings",  async (req, res) => {
     console.log('organization-settings GET endpoint hit');
     try {
       const settings = await storage.getOrganizationSettings();
@@ -2123,11 +2756,20 @@ app.delete("/api/users/:userId/roles/:roleId", requireAdmin, async (req, res) =>
     try {
       const { id } = req.params;
       console.log("Updating organization settings with ID:", id, "and data:", req.body);
-      
+      const oldSettings = await storage.getOrganizationSettings();
+      console.log("Current organization settings before update:", oldSettings);
       // Validate the request body (partial update)
       const { insertOrganizationSettingsSchema } = await import("../shared/schema");
       const validatedData = insertOrganizationSettingsSchema.partial().parse(req.body);
       console.log("Validated data:", validatedData);
+      if (validatedData.user_2fa_required === true) {
+      console.log("Global 2FA enabled: Updating all users...");
+      await storage.updateAllUser2FAStatus(true);
+    }
+    else{
+       await storage.updateAllUser2FAStatus(false);
+
+    }
       
       const settings = await storage.updateOrganizationSettings(id, validatedData);
       res.json(settings);

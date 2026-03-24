@@ -78,12 +78,12 @@ export function getRolePermissions(role: Role): Permission[] {
 // Check if user can access a specific route
 export function canAccessRoute(role: Role, route: string): boolean {
   const routePermissions: Record<string, { action: string; resource: string }> = {
-    '/admin/users': { action: 'read', resource: 'users' },
-    '/admin/roles': { action: 'read', resource: 'roles' },
-    '/admin/teams': { action: 'read', resource: 'teams' },
-    '/admin/settings': { action: 'read', resource: 'settings' },
-    '/admin/reports': { action: 'read', resource: 'reports' },
-    '/admin/analytics': { action: 'read', resource: 'analytics' },
+    '/users': { action: 'read', resource: 'users' },
+    '/roles': { action: 'read', resource: 'roles' },
+    '/teams': { action: 'read', resource: 'teams' },
+    '/settings': { action: 'read', resource: 'settings' },
+    '/reports': { action: 'read', resource: 'reports' },
+    '/analytics': { action: 'read', resource: 'analytics' },
     '/tasks': { action: 'read', resource: 'tasks' },
     '/my-teams': { action: 'read', resource: 'teams' },
   };
@@ -99,55 +99,55 @@ export function getNavigationItems(role: Role) {
   const allItems = [
     {
       title: 'Dashboard',
-      path: '/admin/dashboard',
+      path: '/dashboard',
       icon: 'LayoutDashboard',
       requiredPermission: { action: 'read', resource: 'analytics' },
     },
     {
       title: 'Tasks',
-      path: '/admin/tasks',
+      path: '/tasks',
       icon: 'CheckSquare',
       requiredPermission: { action: 'read', resource: 'tasks' },
     },
     {
       title: 'My Tasks',
-      path: '/admin/my-tasks',
+      path: '/my-tasks',
       icon: 'User',
       requiredPermission: { action: 'read', resource: 'tasks' },
     },
     {
       title: 'Task Groups',
-      path: '/admin/task-groups',
+      path: '/task-groups',
       icon: 'FolderOpen',
       requiredPermission: { action: 'read', resource: 'tasks' },
     },
     {
       title: 'Users',
-      path: '/admin/users',
+      path: '/users',
       icon: 'Users',
       requiredPermission: { action: 'read', resource: 'users' },
     },
     {
       title: 'Teams',
-      path: '/admin/teams',
+      path: '/teams',
       icon: 'Users',
       requiredPermission: { action: 'read', resource: 'teams' },
     },
     {
       title: 'Roles',
-      path: '/admin/roles',
+      path: '/roles',
       icon: 'Shield',
       requiredPermission: { action: 'read', resource: 'roles' },
     },
     {
       title: 'Reports',
-      path: '/admin/reports',
+      path: '/reports',
       icon: 'BarChart3',
       requiredPermission: { action: 'read', resource: 'reports' },
     },
     {
       title: 'Settings',
-      path: '/admin/settings',
+      path: '/settings',
       icon: 'Settings',
       requiredPermission: { action: 'read', resource: 'settings' },
     },

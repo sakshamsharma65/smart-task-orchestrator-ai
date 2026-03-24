@@ -203,7 +203,7 @@ export default function MyTasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [totalTasks, setTotalTasks] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [view, setView] = useState<"list" | "kanban">("list");
+  const [view, setView] = useState<"list" | "kanban">("kanban");
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -421,7 +421,7 @@ export default function MyTasksPage() {
     
     // Preferred explicit ordering for Kanban columns (if those statuses exist)
     // This enforces: To Do -> In Progress -> Review -> Completed
-    const preferredOrder = ["To Do", "In Progress", "Review", "Completed"];
+    const preferredOrder = ["new", "In Progress", "Approval", "Completed"];
     const orderedStatuses: string[] = [];
 
     // Add preferred statuses first when they exist in the status list
@@ -689,7 +689,7 @@ export default function MyTasksPage() {
               </div>
             )}
 
-            {!loading && !statusesLoading && !showTooManyWarning && view === "kanban" && (
+            {!loading && !statusesLoading && !showTooManyWarning && view === "kanban" && searchedTasks.length > 0 && (
               <DndProvider backend={HTML5Backend}>
                 <div className="flex gap-6 overflow-x-auto pb-8 px-2">
                   {sortedStatusKeys.map((statusKey, index) => {

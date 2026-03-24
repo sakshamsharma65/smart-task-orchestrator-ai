@@ -361,6 +361,9 @@ private async request(endpoint: string, options: RequestInit = {}) {
       body: JSON.stringify(updates),
     });
   }
+  
+  // In your apiClient object
+
 
   // Generic HTTP methods for flexibility
   async get(endpoint: string) {
@@ -386,6 +389,13 @@ private async request(endpoint: string, options: RequestInit = {}) {
       method: 'DELETE',
     });
   }
+  // Inside your ApiClient class
+async toggleTwoFactor(userId: string, enabled: boolean) {
+  return this.request(`/users/${userId}/2fa`, {
+    method: 'PATCH',
+    body: JSON.stringify({ enabled }),
+  });
+}
 }
 
 export const apiClient = new ApiClient();

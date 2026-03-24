@@ -1,5 +1,6 @@
 
 import React, { useState, useEffect, useMemo, useCallback } from "react";
+import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { fetchTasks, Task } from "@/integrations/supabase/tasks";
 import { Button } from "@/components/ui/button";
@@ -75,6 +76,22 @@ const TasksPage: React.FC = () => {
   const [showFilters, setShowFilters] = useState(false);
   const [priorityFilter, setPriorityFilter] = useState("all");
   const [statusFilter, setStatusFilter] = useState("all");
+  const location = useLocation();
+
+  // Overdue filter state
+  const [overdueFilter, setOverdueFilter] = useState(false);
+
+  // Sync status and overdue filter with URL query param on mount
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const statusParam = params.get("status");
+    const overdueParam = params.get("overdue");
+    if (statusParam && statusParam !== statusFilter) {
+      setStatusFilter(statusParam);
+    }
+    setOverdueFilter(overdueParam === "true");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.search]);
   const [userFilter, setUserFilter] = useState("all");
   const [teamFilter, setTeamFilter] = useState("all");
   const [dateRange, setDateRange] = useState(defaultDateRange());
@@ -132,17 +149,25 @@ const TasksPage: React.FC = () => {
 
   const tasks = tasksResult?.tasks || [];
   const filteredTasks = useMemo(() => {
-  if (!searchQuery.trim()) return tasks;
-
-  const q = searchQuery.toLowerCase();
-
-  return tasks.filter((task) =>
-    task.title?.toLowerCase().includes(q) ||
-    task.status?.toLowerCase().includes(q) ||
-    task.description?.toLowerCase().includes(q) ||
-    task.assigned_to?.toLowerCase().includes(q)
-  );
-}, [tasks, searchQuery]);
+    let filtered = tasks;
+    if (overdueFilter) {
+      const now = new Date();
+      filtered = filtered.filter(
+        (task) => task.due_date && new Date(task.due_date) < now && task.status?.toLowerCase() !== "completed"
+      );
+    }
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      filtered = filtered.filter((task) =>
+        task.title?.toLowerCase().includes(q) ||
+        task.status?.toLowerCase().includes(q) ||
+        task.description?.toLowerCase().includes(q) ||
+        task.assigned_to?.toLowerCase().includes(q) ||
+        task.is_time_managed?.toString().toLowerCase().includes(q)
+      );
+    }
+    return filtered;
+  }, [tasks, searchQuery, overdueFilter]);
 
   const totalTasks = tasksResult?.total || 0;
   const showTooManyWarning = tasksResult?.showTooManyWarning || false;

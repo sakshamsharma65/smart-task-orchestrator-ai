@@ -13,6 +13,9 @@ import { StatusDeletionDialog } from "@/components/StatusDeletionDialog";
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card";
 import { useRole } from "@/contexts/RoleProvider";
 import { useRolePermissions } from "@/hooks/useRolePermissions";  
+import { Description } from "@radix-ui/react-toast";
+import {useRef} from "react";
+
 
 type TaskStatus = {
   id: string;
@@ -51,7 +54,42 @@ const PASTEL_COLORS = [
   { name: "Red", value: "#ef4444", bg: "bg-red-100", text: "text-red-700" },
   { name: "Yellow", value: "#eab308", bg: "bg-yellow-100", text: "text-yellow-700" },
 ];
+ const DEFAULT_STATUSES =[
+  {
+    name:"New",
+    description:"Task has been created",
+    color:"#3b82f6",
+    sequence_order:1,
+    is_default:true,
+    can_delete:true,
+  },
+  {
+    name:"In Progress",
+    description:"Task is being worked on",
+    color:"#f59e0b",
+    sequence_order:2,
+    is_default:false,
+    can_delete:false,
+  },{
+    name:"Approval",
+    description:"Task is awaiting approval",
+    color:"#8b5cf6",
+    sequence_order:3,
+    is_default:false,
+    can_delete:false,
+  },
+   {
+    name: "Completed",
+    description: "Task has been completed",
+    color: "#10b981",
+    sequence_order: 4,
+    is_default: false,
+    can_delete: true,
+  }
 
+
+
+ ]
 const ColorPicker: React.FC<{ 
   selectedColor: string; 
   onColorChange: (color: string) => void;
@@ -78,11 +116,46 @@ const ColorPicker: React.FC<{
 };
 
 const StatusManager: React.FC = () => {
+  const defaultCreatedRef = useRef(false);
   const { statuses, loading, refreshStatuses } = useTaskStatuses();
   const [editing, setEditing] = useState<{ [id: string]: boolean }>({});
   const [newStatus, setNewStatus] = useState({ name: "", description: "", color: "#6b7280", is_default: false, can_delete: true });
   const [inputStatus, setInputStatus] = useState<{ [id: string]: { name: string; description: string; color: string; is_default: boolean; can_delete: boolean } }>({});
   const { highestRole } = useRole();
+useEffect(() => {
+  const createDefaultsIfEmpty = async () => {
+
+    if (loading) return;
+
+    if (statuses.length === 0 && !defaultCreatedRef.current) {
+
+      defaultCreatedRef.current = true;
+
+      try {
+
+        toast({ title: "Initializing default statuses..." });
+
+       for (const status of DEFAULT_STATUSES) {
+  await apiClient.createTaskStatus(status);
+}
+        await refreshStatuses();
+
+        toast({
+          title: "Default statuses created successfully!",
+        });
+
+      } catch (error) {
+
+        console.error("Failed to create default statuses:", error);
+
+        defaultCreatedRef.current = false; // allow retry if failed
+      }
+    }
+  };
+
+  createDefaultsIfEmpty();
+
+}, [loading, statuses]);
 
   // Reordering with optimistic updates
   const [localStatuses, setLocalStatuses] = useState(statuses);

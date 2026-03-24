@@ -13,7 +13,7 @@ import { useStatusTransitionValidation } from "@/hooks/useStatusTransitionValida
 import TaskTimer from "./TaskTimer";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { useUserDisplayNames } from "@/hooks/useUserDisplayNames";
-
+import DOMPurify from 'dompurify'
 // Utility to convert hex to RGB for lighter colors
 const hexToRgb = (hex: string) => {
   const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
@@ -92,6 +92,7 @@ function handleDeleteTask(id: string) {
 }
 
 
+
   async function handleCompleteTask(task: Task) {
     if (task.status === "Completed") {
       toast({ title: "Task is already Completed" });
@@ -137,10 +138,12 @@ function handleDeleteTask(id: string) {
 
   // Check if task is Completed for blue left border
   const isCompleted = task.status === "Completed";
+  const groups = task.groups || [];
   const { canEditTask, canDeleteTask,canEditMy_Tasks} = useRolePermissions();
   const { usersMap } = useUserDisplayNames();
 
   return (
+    
     <Card 
       className={`relative group transition hover:shadow-lg ${isCompleted ? 'border-l-4 border-l-blue-900' : ''}`}
       style={dynamicCardStyling}
@@ -171,11 +174,12 @@ function handleDeleteTask(id: string) {
           className={`text-gray-400 hover:text-green-900 h-8 w-8 sm:h-10 sm:w-10`}
           title={task.status === "Completed" ? "Already Completed" : "Mark as Complete"}
           onClick={() => handleCompleteTask(task)}
-          disabled={task.status === "Completed" ||task.status === "To Do" ||task.status === "In Progress"}
+          disabled={task.status === "Completed" }
         >
           <Check size={16} className="sm:w-5 sm:h-5" />
         </Button>
       </div>
+    
 
       {/* Card header and summary */}
       <CardHeader className="pb-2">
@@ -229,7 +233,7 @@ function handleDeleteTask(id: string) {
             )}
           </div>
         </div>
-        <div className="mt-1 text-xs text-muted-foreground line-clamp-2">{task.description}</div>
+    <div dangerouslySetInnerHTML={{ __html: task.description }} />
       </CardHeader>
       <CardContent>
         <div className="flex flex-col md:flex-row md:items-center md:gap-6 gap-2 text-sm">
@@ -268,10 +272,26 @@ function handleDeleteTask(id: string) {
   : "-"}
 
           </div>
-          {task.status === "Completed" && task.actual_completion_date && (
+          {task.status.toLowerCase() === "completed" && task.actual_completion_date && (
             <div>
               <span className="font-semibold">Completion Date:</span>{" "}
               {formatOrgDate(task.actual_completion_date)}
+            </div>
+          )}
+          {groups.length > 0 && (
+            <div className="flex items-center gap-1">
+              <span className="font-semibold">Groups:</span>
+              <div className="flex gap-1 flex-wrap">
+                {groups.map((group: any) => (
+                  <Badge 
+                    key={group.id} 
+                    variant="outline" 
+                    className="bg-blue-50 text-blue-700 border-blue-200 text-[10px] py-0 h-5"
+                  >
+                    {group.name}
+                  </Badge>
+                ))}
+              </div>
             </div>
           )}
         </div>

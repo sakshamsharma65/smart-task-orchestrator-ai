@@ -17,9 +17,9 @@ const Index = () => {
       } else {
         // Redirect based on role
         if (highestRole === "admin") {
-          navigate("/admin/dashboard");
+          navigate("/dashboard");
         } else if (highestRole === "manager") {
-          navigate("/admin/dashboard");
+          navigate("/dashboard");
         } else {
           navigate("/tasks");
         }

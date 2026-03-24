@@ -238,10 +238,10 @@ export const LicenseManager = () => {
         </CardContent>
       </Card>
 
-      <Separator />
+      {/* <Separator /> */}
 
       {/* License Validation Section */}
-      <Card>
+      {/* <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
             <CheckCircle className="h-5 w-5" />
@@ -275,7 +275,7 @@ export const LicenseManager = () => {
             {validateMutation.isPending ? "Validating License..." : "Validate License"}
           </Button>
         </CardContent>
-      </Card>
+      </Card> */}
     </div>
   );
 };

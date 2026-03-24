@@ -8,6 +8,8 @@ import { db } from "./db";
 import { eq } from "drizzle-orm";
 
 
+
+
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL, // or your DB config
 });
@@ -33,102 +35,65 @@ router.post("/api/auth/request-reset", async (req, res) => {
   try {
     const { email } = req.body;
 
-    // Check if user exists in `users` table
+    // 1. Fetch Email Settings from DB
+    const settings = await storage.getEmailSettings();
+    
+    // if (!settings ||true) {
+    //   return res.status(500).json({ 
+    //     error: "Email service is not configured or verified. Please contact administrator." 
+    //   });
+    // }
+
+    // 2. Check if user exists
     const userResult = await pool.query("SELECT id FROM users WHERE email = $1", [email]);
     if (userResult.rows.length === 0) {
       return res.status(404).json({ error: "No user found with this email" });
     }
 
-    // Generate OTP and hash
+    // 3. Generate and Save OTP (Keep your existing logic)
     const otp = Math.floor(100000 + Math.random() * 900000).toString();
     const otpHash = await bcrypt.hash(otp, 10);
-    const expiresAt = new Date(Date.now() + 5 * 60 * 1000); // 5 minutes
+    const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
 
-    // Insert into `password_reset_otps`
     await pool.query(
       `INSERT INTO password_reset_otps (email, otp_hash, expires_at, attempts, used, created_at)
        VALUES ($1, $2, $3, 0, false, NOW())`,
       [email, otpHash, expiresAt]
     );
 
-    console.log(`Password reset OTP for ${email}: ${otp}`);
-
-    // Send email
+    // 4. Configure Transporter using DB Settings
     const transporter = nodemailer.createTransport({
-      host: process.env.SMTP_HOST,
-      port: Number(process.env.SMTP_PORT),
-      secure: false,
-      auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+      host: settings.host,
+      port: Number(settings.port),
+      secure: Number(settings.port) === 465, // Use SSL for port 465
+      auth: { 
+        user: settings.username, 
+        pass: settings.password 
+      },
+      // Many modern SMTP servers require this if using self-signed certs
+      tls: {
+        rejectUnauthorized: false 
+      }
     });
 
-await transporter.sendMail({
-  from: `"Smart Task Orchestrator" <${process.env.FROM_EMAIL}>`,
-  to: email,
-  subject: "🔐 Task Management – Password Reset OTP",
-  html: `
-  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5;padding:20px;">
-    <tr>
-      <td align="center">
-
-        <table width="500" cellpadding="0" cellspacing="0" style="background:#ffffff;border-radius:8px;padding:20px;">
-          <tr>
-            <td align="center" style="padding-bottom:20px;">
-              <h2 style="color:#4a90e2;margin:0;font-family:Arial,sans-serif;">
-                Task Management System
-              </h2>
-            </td>
-          </tr>
-
-          <tr>
-            <td style="font-family:Arial,sans-serif;font-size:15px;color:#555;">
-              Dear User,<br><br>
-              You have requested to reset your password. Use the OTP below:
-            </td>
-          </tr>
-
-          <tr>
-            <td align="center" style="padding:25px 0;">
-              <div style="
-                background:#4a90e2;
-                color:#ffffff;
-                font-size:32px;
-                font-weight:bold;
-                font-family:Arial,sans-serif;
-                padding:15px 0;
-                border-radius:6px;
-                letter-spacing:6px;
-                width:80%;
-              ">
-                ${otp}
-              </div>
-            </td>
-          </tr>
-
-          <tr>
-            <td style="font-family:Arial,sans-serif;font-size:14px;color:#666;">
-              This OTP expires in <b>5 minutes</b>. If you did not request this, ignore this email.
-            </td>
-          </tr>
-
-          <tr>
-            <td align="center" style="padding-top:20px;">
-              <hr style="border:0;border-top:1px solid #eee;width:100%;">
-              <p style="font-size:12px;color:#999;font-family:Arial,sans-serif;">
-                © ${new Date().getFullYear()} Task Management System
-              </p>
-            </td>
-          </tr>
-
-        </table>
-
-      </td>
-    </tr>
-  </table>
-  `,
-});
-
-
-
+    // 5. Send the Email
+    await transporter.sendMail({
+      from: `"${settings.fromName || 'Smart Task Orchestrator'}" <${settings.fromEmail}>`,
+      to: email,
+      subject: "🔐 Task Management – Password Reset OTP",
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: auto; border: 1px solid #e0e0e0; padding: 20px; border-radius: 10px;">
+          <h2 style="color: #4a90e2; text-align: center;">Password Reset Request</h2>
+          <p>You requested a password reset. Use the code below to proceed:</p>
+          <div style="background: #f4f7ff; padding: 20px; text-align: center; font-size: 32px; font-weight: bold; letter-spacing: 5px; color: #4a90e2; border-radius: 8px;">
+            ${otp}
+          </div>
+          <p style="color: #666; font-size: 12px; margin-top: 20px;">
+            This code will expire in 5 minutes. If you didn't request this, you can safely ignore this email.
+          </p>
+        </div>
+      `,
+    });
 
     res.json({ message: "OTP sent successfully" });
   } catch (err) {

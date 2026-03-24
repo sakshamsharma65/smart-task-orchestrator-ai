@@ -26,9 +26,9 @@ export default function TaskOverdueExportButton({ disabled, report }: TaskOverdu
       "Employee Name": row.employeeName,
       "Employee Email": row.employeeEmail,
       "0-15 Days": row["0-15"],
-      "15-30 Days": row["15-30"],
-      "30-45 Days": row["30-45"],
-      "45-60 Days": row["45-60"],
+      "16-30 Days": row["15-30"],
+      "31-45 Days": row["30-45"],
+      "46-60 Days": row["45-60"],
       ">60 Days": row[">60"],
       "Total Overdue": row.totalOverdue
     }));

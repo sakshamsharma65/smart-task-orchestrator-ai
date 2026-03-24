@@ -12,15 +12,18 @@ import { useNavigate } from "react-router-dom";
 
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
 
-function StatCard({ label, value, icon: Icon, bgColor, borderColor }: { 
+function StatCard({ label, value, icon: Icon, onClick, bgColor, borderColor }: { 
   label: string; 
   value: number | string; 
   icon: React.ElementType;
+  onClick?: () => void;
   bgColor: string;
   borderColor: string;
 }) {
   return (
-    <Card className={`flex-1 min-w-[140px] ${bgColor} ${borderColor} shadow-sm`}>
+    <Card className={`flex-1 min-w-[140px] ${bgColor} ${borderColor} shadow-sm ${onClick ? "cursor-pointer hover:shadow-md transition" : ""}`}  onClick={onClick}
+      role={onClick ? "button" : undefined}
+      tabIndex={onClick ? 0 : undefined}>
       <CardHeader className="pb-2">
         <div className="flex items-center justify-between">
           <CardTitle className="text-sm font-medium text-gray-600">{label}</CardTitle>
@@ -35,16 +38,22 @@ function StatCard({ label, value, icon: Icon, bgColor, borderColor }: {
 }
 
 const AdminDashboard = () => {
-  const { users, teams } = useUsersAndTeams();
-  const { roles, loading: rolesLoading } = useCurrentUserRoleAndTeams();
-  const navigate = useNavigate();
+const loggedInUser = JSON.parse(localStorage.getItem("user") || "{}");
+const loggedInUserId = loggedInUser?.id;
+const [showTimerPopup, setShowTimerPopup] = React.useState(false);
+const [pendingTimerTasks, setPendingTimerTasks] = React.useState<any[]>([]);
+const { users, teams } = useUsersAndTeams();
+const { roles, loading: rolesLoading } = useCurrentUserRoleAndTeams();
+const navigate = useNavigate();
 
   // Simple tasks query with React Query
-  const { data: tasks = [], isLoading: tasksLoading } = useQuery({
+const { data: tasks = [], isLoading: tasksLoading } = useQuery({
     queryKey: ["/api/tasks"],
     queryFn: () => apiClient.getTasks(),
     staleTime: 60 * 1000, // 1 minute
+
   });
+
 
   // Calculate stats and tasks due today
   const stats = React.useMemo(() => {
@@ -55,7 +64,7 @@ const AdminDashboard = () => {
 
     const totalTasks = tasks.length;
     const completedTasks = tasks.filter(task => task.status.toLowerCase() === "completed").length;
-    const newTasks = tasks.filter(task => task.status.toLowerCase() === "to do").length;
+    const newTasks = tasks.filter(task => task.status.toLowerCase() === "to do").length;   
     const overdueTasks = tasks.filter(task => 
       task.due_date && 
       new Date(task.due_date) < new Date() && 
@@ -90,10 +99,28 @@ const AdminDashboard = () => {
       statusData
     };
   }, [tasks]);
+React.useEffect(() => {
 
+  if (!tasks || !loggedInUserId) return;
+
+  const pendingTasks = tasks.filter((task) =>
+    task.is_time_managed === true &&
+    task.assigned_to === loggedInUserId &&
+    task.timer_started_at === null &&
+    task.status.toLowerCase() !== "completed"
+  );
+
+  if (pendingTasks.length > 0) {
+    setPendingTimerTasks(pendingTasks);
+    setShowTimerPopup(true);
+  } else {
+    setShowTimerPopup(false);
+  }
+
+}, [tasks, loggedInUserId]);
   const isAdmin = roles.includes("admin");
   const isLoading = rolesLoading || tasksLoading;
-
+  const activeUsers = users.filter(u => u.is_active).length;
   if (isLoading) {
     return (
       <div className="p-6">
@@ -108,10 +135,11 @@ const AdminDashboard = () => {
     queryClient.invalidateQueries({ queryKey: ["/api/tasks"] });
   };
 
+
   const handleTaskClick = (taskId: string) => {
     // Navigate to My Tasks page - the task details will open automatically there
     console.log("[DEBUG] Navigating to my-tasks from dashboard task click, taskId:", taskId);
-    navigate("/admin/my-tasks");
+    navigate("/my-tasks");
   };
 
   const getPriorityBadge = (priority: number) => {
@@ -146,10 +174,45 @@ const AdminDashboard = () => {
       return { text: "Due today", color: "text-gray-600", icon: Calendar };
     }
   };
+  
 
   return (
     <div className="p-6">
       <h1 className="text-2xl font-semibold mb-6">Dashboard</h1>
+      {showTimerPopup && (
+  <div className="fixed top-5 right-5 z-50 w-[380px] bg-white border border-orange-300 shadow-lg rounded-lg p-4 animate-in slide-in-from-top">
+    
+    <div className="flex justify-between items-start mb-2">
+      <h3 className="font-semibold text-orange-600">
+        Timer Not Started
+      </h3>
+
+      <button
+        onClick={() => setShowTimerPopup(false)}
+        className="text-gray-400 hover:text-gray-600"
+      >
+        ✕
+      </button>
+    </div>
+
+    <p className="text-sm text-gray-700 mb-3">
+      You have {pendingTimerTasks.length} time-managed task(s) assigned.
+      Please start the timer manually.
+    </p>
+
+    <button
+      onClick={() => {
+        navigate("/tasks");
+        setShowTimerPopup(false);
+      }}
+      className="w-full bg-orange-500 hover:bg-orange-600 text-white text-sm py-2 rounded"
+    >
+      Go to Task Page
+    </button>
+
+  </div>
+)}
+
 
       {/* Active Timers Bar */}
       <ActiveTimersBar onTaskUpdated={handleTaskUpdated} />
@@ -157,8 +220,9 @@ const AdminDashboard = () => {
       {/* KPI Cards */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
         <StatCard 
-          label="Total Users" 
-          value={users.length} 
+          label="Total Active Users" 
+          onClick={() => navigate("/users")}
+          value={activeUsers}
           icon={Users}
              bgColor="bg-indigo-50"
           borderColor="border-indigo-200"
@@ -166,12 +230,14 @@ const AdminDashboard = () => {
         <StatCard 
           label="Total Teams" 
           value={teams.length} 
+          onClick={() => navigate("/teams")}
           icon={Building2}
-            bgColor="bg-emerald-50"
+          bgColor="bg-emerald-50"
           borderColor="border-emerald-200"
         />
         <StatCard 
           label="Total Tasks" 
+          onClick={()=> navigate("/tasks")}
           value={stats.totalTasks} 
           icon={ClipboardList}
             bgColor="bg-red-100"
@@ -179,6 +245,7 @@ const AdminDashboard = () => {
         />
         <StatCard 
           label="Completed Tasks" 
+          onClick={()=> navigate("/tasks?status=Completed")}
           value={stats.completedTasks} 
           icon={CheckCircle}
           bgColor="bg-red-100"
@@ -197,6 +264,7 @@ const AdminDashboard = () => {
         />
         <StatCard 
           label="Overdue Tasks" 
+          onClick={() => navigate("/tasks?overdue=true")}
           value={stats.overdueTasks} 
           icon={CheckCircle}
           bgColor="bg-rose-50"
@@ -226,7 +294,7 @@ const AdminDashboard = () => {
             </CardTitle>
             {stats.tasksDueToday.length > 0 && (
               <button
-                onClick={() => navigate("/admin/my-tasks")}
+                onClick={() => navigate("/my-tasks")}
                 className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
               >
                 View All Tasks →
@@ -271,7 +339,7 @@ const AdminDashboard = () => {
                         </h4>
                         {task.description && (
                           <p className="text-xs text-gray-600 truncate mt-1">
-                            {task.description}
+                            <div dangerouslySetInnerHTML={{ __html: task.description }} />
                           </p>
                         )}
                       </div>
@@ -291,7 +359,7 @@ const AdminDashboard = () => {
                 {stats.tasksDueToday.length > 5 && (
                   <div className="text-center pt-2">
                     <button
-                      onClick={() => navigate("/admin/my-tasks")}
+                      onClick={() => navigate("/my-tasks")}
                       className="text-sm text-blue-600 hover:text-blue-800 hover:underline"
                     >
                       +{stats.tasksDueToday.length - 5} more tasks →

@@ -91,7 +91,7 @@ export default function TaskOverdueReport() {
   }
 
   return (
-    <div className="max-w-5xl mx-0 p-4">
+    <div className="w-full mx-0 p-2">
       <h1 className="text-2xl font-semibold mb-4">Task Overdue Report</h1>
       <div className="bg-white rounded-lg border shadow-sm">
         <div className="p-4">
@@ -108,9 +108,9 @@ export default function TaskOverdueReport() {
                   <tr className="border-b border-gray-200">
                     <th className="text-left py-2 px-3">Employee Name</th>
                     <th className="text-left py-2 px-3">0-15 Days</th>
-                    <th className="text-left py-2 px-3">15-30 Days</th>
-                    <th className="text-left py-2 px-3">30-45 Days</th>
-                    <th className="text-left py-2 px-3">45-60 Days</th>
+                    <th className="text-left py-2 px-3">16-30 Days</th>
+                    <th className="text-left py-2 px-3">31-45 Days</th>
+                    <th className="text-left py-2 px-3">46-60 Days</th>
                     <th className="text-left py-2 px-3">&gt;60 Days</th>
                     <th className="text-left py-2 px-3">Total Overdue</th>
                   </tr>

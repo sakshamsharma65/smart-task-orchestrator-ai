@@ -62,7 +62,7 @@ serve(async (req) => {
 
     // 1. CREATE THE USER IN AUTH
     console.log("[LOG] Creating user in Auth service for email:", email);
-    const createUserRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
+    const createUserRes = await fetch(`${SUPABASE_URL}/auth/v1/users`, {
       method: "POST",
       headers: {
         "apikey": SERVICE_ROLE_KEY,

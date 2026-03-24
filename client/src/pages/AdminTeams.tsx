@@ -159,7 +159,7 @@ const AdminTeams: React.FC = () => {
   }
 
   return (
-    <div className="p-6 max-w-6xl w-full">
+    <div className="p-6  w-full">
       {/* Create/Edit Team Dialogs */}
       <TeamManagerDialog
         open={createDialog}

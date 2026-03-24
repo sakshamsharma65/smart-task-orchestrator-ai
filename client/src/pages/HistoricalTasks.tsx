@@ -1,5 +1,5 @@
 
-import React, { useState, useMemo } from "react";
+import React, { useState, useMemo,  useEffect } from "react";
 import { fetchTasksPaginated, FetchTasksInput, Task } from "@/integrations/supabase/tasks";
 import TaskCard from "@/components/TaskCard";
 import { useUsersAndTeams } from "@/hooks/useUsersAndTeams";
@@ -14,6 +14,7 @@ import { useCurrentUserRoleAndTeams } from "@/hooks/useCurrentUserRoleAndTeams";
 import { usePaginatedTasks } from "@/hooks/usePaginatedTasks";
 import { format, startOfMonth, endOfMonth, subMonths } from "date-fns";
 import DateRangePresetSelector from "@/components/DateRangePresetSelector";
+
 
 function defaultDateRange() {
   const now = new Date();
@@ -48,8 +49,8 @@ export default function HistoricalTasksPage() {
 
   // Filter states
   const [searchQuery, setSearchQuery] = useState("");
-  const [showFilters, setShowFilters] = useState(false);
-  const [preset, setPreset] = useState<string>("Last Month");
+  const [showFilters, setShowFilters] = useState(true);
+  const [preset, setPreset] = useState<string>("last_month");
   const filteredTasks = useMemo(() => {
   if (!searchQuery.trim()) return tasks;
 
@@ -63,6 +64,10 @@ export default function HistoricalTasksPage() {
   );
 }, [tasks, searchQuery]);
 
+useEffect(() => {
+  const range = defaultDateRange();
+  filters.setDateRange(range);
+}, []);
 
   function handlePresetChange(range: { from: Date | null; to: Date | null }, p: string) {
     setPreset(p);
@@ -139,22 +144,22 @@ export default function HistoricalTasksPage() {
               </div>
 
               {/* Status Filter */}
-              <div>
+              {/* <div>
                 <label className="block text-sm font-medium mb-2">Status</label>
                 <Select value={filters.statusFilter} onValueChange={filters.setStatusFilter}>
                   <SelectTrigger>
-                    <SelectValue placeholder="All Statuses" />
+                    <SelectValue placeholder="Completed" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="all">All Statuses</SelectItem>
+                    <SelectItem value="Completed">Completed</SelectItem>
                     {statuses.map(status => (
-                      <SelectItem key={status.id} value={status.name}>
-                        {status.name}
+                      <SelectItem key={status.id} value="Completed">
+                        COMPLETED
                       </SelectItem>
                     ))}
                   </SelectContent>
                 </Select>
-              </div>
+              </div> */}
 
               {/* User Filter */}
               <div>

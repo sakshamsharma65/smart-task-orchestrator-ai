@@ -9,6 +9,8 @@ import {
   SheetClose,
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
+import { Download,FileIcon,ImageIcon,Loader2} from "lucide-react";
+
 import { Textarea } from "@/components/ui/textarea";
 import { useUsersAndTeams } from "@/hooks/useUsersAndTeams";
 import { updateTask, Task } from "@/integrations/supabase/tasks";
@@ -19,9 +21,22 @@ import { useTaskActivity } from "@/hooks/useTaskActivity";
 import TaskActivityTimeline from "./TaskActivityTimeline";
 import { createTaskActivity } from "@/integrations/supabase/taskActivity";
 import { EditTaskStatusSelect } from "./EditTaskStatusSelect";
+import { TaskChecklist } from "./TaskChecklist";
 
 import { apiRequest } from "@/lib/queryClient";
 import { useQuery } from "@tanstack/react-query";
+import DOMPurify from 'dompurify'
+
+import { 
+  AlertDialog, 
+  AlertDialogAction, 
+  AlertDialogContent, 
+  AlertDialogDescription, 
+  AlertDialogFooter, 
+  AlertDialogHeader, 
+  AlertDialogTitle 
+} from "@/components/ui/alert-dialog";
+
 
 
 
@@ -53,21 +68,26 @@ const TaskDetailsSheet: React.FC<Props> = ({
   onUpdated,
   onEdit
 }) => {
+ 
   // Always run hooks regardless of task
   const [comment, setComment] = useState("");
   const [assignTo, setAssignTo] = useState(task?.assigned_to || "");
   const [status, setStatus] = useState(task?.status || "");
   const [loading, setLoading] = useState(false);
   const { users } = useUsersAndTeams();
+    const [creating, setCreating] = useState(false);
   const { statuses, loading: statusesLoading } = useTaskStatuses();
   const { activity, reload: reloadActivity, loading: activityLoading } = useTaskActivity(task?.id || null);
   const queryClient = useQueryClient();
+  const [attachments,setAttachments] = useState<File[]>([]);
+  const [showTodoWarning, setShowTodoWarning] = useState(false);
+const [pendingCount, setPendingCount] = useState(0);
   const { data: usersName = [] } = useQuery({
     queryKey: ['/api/usersName'],
     queryFn: () => apiRequest("/api/usersName"),
     enabled: true,
   });
-
+  
   // Reload activity when task changes or when modal opens/closes
   useEffect(() => {
     if (open && task?.id) {
@@ -102,29 +122,166 @@ const TaskDetailsSheet: React.FC<Props> = ({
   // {onEdit && <Button onClick={() => onEdit(task!)}>Edit</Button>}
 
   // Status change logic
-  async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
-    if (!currentUser?.id) return;
-    
-    const newStatus = e.target.value;
-    setStatus(newStatus);
-    try {
-      await updateTask(task!.id, { status: newStatus });
-      await createTaskActivity({
-        task_id: task!.id,
-        action_type: "status_changed",
-        old_value: task!.status,
-        new_value: newStatus,
-        acted_by: currentUser.id,
+   const MAX_FILE_SIZE = 1 * 1024 * 1024; // 1 MB
+  
+  const ALLOWED_TYPES = [
+    "application/pdf",
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+  ];
+  
+const MAX_TOTAL_SIZE = 2 * 1024 * 1024; // 2 MB Total
+const MAX_FILE_COUNT = 5;
+
+const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  if (!e.target.files) return;
+
+  const newlySelectedFiles = Array.from(e.target.files);
+  
+  // 1. Check if adding these files exceeds the count of 5
+  if (attachments.length + newlySelectedFiles.length > MAX_FILE_COUNT) {
+    toast({
+      title: "Limit Exceeded",
+      description: `You can only attach up to ${MAX_FILE_COUNT} files per task.`,
+      variant: "destructive",
+    });
+    e.target.value = ""; // Reset input
+    return;
+  }
+
+  const validFiles: File[] = [];
+  let potentialTotalSize = attachments.reduce((sum, f) => sum + f.size, 0);
+
+  for (const file of newlySelectedFiles) {
+    // Type validation
+    if (!ALLOWED_TYPES.includes(file.type)) {
+      toast({
+        title: "Invalid file type",
+        description: `${file.name} is not a supported format (PDF, JPG, PNG only).`,
+        variant: "destructive",
       });
+      continue;
+    }
+
+    // Individual size check (optional, but good for UX)
+    if (file.size > MAX_FILE_SIZE) {
+      toast({
+        title: "File too large",
+        description: `${file.name} exceeds the 1MB individual limit.`,
+        variant: "destructive",
+      });
+      continue;
+    }
+
+    // 2. Check cumulative total size (2MB)
+    if (potentialTotalSize + file.size > MAX_TOTAL_SIZE) {
+      toast({
+        title: "Total size exceeded",
+        description: "The total size of all attachments cannot exceed 2MB.",
+        variant: "destructive",
+      });
+      break; // Stop adding more files if we hit the limit
+    }
+
+    potentialTotalSize += file.size;
+    validFiles.push(file);
+  }
+
+  if (validFiles.length > 0) {
+    setAttachments((prev) => [...prev, ...validFiles]);
+  }
+
+  e.target.value = ""; // Reset the input so the same file can be selected again if removed
+};
+  
+      
+   const removeAttachment = (index: number) => {
+    setAttachments(prev =>
+      prev.filter((_, i) => i !== index)
+    );
+  };
+  const { data: existingAttachments = [], isLoading: attachmentsLoading } = useQuery<ExistingAttachment[]>({
+  queryKey: [`/api/tasks/${task?.id}/attachments`],
+  queryFn: () => apiRequest(`/api/tasks/${task?.id}/attachments`),
+  enabled: !!task?.id && open, // Only run if task exists and sheet is open
+});
+
+const handleDownload = (url: string, filename: string) => {
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  link.target = "_blank";
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+};
+async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
+  if (!currentUser?.id || !task) return;
+  
+  const newStatus = e.target.value;
+  
+  // We only care about the blocker logic if the status is being set to "Completed"
+  if (newStatus.toLowerCase() === "completed") {
+    try {
+      const response = await fetch(`/api/tasks/${task.id}`, {
+        method: "PATCH",
+        headers: { 
+          "Content-Type": "application/json",
+          "x-user-id": currentUser.id 
+        },
+        body: JSON.stringify({ status: newStatus }),
+      });
+
+      const data = await response.json();
+
+      // Check if backend blocked it due to todos
+      if (!response.ok && data.error === "PENDING_TODOS_REMAINING") {
+        setPendingCount(data.count);
+        setShowTodoWarning(true); // This triggers your AlertDialog!
+        setStatus(task.status); // Reset the dropdown to the old status
+        return;
+      }
+
+      if (!response.ok) throw new Error(data.error || "Failed to update status");
+
+      // If we reach here, it was successful
+      toast({ title: "Task marked as Completed" });
+    } catch (err: any) {
+      toast({ 
+        title: "Update failed", 
+        description: err.message, 
+        variant: "destructive" 
+      });
+      setStatus(task.status); // Reset dropdown on error
+      return;
+    }
+  } else {
+    // Normal status update for other statuses (Pending, In Progress, etc.)
+    try {
+      await updateTask(task.id, { status: newStatus });
       toast({ title: "Task status updated" });
-      onUpdated();
-      reloadActivity();
-      onOpenChange(false);
     } catch (err: any) {
       toast({ title: "Failed to change status", description: err.message });
+      setStatus(task.status);
+      return;
     }
   }
 
+  // Common logic after a successful update
+  await createTaskActivity({
+    task_id: task.id,
+    action_type: "status_changed",
+    old_value: task.status,
+    new_value: newStatus,
+    acted_by: currentUser.id,
+  });
+  
+  onUpdated();
+  reloadActivity();
+  // Optional: keep the sheet open or close it
+  // onOpenChange(false); 
+}
   // Assign handler
   async function handleAssign() {
     if (!currentUser?.id) return;
@@ -224,8 +381,11 @@ const TaskDetailsSheet: React.FC<Props> = ({
       default: return "bg-gray-100 text-gray-800";
     }
   };
+  
+
 
   return (
+    
     <Sheet open={open} onOpenChange={onOpenChange}>
       <SheetContent side="right" className="w-full sm:w-[90vw] md:w-[70vw] lg:w-[50vw] lg:min-w-[800px] max-w-none overflow-y-auto">
         <form className="p-3 sm:p-6 space-y-4 sm:space-y-8" onSubmit={e => e.preventDefault()}>
@@ -271,9 +431,16 @@ const TaskDetailsSheet: React.FC<Props> = ({
                     <div className="md:col-span-2">
                       <label className="block text-sm font-semibold text-gray-700 mb-2">Description</label>
                       <div className="bg-white p-3 rounded border min-h-[80px]">
-                        {task.description || <span className="text-gray-500 italic">No description provided</span>}
+                           <div dangerouslySetInnerHTML={{ __html: task.description }} />
                       </div>
-                    </div>
+                      
+                    </div>{/* Required Checklist View - Placement: After Description */}
+{task.todos_enabled && (
+  <div className="md:col-span-2 mt-4">
+    <TaskChecklist taskId={task.id} readOnly={true}/>
+  </div>
+)}
+                    
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">Priority</label>
                       <span className={`inline-flex items-center px-3 py-1 rounded-full text-sm font-medium ${getPriorityColor(task.priority)}`}>
@@ -414,6 +581,14 @@ const TaskDetailsSheet: React.FC<Props> = ({
                       onChange={(e) => setComment(e.target.value)}
                       className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[80px]"
                     />
+         {activity && activity.length > 0 && (
+  <p className="text-sm text-gray-600 mt-2">
+    <TaskActivityTimeline
+      activity={activity.filter(act => act.action_type === "comment")}
+      usersById={usersById}
+    />
+  </p>
+)}
                     <Button
                       onClick={handleComment}
                       disabled={!comment.trim()}
@@ -424,6 +599,104 @@ const TaskDetailsSheet: React.FC<Props> = ({
                   </div>
                 </div>
               </div>
+              
+           
+{/* SECTION 4: ATTACHMENTS */}
+<div className="bg-white p-4 rounded-lg border border-gray-200 space-y-4">
+  <label className="block text-base font-medium text-gray-700 flex items-center">
+    <span className="flex items-center">📎 Task Attachments</span>
+  </label>
+
+  {/* --- NEW: List of Existing Files from Database --- */}
+  <div className="space-y-2">
+    {/* <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Already Attached</h4> */}
+    
+    {attachmentsLoading ? (
+      <div className="flex items-center gap-2 text-sm text-gray-400 py-2">
+        <Loader2 className="h-4 w-4 animate-spin" /> Loading files...
+      </div>
+    ) : existingAttachments.length === 0 ? (
+      <p className="text-xs text-gray-400 italic py-2">No files uploaded yet.</p>
+    ) : (
+      <div className="grid grid-cols-1 gap-2">
+        {existingAttachments.map((file) => (
+          <div
+            key={file.id}
+            className="flex items-center justify-between bg-gray-50 p-2 px-3 rounded-md border border-gray-100 hover:bg-gray-100 transition-colors"
+          >
+            <div className="flex items-center min-w-0">
+              {file.mimetype?.includes("image") ? (
+                <ImageIcon className="h-4 w-4 text-blue-500 mr-2" />
+              ) : (
+                <FileIcon className="h-4 w-4 text-orange-500 mr-2" />
+              )}
+              <span className="text-sm font-medium truncate max-w-[250px]">
+                {file.filename}
+              </span>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => handleDownload(file.file_url, file.filename)}
+              className="text-blue-600 hover:text-blue-800 p-1.5 hover:bg-blue-50 rounded-full transition-all"
+              title="Download"
+            >
+              <Download size={16} />
+            </button>
+          </div>
+        ))}
+      </div>
+    )}
+  </div>
+
+  <hr className="border-gray-100" />
+
+  {/* --- Existing: Upload New Files Logic --- */}
+  {/* <div className="space-y-3">
+    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Upload New</h4>
+    <div className="relative">
+      <input
+        type="file"
+        multiple
+        onChange={handleFileSelect}
+        className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+        disabled={creating}
+      />
+      <div className="border-2 border-dashed border-gray-200 rounded-lg p-6 text-center hover:border-blue-400 transition-colors">
+        <p className="text-sm text-gray-500">Click or drag files here to upload</p>
+        <p className="text-xs text-gray-400 mt-1">PDF, JPG, PNG (Max 1MB each)</p>
+      </div>
+    </div>
+
+    {attachments.length > 0 && (
+      <div className="mt-4 grid grid-cols-1 gap-2">
+        {attachments.map((file, index) => (
+          <div
+            key={index}
+            className="flex items-center justify-between bg-blue-50/50 p-2 px-3 rounded-md border border-blue-100"
+          >
+            <div className="flex items-center min-w-0">
+              <span className="text-blue-500 mr-2 text-xs font-bold italic">NEW</span>
+              <span className="text-sm font-medium truncate max-w-[200px]">
+                {file.name}
+              </span>
+              <span className="text-[10px] text-gray-400 ml-2">
+                ({(file.size / 1024).toFixed(0)} KB)
+              </span>
+            </div>
+            <button
+              type="button"
+              onClick={() => removeAttachment(index)}
+              className="text-red-500 hover:text-red-700 p-1"
+            >
+              ✕
+            </button>
+          </div>
+        ))}
+      </div>
+    )}
+  </div> */}
+</div>
 
               {/* SECTION 5: ACTIVITY LOG */}
               <div className="space-y-4">
@@ -448,6 +721,27 @@ const TaskDetailsSheet: React.FC<Props> = ({
             </SheetClose>
           </SheetFooter>
         </form>
+        <AlertDialog open={showTodoWarning} onOpenChange={setShowTodoWarning}>
+  <AlertDialogContent className="bg-white border-2 border-orange-200">
+    <AlertDialogHeader>
+      <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center mb-4">
+        <span className="text-2xl">⚠️</span>
+      </div>
+      <AlertDialogTitle className="text-xl font-bold text-slate-900">
+        Incomplete Checklist
+      </AlertDialogTitle>
+      <AlertDialogDescription className="text-slate-600 text-base">
+        There are **{pendingCount} mandatory items** remaining in the checklist. 
+        You must complete all items before this task can be marked as "Completed".
+      </AlertDialogDescription>
+    </AlertDialogHeader>
+    <AlertDialogFooter>
+      <AlertDialogAction className="bg-slate-900 text-white hover:bg-slate-800">
+        I'll finish them now
+      </AlertDialogAction>
+    </AlertDialogFooter>
+  </AlertDialogContent>
+</AlertDialog>
       </SheetContent>
     </Sheet>
   );

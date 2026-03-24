@@ -28,7 +28,10 @@ const typeToColor = (type: string) =>
     : type === "comment"
     ? "bg-indigo-100 text-indigo-800"
     : "bg-gray-100 text-gray-700";
-
+const stripHTML = (html) => {
+  const doc = new DOMParser().parseFromString(html, "text/html");
+  return doc.body.textContent || "";
+};
 // FIX: actionLabel must now accept usersMap as an argument
 const actionLabel = (action: TaskActivity, usersMap: UsersMap) => {
   switch (action.action_type) {
@@ -67,8 +70,8 @@ const actionLabel = (action: TaskActivity, usersMap: UsersMap) => {
       return `Due date changed from "${action.old_value}" to "${action.new_value}"`;
     case "title_changed":
       return `Title changed from "${action.old_value}" to "${action.new_value}"`;
-    case "description_changed":
-      return `Description changed from "${action.old_value}" to "${action.new_value}"`;
+   case "description_changed":
+  return `Description changed from "${stripHTML(action.old_value)}" to "${stripHTML(action.new_value)}"`;
     case "timer_started":
       return "Timer started";
     case "timer_paused":

@@ -74,6 +74,7 @@ const GeneralSettings: React.FC = () => {
     min_hours_per_month: 0,
     max_hours_per_month: 160,
     allow_user_level_override: false,
+    user_2fa_required: false,
   });
 
   // Update form data when settings are loaded
@@ -93,6 +94,7 @@ const GeneralSettings: React.FC = () => {
         min_hours_per_month: settings.min_hours_per_month || 0,
         max_hours_per_month: settings.max_hours_per_month || 160,
         allow_user_level_override: settings.allow_user_level_override || false,
+        user_2fa_required: settings.user_2fa_required || false,
       });
     }
   }, [settings]);
@@ -439,6 +441,26 @@ const handleSave = () => {
                 </div>
                 <p className="text-sm text-muted-foreground">
                   When enabled, admins can exclude individual users from benchmarking or set custom hour requirements per user.
+                </p>
+              </div>
+
+
+
+               <Separator />
+
+              {/* User Level Override */}
+              <div className="space-y-3 mt-5">
+                <div className="flex items-center space-x-2">
+                  <Switch
+                    id="user_2fa"
+                    checked={formData.user_2fa_required} // Bind to state
+      onCheckedChange={(checked) => handleFormChange('user_2fa_required', checked)} // Bind to handler
+        
+                  />
+                  <Label htmlFor="user_2fa">Require 2FA for All Users</Label>
+                </div>
+                <p className="text-sm text-muted-foreground">
+                  Enable 2 Factor Authentication For All Users
                 </p>
               </div>
             </div>

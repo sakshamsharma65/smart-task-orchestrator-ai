@@ -3,7 +3,7 @@ import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
 import { relations } from "drizzle-orm";
-
+import { index } from "drizzle-orm/pg-core";
 
 
 // Organization settings table
@@ -26,6 +26,8 @@ export const organizationSettings = pgTable("organization_settings", {
   allow_user_level_override: boolean("allow_user_level_override").default(false),
   created_at: timestamp("created_at").defaultNow(),
   updated_at: timestamp("updated_at").defaultNow(),
+user_2fa_required: boolean("user_2fa_required").default(false).notNull(),
+
 });
 
 // Core users table (integrates with Supabase Auth)
@@ -38,6 +40,7 @@ export const users = pgTable("users", {
   phone: text("phone"),
   manager: text("manager"),
   is_active: boolean("is_active").default(true),
+is_2fa_enabled: boolean("is_2fa_enabled").default(false),
   // Benchmarking fields (only used if organization allows user-level override)
   benchmarking_excluded: boolean("benchmarking_excluded").default(false),
   custom_min_hours_per_day: integer("custom_min_hours_per_day"),
@@ -49,6 +52,150 @@ export const users = pgTable("users", {
   created_at: timestamp("created_at").defaultNow(),
   updated_at: timestamp("updated_at").defaultNow(),
 });
+// NEW TABLE: Dedicated table for login 2FA
+export const loginTwoFactorOtps = pgTable("login_two_factor_otps", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  user_id: uuid("user_id").notNull().references(() => users.id, { onDelete: "cascade" }),
+  temp_token: text("temp_token").notNull().unique(), // The token sent to the frontend
+  otp_hash: text("otp_hash").notNull(), // Hashed 6-digit code
+  expires_at: timestamp("expires_at").notNull(),
+  attempts: integer("attempts").default(0),
+  used: boolean("used").default(false),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
+export const emailSettings = pgTable("email_settings", {
+
+  id: serial("id").primaryKey(),
+  sendOnTaskCreate: boolean("send_on_task_create").default(false).notNull(),
+  sendOnTaskUpdate: boolean("send_on_task_update").default(false).notNull(),
+  sendOnOverdue: boolean("send_on_overdue").default(false).notNull(),
+  sendOnGroupAddition: boolean("send_on_group_addition").default(false).notNull(),
+
+  
+  // Provider Info
+  provider: text("provider").notNull(), 
+  // smtp, gmail, sendgrid, outlook
+
+  displayName: text("display_name").notNull(),
+
+
+  // Connection Details
+  host: text("host"),
+
+  port: integer("port"),
+
+  secure: boolean("secure")
+    .default(false),
+
+
+  // Credentials
+  username: text("username"),
+
+  password: text("password"),
+
+
+  // Sender Identity
+  fromEmail: text("from_email").notNull(),
+
+  fromName: text("from_name").notNull(),
+
+
+  // Status
+  isActive: boolean("is_active")
+    .notNull()
+    .default(true),
+
+  isVerified: boolean("is_verified")
+    .notNull()
+    .default(false),
+
+  verificationTestEmail:
+    text("verification_test_email"),
+
+  lastTestedAt:
+    timestamp("last_tested_at"),
+
+
+  // timestamps
+  createdAt:
+    timestamp("created_at")
+      .defaultNow()
+      .notNull(),
+
+  updatedAt:
+    timestamp("updated_at")
+      .defaultNow()
+      .notNull(),
+
+}, (table) => ({
+
+  providerIdx:
+    index("email_settings_provider_idx")
+      .on(table.provider),
+
+  activeIdx:
+    index("email_settings_active_idx")
+      .on(table.isActive),
+
+}));
+
+
+
+// ==========================
+// Insert Schema
+// ==========================
+
+export const insertEmailSettingsSchema =
+  createInsertSchema(emailSettings)
+    .pick({
+
+      provider: true,
+
+      displayName: true,
+
+      host: true,
+
+      port: true,
+
+      secure: true,
+
+      username: true,
+
+      password: true,
+
+      fromEmail: true,
+
+      fromName: true,
+
+      isActive: true,
+
+      verificationTestEmail: true,
+
+    })
+    .extend({
+      sendOnTaskCreate: z.boolean().default(false),
+    sendOnTaskUpdate: z.boolean().default(false),
+    sendOnOverdue: z.boolean().default(false),
+    sendOnGroupAddition: z.boolean().default(false),
+
+      fromEmail:
+        z.string()
+          .email("Invalid sender email"),
+
+      port:
+        z.number()
+          .int()
+          .positive()
+          .optional(),
+
+    });
+
+
+
+// ==========================
+// Types
+// ==========================
 export const passwordResetOtps = pgTable("password_reset_otps", {
   id: uuid("id").primaryKey().defaultRandom(),
 
@@ -90,7 +237,7 @@ export const deletedTasks = pgTable("deleted_tasks", {
   priority: text("priority").notNull().default("medium"),
   status: text("status").notNull().default("new"),
   due_date: timestamp("due_date"),
-  estimated_hours: integer("estimated_hours"),
+  estimated_hours: numeric("estimated_hours"),
   actual_hours: integer("actual_hours").default(0),
   assigned_to: uuid("assigned_to"),
   assigned_to_name: text("assigned_to_name"),
@@ -254,6 +401,9 @@ export const tasks = pgTable("tasks", {
   timer_session_data: text("timer_session_data"), // JSON data for timer sessions
   created_at: timestamp("created_at").defaultNow(),
   updated_at: timestamp("updated_at").defaultNow(),
+last_overdue_notified_at: timestamp("last_overdue_notified_at"),
+todos_enabled: boolean("todos_enabled").default(false),
+
 });
 
 // Subtasks
@@ -350,7 +500,12 @@ export const usersRelations = relations(users, ({ many }) => ({
   createdTasks: many(tasks, { relationName: "createdTasks" }),
   assignedTasks: many(tasks, { relationName: "assignedTasks" }),
   taskActivities: many(taskActivity),
+loginOtps: many(loginTwoFactorOtps),
 }));
+export const loginTwoFactorOtpsRelations = relations(loginTwoFactorOtps, ({ one }) => ({
+  user: one(users, { fields: [loginTwoFactorOtps.user_id], references: [users.id] }),
+}));
+
 
 export const rolesRelations = relations(roles, ({ many }) => ({
   userRoles: many(userRoles),
@@ -383,8 +538,28 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
   attachments: many(taskAttachments),
   activities: many(taskActivity),
   groupTasks: many(taskGroupTasks),
+todos: many(taskTodos),
 }));
+// 1. Global Todo Definitions (The "Templates" in Settings)
+export const globalTodoDefinitions = pgTable("global_todo_definitions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  title: text("title").notNull(), // e.g., "Code Review Done", "Documentation Updated"
+  description: text("description"),
+  is_active: boolean("is_active").default(true),
+  // Kept optional for future Team-level enhancement
+  team_id: uuid("team_id").references(() => teams.id, { onDelete: "cascade" }), 
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
 
+// 2. Task-specific Todos (The "Snapshotted" instances)
+export const taskTodos = pgTable("task_todos", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  task_id: uuid("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  title: text("title").notNull(), // Copied from the global definition
+  is_completed: boolean("is_completed").default(false).notNull(),
+  created_at: timestamp("created_at").defaultNow(),
+});
 export const subtasksRelations = relations(subtasks, ({ one }) => ({
   task: one(tasks, { fields: [subtasks.task_id], references: [tasks.id] }),
   assignedTo: one(users, { fields: [subtasks.assigned_to], references: [users.id] }),
@@ -444,7 +619,7 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({
   actual_completion_date: z.union([z.date(), z.string().transform((str) => str === "" ? null : new Date(str))]).nullable().optional(),
   priority: z.union([z.number(), z.string().transform((str) => parseInt(str, 10))]).optional(),
   estimated_hours: z.union([z.number(),z.string().transform((str) => str === "" ? null : parseFloat(str))]).nullable().optional(),
-
+todos_enabled: z.boolean().default(false).optional(),
 });
 
 export const insertTeamSchema = createInsertSchema(teams).omit({
@@ -529,6 +704,13 @@ export const insertLicenseSchema = createInsertSchema(licenses).omit({
   updatedAt: true
 });
 
+export const insertLoginTwoFactorOtpSchema = createInsertSchema(loginTwoFactorOtps).omit({
+  id: true,
+  created_at: true,
+});
+export const taskTodosRelations = relations(taskTodos, ({ one }) => ({
+  task: one(tasks, { fields: [taskTodos.task_id], references: [tasks.id] }),
+}));
 // Types
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type User = typeof users.$inferSelect;
@@ -561,3 +743,8 @@ export type InsertDepartment = z.infer<typeof insertDepartmentSchema>;
 export type Department = typeof departments.$inferSelect;
 export type InsertLicense = z.infer<typeof insertLicenseSchema>;
 export type License = typeof licenses.$inferSelect;
+// Add to your Types section
+export type LoginTwoFactorOtp = typeof loginTwoFactorOtps.$inferSelect;
+export type InsertLoginTwoFactorOtp = z.infer<typeof insertLoginTwoFactorOtpSchema>;
+export type EmailSettings = typeof emailSettings.$inferSelect;
+export type InsertEmailSettings = z.infer<typeof insertEmailSettingsSchema>;

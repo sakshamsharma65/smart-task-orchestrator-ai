@@ -2,8 +2,9 @@ import { eq, desc, and, or, ne ,getTableColumns,sql} from "drizzle-orm";
 import { db } from "./db";
 import { alias } from "drizzle-orm/pg-core";
 import { inArray } from "drizzle-orm";
+import { emailSettings, loginTwoFactorOtps } from "@shared/schema";
 
-
+import type { InsertEmailSettings,EmailSettings } from "@shared/schema";
 import { 
   users, 
   tasks, 
@@ -16,6 +17,7 @@ import {
   taskGroupMembers,
   taskActivity, 
   taskStatuses,
+  taskAttachments,
   taskStatusTransitions,
   rolePermissions,
   deletedUsers,
@@ -54,7 +56,11 @@ import {
   InsertDepartment,
   License,
   InsertLicense,
-  activityLog
+  activityLog,
+  globalTodoDefinitions,
+  taskTodos
+
+  
 } from "@shared/schema";
 
 export interface IStorage {
@@ -67,12 +73,26 @@ export interface IStorage {
   deactivateUser(id: string): Promise<User>;
   activateUser(id: string): Promise<User>;
   deleteUser(id: string, deletedBy: string): Promise<{ deletedUser: any; deletedTasksCount: number }>;
+
   
   // Deleted user operations (admin only)
   getAllDeletedUsers(): Promise<any[]>;
   getDeletedUserTasks(userId: string): Promise<any[]>;
   restoreDeletedUser(id: string): Promise<User>;
-  
+  CreateEmailSettings(
+  settings: InsertEmailSettings
+): Promise<EmailSettings>;
+
+updateEmailSettings(
+  id: number,
+  updates: Partial<InsertEmailSettings>
+): Promise<EmailSettings>;
+
+deleteEmailSettings(id: number): Promise<void>;
+
+markEmailSettingsAsVerified(
+  id: number
+): Promise<void>;
   // Task operations
   getTask(id: string): Promise<Task | undefined>;
   getAllTasks(): Promise<Task[]>;
@@ -115,6 +135,16 @@ export interface IStorage {
   removeTaskGroupMember(groupId: string, userId: string): Promise<void>;
   assignTaskToGroup(groupId: string, taskId: string): Promise<void>;
   removeTaskFromGroup(groupId: string, taskId: string): Promise<void>;
+  // Global Todo Definitions (Settings)
+  getAllGlobalTodoDefinitions(): Promise<any[]>;
+  createGlobalTodoDefinition(todo: any): Promise<any>;
+  updateGlobalTodoDefinition(id: string, updates: any): Promise<any>;
+  deleteGlobalTodoDefinition(id: string): Promise<void>;
+
+  // Task-Specific Todos
+  getTaskTodos(taskId: string): Promise<any[]>;
+  updateTaskTodoStatus(todoId: string, isCompleted: boolean): Promise<any>;
+  countPendingTaskTodos(taskId: string): Promise<number>;
   
   // Task activity operations
   getTaskActivity(taskId: string): Promise<TaskActivity[]>;
@@ -169,6 +199,13 @@ export interface IStorage {
   updateLicense(id: number, updates: Partial<License>): Promise<License>;
   deleteLicense(id: number): Promise<void>;
 }
+// Add to your IStorage interface
+export interface IStorage {
+  // ... existing methods
+  createTaskAttachment(attachment: any): Promise<any>;
+  getTaskAttachments(taskId: string): Promise<any[]>;
+  deleteTaskAttachment(id: string): Promise<void>;
+}
 
 export class DatabaseStorage implements IStorage {
   // User operations
@@ -182,10 +219,78 @@ export class DatabaseStorage implements IStorage {
     return result[0];
   }
 
+
   async createUser(user: InsertUser): Promise<User> {
     const result = await db.insert(users).values(user).returning();
     return result[0];
   }
+  // 1. Create a new OTP record
+  async createLoginOtp(userId: string, tempToken: string, otpHash: string, expiresAt: Date) {
+    const [otp] = await db.insert(loginTwoFactorOtps)
+      .values({
+        user_id: userId,
+        temp_token: tempToken,
+        otp_hash: otpHash,
+        expires_at: expiresAt,
+        used: false,
+        attempts: 0,
+      })
+      .returning();
+    return otp;
+  }
+
+  // 2. Fetch the OTP record using the temp_token from the frontend
+  async getLoginOtpByTempToken(tempToken: string) {
+    const [otp] = await db.select()
+      .from(loginTwoFactorOtps)
+      .where(eq(loginTwoFactorOtps.temp_token, tempToken))
+      .limit(1);
+    return otp || null;
+  }
+
+  // 3. Increment the attempts count (to prevent brute-force guessing)
+  async incrementOtpAttempts(otpId: string) {
+    // First, get current attempts
+    const [current] = await db.select({ attempts: loginTwoFactorOtps.attempts })
+      .from(loginTwoFactorOtps)
+      .where(eq(loginTwoFactorOtps.id, otpId))
+      .limit(1);
+
+    if (!current) return null;
+
+    // Increment by 1
+    const [updated] = await db.update(loginTwoFactorOtps)
+      .set({ attempts: (current.attempts || 0) + 1 })
+      .where(eq(loginTwoFactorOtps.id, otpId))
+      .returning();
+      
+    return updated;
+  }
+
+  // 4. Mark the OTP as used so it cannot be reused (Replay attack protection)
+  async markOtpAsUsed(otpId: string) {
+    await db.update(loginTwoFactorOtps)
+      .set({ used: true })
+      .where(eq(loginTwoFactorOtps.id, otpId));
+  }
+
+  // 5. Invalidate old OTPs (Crucial for the "Resend Code" feature)
+  async invalidateOldLoginOtps(userId: string) {
+    await db.update(loginTwoFactorOtps)
+      .set({ used: true })
+      .where(
+        and(
+          eq(loginTwoFactorOtps.user_id, userId),
+          eq(loginTwoFactorOtps.used, false)
+        )
+      );
+  }
+  async updateUser2FAStatus(id: string, enabled: boolean) {
+  await db.update(users).set({ is_2fa_enabled: enabled }).where(eq(users.id, id));
+}
+async updateAllUser2FAStatus(enabled: boolean) {  
+  await db.update(users).set({ is_2fa_enabled: enabled });}
+
   async  getAllTaskGroupMembers() {
   return db.select().from(taskGroupMembers);
   }
@@ -247,6 +352,174 @@ async  logActivity({
     console.log("🧩 updateUser() called with:", { id, updates });
 
     return result[0];}
+
+
+    // ===============================
+  // Email Settings
+  // ===============================
+
+  async getEmailSettings(): Promise<EmailSettings | undefined> {
+
+    const result = await db
+      .select()
+      .from(emailSettings)
+      .where(eq(emailSettings.isActive, true))
+      .limit(1);
+
+    return result[0];
+
+  }
+//   async getOverdueTasksForNotification(): Promise<any[]> {
+//   return await db
+//     .select({
+//       id: tasks.id,
+//       title: tasks.title,
+//       dueDate: tasks.due_date,
+//       userEmail: users.email,
+//       userName: users.user_name,
+//     })
+//     .from(tasks)
+//     .innerJoin(users, eq(tasks.assigned_to, users.id))
+//     .where(
+//       and(
+//         sql`${tasks.due_date} < NOW()`,
+//         ne(tasks.status, "Completed"),
+//         ne(tasks.status, "Done")
+//       )
+//     );
+// }
+
+// 3. Helper to get User with Email (Useful for Task Creation/Update triggers)
+// Inside your DatabaseStorage class
+// Inside DatabaseStorage class in storage.ts
+
+async getPendingOverdueTasksWithManagers(): Promise<any[]> {
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+
+  // We use aliases to join the 'users' table twice (once for assignee, once for manager)
+  const assignees = alias(users, "assignees");
+  const managers = alias(users, "managers");
+
+  return await db
+    .select({
+      taskId: tasks.id,
+      taskTitle: tasks.title,
+      dueDate: tasks.due_date,
+      assigneeName: assignees.user_name,
+      assigneeEmail: assignees.email,
+      managerName: managers.user_name,
+      managerEmail: managers.email,
+      teamName: teams.name,
+    })
+    .from(tasks)
+    .innerJoin(assignees, eq(tasks.assigned_to, assignees.id))
+    .leftJoin(teams, eq(tasks.team_id, teams.id))
+    .leftJoin(managers, eq(teams.manager_id, managers.id))
+    .where(
+      and(
+        sql`${tasks.due_date} < ${today.toISOString()}`,
+        sql`LOWER(${tasks.status}) != 'completed'`,
+        or(
+          sql`${tasks.last_overdue_notified_at} IS NULL`,
+          sql`${tasks.last_overdue_notified_at} < NOW() - INTERVAL '23 hours'`
+        )
+      )
+    );
+}
+// async markTaskAsNotified(taskId: string): Promise<void> {
+//   await db
+//     .update(tasks)
+//     .set({ last_overdue_notified_at: new Date() })
+//     .where(eq(tasks.id, taskId));
+// }
+
+async markTaskAsNotified(taskId: string): Promise<void> {
+  await db
+    .update(tasks)
+    .set({ last_overdue_notified_at: new Date() })
+    .where(eq(tasks.id, taskId));
+}
+async getUserWithEmail(userId: string): Promise<User | undefined> {
+  const result = await db
+    .select()
+    .from(users)
+    .where(eq(users.id, userId))
+    .limit(1);
+  return result[0];
+}
+
+
+
+  async createEmailSettings(
+    settings: InsertEmailSettings
+  ): Promise<EmailSettings> {
+
+    const result = await db
+      .insert(emailSettings)
+      .values({
+        ...settings,
+        isActive: true,
+      })
+      .returning();
+
+    return result[0];
+
+  }
+
+
+
+  async updateEmailSettings(
+    id: number,
+    updates: Partial<InsertEmailSettings>
+  ): Promise<EmailSettings> {
+
+    const result = await db
+      .update(emailSettings)
+      .set({
+        ...updates,
+        updatedAt: new Date(),
+      })
+      .where(eq(emailSettings.id, id))
+      .returning();
+
+    return result[0];
+
+  }
+
+
+
+  async deleteEmailSettings(
+    id: number
+  ): Promise<void> {
+
+    await db
+      .delete(emailSettings)
+      .where(eq(emailSettings.id, id));
+
+  }
+
+
+
+  async markEmailSettingsAsVerified(
+    id: number
+  ): Promise<void> {
+
+    await db
+      .update(emailSettings)
+      .set({
+
+        isVerified: true,
+
+        lastTestedAt: new Date(),
+
+        updatedAt: new Date(),
+
+      })
+      .where(eq(emailSettings.id, id));
+
+  }
+
  
 async getAllUsers(): Promise<any[]> { // Note: Return type is now 'any[]' or a custom type
   return await db.select({
@@ -375,9 +648,78 @@ async getAllUsers(): Promise<any[]> { // Note: Return type is now 'any[]' or a c
     return result[0];
   }
 
-  async getAllTasks(): Promise<Task[]> {
-    return await db.select().from(tasks).orderBy(desc(tasks.created_at));
-  }
+ // Update this in your DatabaseStorage class
+async getAllTasks(): Promise<Task[]> {
+  const result = await db
+    .select({
+      // This spreads all the standard task columns
+      ...getTableColumns(tasks),
+      // This creates an array of group objects for each task
+      groups: sql`
+        COALESCE(
+          json_agg(
+            json_build_object('id', ${taskGroups.id}, 'name', ${taskGroups.name})
+          ) FILTER (WHERE ${taskGroups.id} IS NOT NULL), 
+          '[]'
+        )
+      `.as("groups"),
+    })
+    .from(tasks)
+    .leftJoin(taskGroupTasks, eq(tasks.id, taskGroupTasks.task_id))
+    .leftJoin(taskGroups, eq(taskGroupTasks.group_id, taskGroups.id))
+    .groupBy(tasks.id)
+    .orderBy(desc(tasks.created_at));
+
+  return result as any; 
+}
+// --- Global Todo Methods ---
+async getAllGlobalTodoDefinitions(): Promise<any[]> {
+  return await db.select().from(globalTodoDefinitions).where(eq(globalTodoDefinitions.is_active, true));
+}
+
+async createGlobalTodoDefinition(todo: any): Promise<any> {
+  const result = await db.insert(globalTodoDefinitions).values(todo).returning();
+  return result[0];
+}
+
+async updateGlobalTodoDefinition(id: string, updates: any): Promise<any> {
+  const result = await db.update(globalTodoDefinitions).set(updates).where(eq(globalTodoDefinitions.id, id)).returning();
+  return result[0];
+}
+
+async deleteGlobalTodoDefinition(id: string): Promise<void> {
+  await db.delete(globalTodoDefinitions).where(eq(globalTodoDefinitions.id, id));
+}
+
+// --- Task Todo Methods ---
+async getTaskTodos(taskId: string): Promise<any[]> {
+  return await db.select().from(taskTodos).where(eq(taskTodos.task_id, taskId));
+}
+
+async updateTaskTodoStatus(todoId: string, isCompleted: boolean): Promise<any> {
+  const result = await db.update(taskTodos).set({ is_completed: isCompleted }).where(eq(taskTodos.id, todoId)).returning();
+  return result[0];
+}
+
+async countPendingTaskTodos(taskId: string): Promise<number> {
+  console.log(`[STORAGE] countPendingTaskTodos called for Task ID: ${taskId}`);
+
+  const result = await db
+    .select({ count: sql<number>`count(*)` })
+    .from(taskTodos)
+    .where(
+      and(
+        eq(taskTodos.task_id, taskId), 
+        eq(taskTodos.is_completed, false)
+      )
+    );
+
+  const pendingCount = Number(result[0]?.count || 0);
+  
+  console.log(`[STORAGE] Query Result for ${taskId}: Found ${pendingCount} pending items.`);
+  
+  return pendingCount;
+}
 
 async getTasksByUser(userId: string): Promise<Task[]> {
     return await db.select().from(tasks).where(
@@ -394,6 +736,22 @@ async getTasksByUser(userId: string): Promise<Task[]> {
 
   async createTask(task: InsertTask): Promise<Task> {
     const result = await db.insert(tasks).values(task).returning();
+    // 2. Logic: If todos are enabled, snapshot the global list
+  // We check the 'type' because 'todos_enabled' is a custom field you'll add to InsertTask
+  if ((task as any).todos_enabled) {
+    const globals = await this.getAllGlobalTodoDefinitions();
+    
+    if (globals.length > 0) {
+      const todoSnapshots = globals.map(g => ({
+        task_id: result[0].id,
+        title: g.title,
+        is_completed: false
+      }));
+      
+      await db.insert(taskTodos).values(todoSnapshots);
+    }
+  }
+    
     return result[0];
   }
   
@@ -406,6 +764,27 @@ async getTasksByUser(userId: string): Promise<Task[]> {
   async deleteTask(id: string): Promise<void> {
     await db.delete(tasks).where(eq(tasks.id, id));
   }
+  // Add these inside your DatabaseStorage class in storage.ts
+async createTaskAttachment(attachment: any): Promise<any> {
+  // Use your drizzle 'db' instance to insert into taskAttachments table
+  const [newRecord] = await db
+    .insert(taskAttachments)
+    .values(attachment)
+    .returning();
+  return newRecord;
+}
+
+async getTaskAttachments(taskId: string): Promise<any[]> {
+  return await db
+    .select()
+    .from(taskAttachments)
+    .where(eq(taskAttachments.task_id, taskId))
+    .orderBy(desc(taskAttachments.uploaded_at));
+}
+
+async deleteTaskAttachment(id: string): Promise<void> {
+  await db.delete(taskAttachments).where(eq(taskAttachments.id, id));
+}
 
   // Team operations
   async getTeam(id: string): Promise<Team | undefined> {
@@ -599,24 +978,62 @@ async getTasksByUser(userId: string): Promise<Task[]> {
   }
 
   // Team membership operations
-  async getTeamMembers(teamId: string): Promise<TeamMembership[]> {
-    return await db
-      .select({
-        id: teamMemberships.id,
-        team_id: teamMemberships.team_id,
-        user_id: teamMemberships.user_id,
-        role_within_team: teamMemberships.role_within_team,
-        joined_at: teamMemberships.joined_at,
-        user: {
-          id: users.id,
-          user_name: users.user_name,
-          email: users.email,
-        }
-      })
-      .from(teamMemberships)
-      .leftJoin(users, eq(teamMemberships.user_id, users.id))
-      .where(eq(teamMemberships.team_id, teamId));
+ // Inside your DatabaseStorage class
+async getTeamMembers(teamId: string, role?: string): Promise<any[]> {
+  // 1. Get the primary manager_id from the teams table
+  const teamResult = await db
+    .select({ manager_id: teams.manager_id })
+    .from(teams)
+    .where(eq(teams.id, teamId))
+    .limit(1);
+  
+  const primaryManagerId = teamResult[0]?.manager_id;
+
+  // 2. Build the membership query
+  let query = db
+    .select({
+      id: teamMemberships.id,
+      user_id: teamMemberships.user_id,
+      role_within_team: teamMemberships.role_within_team,
+      user: {
+        id: users.id,
+        user_name: users.user_name,
+        email: users.email,
+      }
+    })
+    .from(teamMemberships)
+    .leftJoin(users, eq(teamMemberships.user_id, users.id))
+    .where(eq(teamMemberships.team_id, teamId));
+
+  // 3. Apply specific filtering logic
+  if (role === 'manager') {
+    // Return users assigned as 'manager' OR the user who is the primary manager_id
+    return await query.where(
+      and(
+        eq(teamMemberships.team_id, teamId),
+        or(
+          eq(teamMemberships.role_within_team, 'manager'),
+          primaryManagerId ? eq(teamMemberships.user_id, primaryManagerId) : undefined
+        )
+      )
+    );
+  } else if (role === 'member') {
+    // Return users assigned as 'member' or where the role is NULL (default member)
+    // AND ensure they aren't the primary manager
+    return await query.where(
+      and(
+        eq(teamMemberships.team_id, teamId),
+        or(
+          eq(teamMemberships.role_within_team, 'member'),
+          sql`${teamMemberships.role_within_team} IS NULL`
+        ),
+        primaryManagerId ? ne(teamMemberships.user_id, primaryManagerId) : undefined
+      )
+    );
   }
+
+  return await query;
+}
 
 async addTeamMember(teamId: string, userId: string, role?: string) {
   await db.execute(sql`BEGIN`);
@@ -765,6 +1182,7 @@ async getTaskGroupsForUser(userId: string): Promise<TaskGroup[]> {
   async deleteTaskGroup(id: string): Promise<void> {
     await db.delete(taskGroups).where(eq(taskGroups.id, id));
   }
+  
 
   async getTaskGroupDetails(id: string): Promise<any> {
     const group = await db.select({

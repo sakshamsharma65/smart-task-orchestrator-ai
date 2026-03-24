@@ -198,7 +198,7 @@ const DepartmentsManager: React.FC = () => {
               <div>
                 <label className="block text-sm font-medium mb-2">Description</label>
                 <Textarea
-                  maxLength={1000}
+                  maxLength={500}
                   placeholder="Enter description"
                   value={newDepartment.description}
                   onChange={(e) => setNewDepartment({ ...newDepartment, description: e.target.value })}

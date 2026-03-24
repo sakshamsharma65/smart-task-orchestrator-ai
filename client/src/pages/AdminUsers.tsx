@@ -134,7 +134,7 @@ const AdminUsers: React.FC = () => {
   }
 
   return (
-    <div className="p-6 max-w-6xl w-full">
+    <div className="p-6  w-full">
       {/* Dialogs */}
       <CreateUserDialog 
         open={createDialogOpen}

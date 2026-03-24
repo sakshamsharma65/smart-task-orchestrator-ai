@@ -13,12 +13,12 @@ export default function ReportsMenu({ isUserOnly, collapsed }: { isUserOnly: boo
 
   return (
     <div>
-      <div className="text-xs font-semibold uppercase tracking-wider mb-2 px-2 text-[#021133]">Reports</div>
+
       <div>
         <ul className="flex w-full min-w-0 flex-col gap-1">
     {canViewReports &&      <li className="group/menu-item relative">
             <NavLink
-              to="/admin/reports/task"
+              to="/reports/task"
               end
               className={({ isActive }) =>
                 "flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none transition-[width,height,padding] hover:bg-gray-100 focus-visible:ring-2 " +
@@ -31,7 +31,7 @@ export default function ReportsMenu({ isUserOnly, collapsed }: { isUserOnly: boo
           </li>}
    {canViewOverdueReports &&      <li className="group/menu-item relative">
             <NavLink
-              to="/admin/reports/overdue"
+              to="/reports/overdue"
               end
               className={({ isActive }) =>
                 "flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none transition-[width,height,padding] hover:bg-gray-100 focus-visible:ring-2 " +
@@ -44,7 +44,7 @@ export default function ReportsMenu({ isUserOnly, collapsed }: { isUserOnly: boo
           </li>}
       {canViewAnalytics &&    <li className="group/menu-item relative">
             <NavLink
-              to="/admin/reports/analytics"
+              to="/reports/analytics"
               end
               className={({ isActive }) =>
                 "flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none transition-[width,height,padding] hover:bg-gray-100 focus-visible:ring-2 " +
@@ -57,7 +57,7 @@ export default function ReportsMenu({ isUserOnly, collapsed }: { isUserOnly: boo
           </li>}
           <li className="group/menu-item relative">
             <NavLink
-              to="/admin/reports/benchmarking"
+              to="/reports/benchmarking"
               end
               className={({ isActive }) =>
                 "flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none transition-[width,height,padding] hover:bg-gray-100 focus-visible:ring-2 " +
@@ -67,36 +67,7 @@ export default function ReportsMenu({ isUserOnly, collapsed }: { isUserOnly: boo
               <TrendingUp className="w-4 h-4 shrink-0" />
               {!collapsed && <span className="truncate">Benchmarking Report</span>}
             </NavLink>
-          </li>
-          {canViewSettings && (
-            <li className="group/menu-item relative">
-              <NavLink
-                to="/admin/settings"
-                end
-                className={({ isActive }) =>
-                  "flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none transition-[width,height,padding] hover:bg-gray-100 focus-visible:ring-2 " +
-                  (isActive ? "bg-gray-100 font-medium" : "")
-                }
-              >
-                <Settings className="w-4 h-4 shrink-0" />
-                {!collapsed && <span className="truncate">Settings</span>}
-              </NavLink>
-            </li>
-            
-          )}
-          <li>
-            <NavLink
-              to="/activity-log"
-              end
-              className={({ isActive }) =>
-                "flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none transition-[width,height,padding] hover:bg-gray-100 focus-visible:ring-2 " +
-                (isActive ? "bg-gray-100 font-medium" : "")
-              }
-            >
-              <FileText className="w-4 h-4 shrink-0" />
-              {!collapsed && <span className="truncate">Activity Log</span>}
-            </NavLink>
-          </li>
+     </li>
         </ul>
       </div>
     </div>

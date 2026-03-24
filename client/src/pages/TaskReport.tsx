@@ -237,7 +237,7 @@ export default function TaskReport() {
   }, [taskData, statusNames, isAdmin, departmentFilter, alphabetFilter, selectedEmployees]);
 
   return (
-    <div className="max-w-5xl mx-0 p-4">
+    <div className="max-w-8xl mx-0 p-4">
       <h1 className="text-2xl font-semibold mb-4">Task Report</h1>
       <div className="flex flex-col md:flex-row gap-2 justify-between items-start mb-2">
         <div className="bg-muted rounded p-4 mb-4 md:mb-0 w-full md:w-auto">

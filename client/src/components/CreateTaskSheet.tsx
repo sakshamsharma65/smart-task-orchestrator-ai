@@ -11,8 +11,11 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
+import { useRef } from "react";
+import ReactQuill from "react-quill";
+import "react-quill/dist/quill.snow.css";
 import { fetchTasks, Task } from "@/integrations/supabase/tasks";
+
 import { toast } from "@/components/ui/use-toast";
 import useSupabaseSession from "@/hooks/useSupabaseSession";
 import { useTaskStatuses } from "@/hooks/useTaskStatuses";
@@ -64,7 +67,7 @@ const initialForm = {
   start_date: "",
   due_date: "",
   priority: 2,
-  status: "To Do", // Will be set to default status from API
+  status: "", // Will be set to default status from API
   type: "personal",
   estimated_hours: "",
   assigned_to: "",
@@ -72,6 +75,7 @@ const initialForm = {
   isDependent: false,
   dependencyTaskId: "",
   is_time_managed: false,
+  todos_enabled: false,
 };
 
 const priorityOptions = [
@@ -87,6 +91,7 @@ const typeOptions = [
 
 const CreateTaskSheet: React.FC<Props> = ({ onTaskCreated, children, defaultAssignedTo }) => {
   const [open, setOpen] = useState(false);
+  const [TimeEnabled, setTimeEnabled] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [users, setUsers] = useState<User[]>([]);
@@ -95,10 +100,22 @@ const CreateTaskSheet: React.FC<Props> = ({ onTaskCreated, children, defaultAssi
   const { user, loading: sessionLoading } = useSupabaseSession();
   const { statuses, loading: statusLoading } = useTaskStatuses();
   const [taskGroups, setTaskGroups] = useState<TaskGroup[]>([]);
+  const [showTimeInfoDialog, setShowTimeInfoDialog] = useState(false);
   const [selectedTaskGroup, setSelectedTaskGroup] = useState<string>("");
   const [teams, setTeams] = useState<any[]>([]);
   const [selectedTeam, setSelectedTeam] = useState("");
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
+  const [attachments,setAttachments] = useState<File[]>([]);
+  // const [form, setForm] = useState<{description: string;}>({ description: "",});
+  const modules = {
+  toolbar: [
+    ["bold", "italic", "underline"],
+    [{ color: [] }],
+    [{ list: "ordered" }, { list: "bullet" }],
+   
+  ],
+};
+
 
   
 
@@ -109,16 +126,31 @@ const CreateTaskSheet: React.FC<Props> = ({ onTaskCreated, children, defaultAssi
   // Get user role: use fetched roles, fallback to email only if missing
   const [userRole, setUserRole] = useState<string>("user");
   useEffect(() => {
-  if (open) {
-    resetForm();
+  if (form.start_date && form.due_date && form.estimated_hours) {
+    const availableHours = calculateAvailableHours(form.start_date, form.due_date);
+    const estimatedHours = Number(form.estimated_hours);
 
-    // Force default status
-    setForm(f => ({ 
-      ...f,
-      status: "To Do"
-    }));
+    if (estimatedHours > availableHours) {
+      toast({
+        title: "Warning",
+        description: `Estimated hours exceed available hours (${availableHours} hrs).`,
+        variant: "destructive",
+      });
+    }
   }
-}, [open]);
+}, [form.estimated_hours, form.start_date, form.due_date]);
+useEffect(() => {
+  if (open && !statusLoading && statuses.length > 0) {
+    const defaultStatus = statuses.find(s => s.is_default);
+    if (defaultStatus) {
+      setForm(prev => ({
+        ...prev,
+        status: defaultStatus.name
+      }));
+      console.log("[DEBUG] Default status applied:", defaultStatus.name);
+    }
+  }
+}, [open, statuses, statusLoading]);
 
 useEffect(() => {
   if (open) {
@@ -187,6 +219,20 @@ useEffect(() => {
   // }, [open, user?.id]);
 
   // Get user role & update state on mount
+useEffect(() => {
+  if (form.start_date && form.due_date && form.estimated_hours) {
+    const available = calculateAvailableHours(form.start_date, form.due_date);
+    const estimated = Number(form.estimated_hours);
+
+    if (estimated > available) {
+      toast({
+        title: "Warning: Limit Exceeded",
+        description: `Only ${available} hours remaining in this period.`,
+        variant: "destructive",
+      });
+    }
+  }
+}, [form.estimated_hours, form.start_date, form.due_date]);                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
   useEffect(() => {
     if (!user) return;
     let roleType: string = "user";
@@ -246,158 +292,301 @@ function getAssignableUsersForCreate() {
 
   return list;
 }
+function calculateAvailableHours(startDate: string, dueDate: string): number {
+  if (!startDate || !dueDate) return 0;
 
+  const now = new Date();
+  
+  // Parse input dates (YYYY-MM-DD) as local time to avoid UTC shifts
+  const [sYear, sMonth, sDay] = startDate.split('-').map(Number);
+  const [dYear, dMonth, dDay] = dueDate.split('-').map(Number);
+  
+  const startSelection = new Date(sYear, sMonth - 1, sDay);
+  const endSelection = new Date(dYear, dMonth - 1, dDay);
 
+  // Set the endSelection to the very end of that day (23:59:59)
+  endSelection.setHours(23, 59, 59, 999);
+
+  let effectiveStart: Date;
+
+  // Check if the selected start date is the same as the current calendar day
+  const isToday = now.toDateString() === startSelection.toDateString();
+
+  if (isToday) {
+    // If today, available hours start from the CURRENT moment
+    effectiveStart = now;
+  } else {
+    // If in the future, start from the beginning of that day
+    effectiveStart = startSelection;
+    effectiveStart.setHours(0, 0, 0, 0);
+  }
+
+  const diffMs = endSelection.getTime() - effectiveStart.getTime();
+  
+  if (diffMs < 0) return 0;
+
+  // Convert to hours and round to 1 decimal place (e.g., 8.5)
+  const available = diffMs / (1000 * 60 * 60);
+  return parseFloat(available.toFixed(1));
+}
+
+// if(TimeEnabled){
+//   toast({ title: "⏱ Time Tracking Enabled", 
+//   description: "Please start timer once you begin working on this task.",
+//   })
+// }
 
   // Handle form changes (typed fix)
-  const handleChange = (
-    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
-  ) => {
-    const { name, value, type } = e.target;
-    if (type === "checkbox" && "checked" in e.target) {
-      const checked = (e.target as HTMLInputElement).checked;
-      setForm((f) => ({
-        ...f,
-        [name]: checked,
-        ...(name === "isSubTask" && !checked ? {} : {}),
-        ...(name === "isDependent" && !checked ? { dependencyTaskId: "" } : {}),
-      }));
-    } else if (name === "priority") {
-      setForm((f) => ({ ...f, [name]: Number(value) }));
-    } else if (name === "status") {
-      if (value === "Completed" && !canCompleteDependent()) {
-        return;
-      }
-      setForm((f) => ({ ...f, status: value }));
-    } else if (name === "start_date") {
-      if (isInvalidStartDate(value)) {
-        toast({
-          title: "Invalid Start Date",
-          description: dependencyDueDate
-            ? `Start date must be on or after ${dependencyDueDate}.`
-            : "Invalid dependency.",
-          variant: "destructive",
-        });
-        return;
-      }
-      setForm((f) => ({
-        ...f,
-        [name]: value,
-        due_date: f.due_date && value && f.due_date < value ? "" : f.due_date,
-      }));
-    } else if (name === "due_date") {
-      if (form.start_date && value && value < form.start_date) {
-        toast({
-          title: "Invalid End Date",
-          description: "End date must be on or after the start date.",
-          variant: "destructive",
-        });
-        return;
-      }
-      setForm((f) => ({ ...f, [name]: value }));
-    } else {
-      setForm((f) => ({ ...f, [name]: value }));
+ const handleChange = (
+  e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
+) => {
+  const { name, value, type } = e.target;
+
+  if (type === "checkbox" && "checked" in e.target) {
+    const checked = (e.target as HTMLInputElement).checked;
+
+    // Trigger Dialog only when turning time management ON
+    if (name === "is_time_managed" && checked) {
+      setShowTimeInfoDialog(true);
     }
-  };
- 
+
+    setForm((f) => ({
+      ...f,
+      [name]: checked,
+      ...(name === "isSubTask" && !checked ? {} : {}),
+      ...(name === "isDependent" && !checked ? { dependencyTaskId: "" } : {}),
+    }));
     
-  
+    // Sync the TimeEnabled state for the toast logic
+    if (name === "is_time_managed") setTimeEnabled(checked);
 
-  // In handleSubmit: assign to group if set and not empty
-  const handleSubmit = async (e: React.FormEvent) => {
+  } else if (name === "priority") {
+    setForm((f) => ({ ...f, [name]: Number(value) }));
+  } else if (name === "status") {
+    if (value === "Completed" && !canCompleteDependent()) return;
+    setForm((f) => ({ ...f, status: value }));
+  } else {
+    setForm((f) => ({ ...f, [name]: value }));
+  }
+};
+  const MAX_FILE_SIZE = 1 * 1024 * 1024; // 1 MB
 
-    if(form.type === "team" && !form.assigned_to){
-      toast({
-        title: "Assigned To Required",
-        description: "Please select a user to assign the task to.",
-        variant: "destructive",
-      });return;
-      
-    }
+const ALLOWED_TYPES = [
+  "application/pdf",
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+];
+const MAX_TOTAL_SIZE = 2 * 1024 * 1024; // 2 MB Total
+const MAX_FILE_COUNT = 5;
+  const quillRef = useRef<ReactQuill | null>(null);
+const MAX_LENGTH = 200;
+const handleKeyDown = (e: React.KeyboardEvent) => {
+  const editor = quillRef.current?.getEditor();
+  if (!editor) return;
+
+  const length = editor.getLength() - 1;
+
+  if (length >= MAX_LENGTH && e.key !== "Backspace" && e.key !== "Delete") {
     e.preventDefault();
-    if (isDueDateBeforeStartDate()) {
+
+    toast({
+      title: "Character limit reached",
+      description: `Maximum ${MAX_LENGTH} characters allowed`,
+    });
+  }
+};
+
+const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+  if (!e.target.files) return;
+
+  const newlySelectedFiles = Array.from(e.target.files);
+  
+  // 1. Check if adding these files exceeds the count of 5
+  if (attachments.length + newlySelectedFiles.length > MAX_FILE_COUNT) {
+    toast({
+      title: "Limit Exceeded",
+      description: `You can only attach up to ${MAX_FILE_COUNT} files per task.`,
+      variant: "destructive",
+    });
+    e.target.value = ""; // Reset input
+    return;
+  }
+
+  const validFiles: File[] = [];
+  let potentialTotalSize = attachments.reduce((sum, f) => sum + f.size, 0);
+
+  for (const file of newlySelectedFiles) {
+    // Type validation
+    if (!ALLOWED_TYPES.includes(file.type)) {
       toast({
-        title: "Invalid End Date",
-        description: "End date cannot be before the start date.",
+        title: "Invalid file type",
+        description: `${file.name} is not a supported format (PDF, JPG, PNG only).`,
         variant: "destructive",
       });
-      return;
+      continue;
     }
-    setCreating(true);
-    try {
-      const myUserId = user?.id;
-      if (!myUserId) throw new Error("No current user!");
 
-      // Mandatory field validations
-      if (!form.status) {
-        throw new Error("Status is required.");
-      }
-      if (!form.estimated_hours || Number(form.estimated_hours) <= 0) {
-        throw new Error("Estimated hours is required and must be greater than 0.");
-      }
-      if (!form.start_date) {
-        throw new Error("Start date is required.");
-      }
-      if (!form.due_date) {
-        throw new Error("End date is required.");
-      }
-
-      // Only require subtask+group validation if checkbox is set
-      if (form.type === "personal" && form.isSubTask) {
-        const group = taskGroups.find(g => g.id === selectedTaskGroup && g.visibility === "private");
-        if (!group) throw new Error("Personal tasks marked as subtask must be added to a Private Task Group.");
-      }
-
-      // Build task (do not include superTaskId)
-      const taskInput: any = {
-        title: form.title,
-        description: form.description,
-        status: form.status,
-        priority: form.priority,
-        due_date: form.due_date || null,
-        start_date: form.start_date || null,
-        type: form.type,
-        created_by: myUserId,
-        assigned_to: form.assigned_to ? form.assigned_to : null,
-        estimated_hours: form.estimated_hours ? Number(form.estimated_hours) : null,
-        team_id: form.type === "team" && selectedTeam ? selectedTeam : null,
-        actual_completion_date: null,
-        is_time_managed: form.is_time_managed || false,
-        timer_state: 'stopped',
-        time_spent_minutes: 0,
-        timer_started_at: null,
-        timer_session_data: null,
-      };
-
-      // Dependency support
-      if (form.isDependent && form.dependencyTaskId) {
-        taskInput.dependencyTaskId = form.dependencyTaskId;
-      }
-
-      // Create the task using API client
-      console.log("[DEBUG] Creating task with data:", JSON.stringify(taskInput, null, 2));
-      const newTask = await apiClient.createTask(taskInput);
-
-      // Only assign to group if group selected and Is Subtask checked
-      if (form.isSubTask && selectedTaskGroup) {
-        await assignTaskToGroup({ group_id: selectedTaskGroup, task_id: newTask.id });
-      }
-
-      toast({ title: "Task Created", description: form.title });
-      
-      // Invalidate all task-related queries to refresh the UI
-      await queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
-      await queryClient.invalidateQueries({ queryKey: ['overdue-tasks'] });
-      await queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] });
-      
-      resetForm();
-      setOpen(false);
-      onTaskCreated();
-    } catch (err: any) {
-      toast({ title: "Failed to create task", description: err.message });
+    // Individual size check (optional, but good for UX)
+    if (file.size > MAX_FILE_SIZE) {
+      toast({
+        title: "File too large",
+        description: `${file.name} exceeds the 1MB individual limit.`,
+        variant: "destructive",
+      });
+      continue;
     }
+
+    // 2. Check cumulative total size (2MB)
+    if (potentialTotalSize + file.size > MAX_TOTAL_SIZE) {
+      toast({
+        title: "Total size exceeded",
+        description: "The total size of all attachments cannot exceed 2MB.",
+        variant: "destructive",
+      });
+      break; // Stop adding more files if we hit the limit
+    }
+
+    potentialTotalSize += file.size;
+    validFiles.push(file);
+  }
+
+  if (validFiles.length > 0) {
+    setAttachments((prev) => [...prev, ...validFiles]);
+  }
+
+  e.target.value = ""; // Reset the input so the same file can be selected again if removed
+};
+
+    
+ const removeAttachment = (index: number) => {
+  setAttachments(prev =>
+    prev.filter((_, i) => i !== index)
+  );
+};
+
+
+  // In handleSubmit: assign to group if set and not empty
+const handleSubmit = async (e: React.FormEvent) => {
+  e.preventDefault();
+
+  // Basic Validations
+  if (form.type === "team" && !form.assigned_to) {
+    toast({
+      title: "Assigned To Required",
+      description: "Please select a user to assign the task to.",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  if (isDueDateBeforeStartDate()) {
+    toast({
+      title: "Invalid End Date",
+      description: "End date cannot be before the start date.",
+      variant: "destructive",
+    });
+    return;
+  }
+
+  setCreating(true);
+
+  try {
+    const myUserId = user?.id;
+    if (!myUserId) throw new Error("No current user!");
+
+    // 1. Create FormData Object
+    const formData = new FormData();
+
+    // 2. Append standard fields
+    formData.append("title", form.title);
+    formData.append("description", form.description);
+    formData.append("status", form.status);
+    formData.append("priority", String(form.priority));
+    formData.append("start_date", form.start_date || "");
+    formData.append("due_date", form.due_date || "");
+    formData.append("type", form.type);
+    formData.append("created_by", myUserId);
+    formData.append("assigned_to", form.assigned_to || "");
+    formData.append("estimated_hours", form.estimated_hours);
+    formData.append("is_time_managed", String(form.is_time_managed));
+    formData.append("todos_enabled", String(form.todos_enabled));
+    console.log(" saksham Submitting status:", form.status);
+      
+    
+    if (form.type === "team" && selectedTeam) {
+      formData.append("team_id", selectedTeam);
+    }
+
+    // 3. Append Dependency logic if applicable
+    if (form.isDependent && form.dependencyTaskId) {
+      formData.append("dependencyTaskId", form.dependencyTaskId);
+    }
+
+    // 4. Append all attachments
+    // The key "attachments" must match the Multer configuration: upload.array('attachments')
+    attachments.forEach((file) => {
+      formData.append("attachments", file);
+    });
+const availableHours = calculateAvailableHours(form.start_date, form.due_date);
+  const estimatedHours = Number(form.estimated_hours);
+
+  if (estimatedHours > availableHours) {
+    toast({
+      title: "Estimated hours exceed allowed limit",
+      description: `You only have ${availableHours} available hours between selected dates. Please enter estimated hours within this limit.`,
+      variant: "destructive",
+    });
+    return;
+  }
+    // 5. Call the API using fetch (Since apiClient likely expects JSON)
+    const response = await fetch("/api/tasks", {
+      method: "POST",
+      body: formData,
+      headers: {
+        "x-user-id": myUserId, // Auth header for your middleware
+      },
+    });
+
+    if (!response.ok) {
+      const errorData = await response.json();
+      throw new Error(errorData.error || "Failed to create task");
+    }
+
+    const newTask = await response.json();
+
+    // 6. Subtask logic (If it's a subtask, we still hit your task group helper)
+    if (form.isSubTask && selectedTaskGroup) {
+      await assignTaskToGroup({ 
+        group_id: selectedTaskGroup, 
+        task_id: newTask.id 
+      });
+    }
+
+   
+    
+    toast({ title: "Task Created", description: form.title });
+
+    // Refresh UI
+    await queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
+    await queryClient.invalidateQueries({ queryKey: ['overdue-tasks'] });
+    await queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] });
+
+    resetForm();
+    setAttachments([]); // Clear files state
+    setOpen(false);
+    onTaskCreated();
+
+  } catch (err: any) {
+    toast({ 
+      title: "Failed to create task", 
+      description: err.message, 
+      variant: "destructive" 
+    });
+  } finally {
     setCreating(false);
-  };
+  }
+};
 
   // Compute selectable tasks for subtasks/dependencies
   const selectableTasks = tasks;
@@ -415,11 +604,37 @@ function getAssignableUsersForCreate() {
   });
 
   // Reset form
-  const resetForm = () => {
-    setForm(initialForm);
-    setSelectedDependencyTask(null);
-    setSearchQuery("");
-  };
+const resetForm = () => {
+  const defaultStatus = statuses.find(s => s.is_default)?.name || "";
+  setForm({
+    ...initialForm,
+    status: defaultStatus,
+    // Maintain personal assignment if applicable
+    assigned_to: initialForm.type === "personal" && user?.id ? user.id : ""
+  });
+  setSelectedDependencyTask(null);
+  setSearchQuery("");
+};
+const handleDescriptionChange = (value: string) => {
+  const editor = quillRef.current?.getEditor();
+  if (!editor) return;
+
+  const length = editor.getLength() - 1;
+
+  if (length > MAX_LENGTH) {
+    editor.deleteText(MAX_LENGTH, length); // truncate extra text
+
+    toast({
+      title: "Character limit exceeded",
+      description: `Maximum ${MAX_LENGTH} characters allowed`,
+    });
+  }
+
+  setForm((prev) => ({
+    ...prev,
+    description: editor.root.innerHTML,
+  }));
+};
 
   // Assigned To dropdown (unchanged, uses getAssignableUsersForCreate)
   const renderAssignedToInput = () => {
@@ -514,6 +729,7 @@ useEffect(() => {
     setSelectedDependencyTask(task);
     setForm(f => ({ ...f, dependencyTaskId: task.id }));
   }
+  
 
   // --- UI ---
   return (
@@ -547,27 +763,73 @@ useEffect(() => {
                   <label className="block text-sm font-semibold text-gray-700 mb-2">Task Title *</label>
                   <Input
                     name="title"
+                    maxLength={50}
                     value={form.title}
-                    onChange={handleChange}
+                   onChange={(e) => {
+      const value = e.target.value;
+
+      if (value.length === 50) {
+        toast({
+          title: "Limit reached",
+          description: "Maximum 50 characters allowed for task title.",
+        });
+      }
+
+      handleChange(e);
+    }}
                     required
                     placeholder="Enter a clear, descriptive task title"
                     className="text-base h-12"
                   />
                 </div>
-                <div className="md:col-span-2">
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Description</label>
-                  <Textarea
-                    name="description"
-                    value={form.description}
-                    onChange={handleChange}
-                    placeholder="Provide detailed information about the task objectives, requirements, and deliverables"
-                    className="text-base min-h-[120px] resize-y"
-                  />
-                </div>
+              
+                
+             <div className="md:col-span-2">
+<label className="block text-sm font-semibold text-gray-700 mb-2">
+  Description
+</label>
+
+<div className="overflow-hidden border">
+<ReactQuill
+  ref={quillRef}
+  theme="snow"
+  modules={modules}
+  value={form.description}
+  onKeyDown={handleKeyDown}
+  onChange={handleDescriptionChange}
+  className="text-base h-44 rounded-md"
+/>
+</div>
+
+<p className="text-sm text-gray-500 mt-1">
+  {(quillRef.current?.getEditor()?.getLength() || 1) - 1}/{MAX_LENGTH}
+</p> 
+ 
+</div>
+
               </div>
             </div>
           </div>
-
+          
+{/* Organization Todos Toggle */}
+<div className="bg-white p-4 rounded-lg border border-gray-200">
+  <label className="flex items-center cursor-pointer text-base font-medium text-gray-700">
+    <input
+      type="checkbox"
+      name="todos_enabled"
+      checked={form.todos_enabled}
+      onChange={handleChange}
+      className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 mr-3"
+    />
+    <span className="flex items-center">
+      <span className="mr-2">✅</span>
+      Enable Required Todos
+    </span>
+  </label>
+  <p className="text-sm text-gray-500 mt-1 ml-8">
+    If enabled, this task must pass all organization-defined todos before it can be completed.
+  </p>
+</div>
           {/* SECTION 2: TASK SETTINGS */}
           <div className="space-y-3 sm:space-y-4">
             <div className="bg-green-50 p-3 sm:p-4 rounded-lg">
@@ -589,17 +851,26 @@ useEffect(() => {
                     ))}
                   </select>
                 </div>
-                <div>
-                  <label className="block text-sm font-semibold text-gray-700 mb-2">Initial Status *</label>
-           <select
-            name="status"
-               value="To Do"
-                    disabled
-                className="w-full h-12 text-base border border-gray-300 rounded-lg px-4 bg-gray-100 cursor-not-allowed"
->
-  <option value="To Do">To Do</option>
-            </select>
-
+     <div>
+    <label className="block text-sm font-semibold text-gray-700 mb-2">Initial Status *</label>
+    <select
+      name="status"
+      value={form.status}
+      disabled
+      className="w-full h-12 text-base border border-gray-300 rounded-lg px-4 bg-gray-100 text-gray-500 cursor-not-allowed"
+    >
+      {statusLoading ? (
+        <option>Loading statuses...</option>
+      ) : (
+        statuses
+          .filter((status) => status.is_default)
+          .map((status) => (
+            <option key={status.id} value={status.name}>
+              {status.name}
+            </option>
+          ))
+      )}
+    </select>
                 </div>
                 <div>
                   <label className="block text-sm font-semibold text-gray-700 mb-2">Estimated Hours <span className="text-red-500">*</span></label>
@@ -669,11 +940,13 @@ useEffect(() => {
                     value={form.due_date}
                     onChange={handleChange}
                     min={form.start_date || undefined}
+                    disabled={!form.start_date}
                     className={`text-base h-12 ${
                       form.start_date && form.due_date && form.due_date < form.start_date
                         ? "border-red-500 focus:ring-red-500"
-                        : ""
-                    }`}
+                        : "" }`
+                  
+                   }
                   />
                   {form.start_date && form.due_date && form.due_date < form.start_date && (
                     <div className="text-sm text-red-600 mt-2 flex items-center">
@@ -785,7 +1058,7 @@ useEffect(() => {
                     />
                     <span className="flex items-center">
                       <span className="mr-2">📋</span>
-                      Mark as Subtask
+                      Add To Task Group
                     </span>
                   </label>
                   <p className="text-sm text-gray-500 mt-1 ml-8">This task will be grouped under a parent task collection</p>
@@ -983,6 +1256,61 @@ useEffect(() => {
                     </div>
                   )}
                 </div>
+        
+<div className="bg-white p-4 rounded-lg border border-gray-200">
+  <label className="block text-base font-medium text-gray-700 mb-3 flex items-center justify-between">
+    <span className="flex items-center">📎 Attach Files</span>
+    {attachments.length > 0 && (
+      <span className="bg-blue-100 text-blue-700 text-xs px-2 py-1 rounded-full">
+        {attachments.length} file(s) selected
+      </span>
+    )}
+  </label>
+
+  <div className="relative">
+    <input
+      type="file"
+      multiple
+      onChange={handleFileSelect}
+      className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
+      disabled={creating}
+    />
+    <div className="border-2 border-dashed border-gray-200 rounded-lg p-6 text-center hover:border-blue-400 transition-colors">
+      <p className="text-sm text-gray-500">Click or drag files here to upload</p>
+      <p className="text-xs text-gray-400 mt-1">PDF, JPG, PNG (Max 1MB each)</p>
+    </div>
+  </div>
+
+  {attachments.length > 0 && (
+    <div className="mt-4 grid grid-cols-1 gap-2">
+      {attachments.map((file, index) => (
+        <div
+          key={index}
+          className="flex items-center justify-between bg-blue-50/50 p-2 px-3 rounded-md border border-blue-100"
+        >
+          <div className="flex items-center min-w-0">
+            <span className="text-blue-500 mr-2">📄</span>
+            <span className="text-sm font-medium truncate max-w-[200px]">
+              {file.name}
+            </span>
+            <span className="text-[10px] text-gray-400 ml-2">
+              ({(file.size / 1024).toFixed(0)} KB)
+            </span>
+          </div>
+
+          <button
+            type="button"
+            onClick={() => removeAttachment(index)}
+            className="text-red-500 hover:text-red-700 p-1 transition-colors"
+          >
+            ✕
+          </button>
+        </div>
+      ))}
+    </div>
+  )}
+</div>
+
               </div>
             </div>
           </div>
@@ -990,7 +1318,7 @@ useEffect(() => {
             <div className="flex gap-4 w-full">
               <Button 
                 type="submit" 
-                disabled={creating || sessionLoading || !user}
+                disabled={creating || sessionLoading || !user }
                 className="flex-1 h-12 text-base font-semibold bg-blue-600 hover:bg-blue-700 text-white"
               >
                 {creating ? (
