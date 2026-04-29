@@ -86,6 +86,7 @@ function computeRange(key: string): DateRange {
   }
 }
 
+
 /**
  * NOTE about timezone handling:
  * - HTML date inputs produce values like "2025-12-01".
@@ -101,7 +102,10 @@ export default function DateRangePresetSelector({
 }: DateRangePresetSelectorProps) {
   // helper to convert Date -> yyyy-MM-dd for input value
   const toInputValue = (d: Date | null) => (d ? format(d, "yyyy-MM-dd") : "");
-
+  const [tempRange, setTempRange] = React.useState(dateRange);
+React.useEffect(() => {
+  setTempRange(dateRange);
+}, [dateRange]);
   return (
     <div className="space-y-3">
       {/* Preset buttons */}
@@ -138,14 +142,20 @@ export default function DateRangePresetSelector({
               <label className="block text-xs text-gray-600 mb-1">From Date</label>
               <input
                 type="date"
-                value={toInputValue(dateRange.from)}
-                onChange={(e) => {
-                  const dateValue = e.target.value; // "yyyy-MM-dd"
-                  const parsed = dateValue ? parse(dateValue, "yyyy-MM-dd", new Date()) : null;
-                  // set start of day in local timezone
-                  const newDate = parsed ? startOfDay(parsed) : null;
-                  onChange({ from: newDate, to: dateRange.to }, "custom");
-                }}
+                value={toInputValue(tempRange.from)}
+           onChange={(e) => {
+  const dateValue = e.target.value;
+  const parsed = dateValue
+    ? parse(dateValue, "yyyy-MM-dd", new Date())
+    : null;
+
+  const newDate = parsed ? startOfDay(parsed) : null;
+
+  setTempRange((prev) => ({
+    ...prev,
+    from: newDate,
+  }));
+}}
                 className="px-3 py-1 border rounded text-sm"
                 aria-label="From date"
               />
@@ -156,14 +166,20 @@ export default function DateRangePresetSelector({
               <label className="block text-xs text-gray-600 mb-1">To Date</label>
               <input
                 type="date"
-                value={toInputValue(dateRange.to)}
-                onChange={(e) => {
-                  const dateValue = e.target.value;
-                  const parsed = dateValue ? parse(dateValue, "yyyy-MM-dd", new Date()) : null;
-                  // include the entire day
-                  const newDate = parsed ? endOfDay(parsed) : null;
-                  onChange({ from: dateRange.from, to: newDate }, "custom");
-                }}
+                value={toInputValue(tempRange.to)}
+              onChange={(e) => {
+  const dateValue = e.target.value;
+  const parsed = dateValue
+    ? parse(dateValue, "yyyy-MM-dd", new Date())
+    : null;
+
+  const newDate = parsed ? endOfDay(parsed) : null;
+
+  setTempRange((prev) => ({
+    ...prev,
+    to: newDate,
+  }));
+}}
                 min={dateRange.from ? format(dateRange.from, "yyyy-MM-dd") : undefined}
                 className="px-3 py-1 border rounded text-sm"
                 aria-label="To date"
@@ -172,16 +188,15 @@ export default function DateRangePresetSelector({
 
             {/* Optional quick apply/reset controls */}
             <div className="flex gap-2 items-end mt-[18px]" >
-              <button
-                type="button"
-                onClick={() => {
-                  // If both from & to exist, keep them; otherwise no-op
-                  onChange(dateRange, "custom");
-                }}
-                className="px-3 py-1 rounded border text-sm"
-              >
-                Apply
-              </button>
+            <button
+  type="button"
+  onClick={() => {
+    onChange(tempRange, "custom");
+  }}
+  className="px-3 py-1 rounded border text-sm"
+>
+  Apply
+</button>
               <button
                 type="button"
                 onClick={() => {

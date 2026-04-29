@@ -24,6 +24,7 @@ import { fetchAssignableTaskGroups, assignTaskToGroup, TaskGroup } from "@/integ
 import { useDependencyConstraintValidation } from "@/hooks/useDependencyConstraintValidation";
 import { apiClient } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
+import { useQuery } from "@tanstack/react-query";
 
 // Simulated quick user record
 type User = { id: string; email: string; user_name: string | null; manager: string | null };
@@ -59,6 +60,9 @@ interface Props {
   onTaskCreated: () => void;
   children?: React.ReactNode;
   defaultAssignedTo?: string;
+   defaultProjectId?: string;
+  defaultMilestoneId?: string;
+  defaultFeatureId?: string;
 }
 
 const initialForm = {
@@ -89,7 +93,12 @@ const typeOptions = [
   { value: "team", label: "Team" },
 ];
 
-const CreateTaskSheet: React.FC<Props> = ({ onTaskCreated, children, defaultAssignedTo }) => {
+
+
+const CreateTaskSheet: React.FC<Props> = ({
+  onTaskCreated, children, defaultAssignedTo,
+  defaultProjectId, defaultMilestoneId, defaultFeatureId,
+}) => {
   const [open, setOpen] = useState(false);
   const [TimeEnabled, setTimeEnabled] = useState(false);
   const [form, setForm] = useState(initialForm);
@@ -106,6 +115,13 @@ const CreateTaskSheet: React.FC<Props> = ({ onTaskCreated, children, defaultAssi
   const [selectedTeam, setSelectedTeam] = useState("");
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
   const [attachments,setAttachments] = useState<File[]>([]);
+  const [selectedProjectId, setSelectedProjectId] = useState<string>(defaultProjectId ?? "");
+  const [selectedMilestoneId, setSelectedMilestoneId] = useState<string>(defaultMilestoneId ?? "");
+  const [selectedFeatureId, setSelectedFeatureId] = useState<string>(defaultFeatureId ?? "");
+  const [projectsList, setProjectsList] = useState<any[]>([]);
+  const [milestonesList, setMilestonesList] = useState<any[]>([]);
+  const [featuresList, setFeaturesList] = useState<any[]>([]);
+
   // const [form, setForm] = useState<{description: string;}>({ description: "",});
   const modules = {
   toolbar: [
@@ -232,7 +248,8 @@ useEffect(() => {
       });
     }
   }
-}, [form.estimated_hours, form.start_date, form.due_date]);                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      
+}, [form.estimated_hours, form.start_date, form.due_date]);   
+                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          
   useEffect(() => {
     if (!user) return;
     let roleType: string = "user";
@@ -253,7 +270,54 @@ useEffect(() => {
       setForm((f) => ({ ...f, assigned_to: "" }));
     }
   }, [form.type, open, user?.id]);
-  
+
+
+
+            // Fetch projects for linkage
+useEffect(() => {
+  // Fetch projects for linkage
+  fetch("/api/projects", { headers: { "x-user-id": user?.id ?? "" } })
+    .then(res => res.ok ? res.json() : [])
+    .then(data => setProjectsList(
+      Array.isArray(data) ? data.filter((p: any) => p.is_confirmed) : []
+    ))
+    .catch(() => setProjectsList([]));
+}, [open, user?.id]);
+
+  // Fetch milestones and features when project changes
+  useEffect(() => {
+    if (!selectedProjectId || !user?.id) {
+      setMilestonesList([]);
+      setFeaturesList([]);
+
+      if (!defaultMilestoneId) setSelectedMilestoneId("");
+      if (!defaultFeatureId)  setSelectedFeatureId("");
+      return;
+    }
+    const headers = { "x-user-id": user.id };
+    fetch(`/api/projects/${selectedProjectId}/milestones`, { headers })
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setMilestonesList(Array.isArray(data) ? data : []))
+      .catch(() => setMilestonesList([]));
+    fetch(`/api/projects/${selectedProjectId}/features`, { headers })
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setFeaturesList(Array.isArray(data) ? data : []))
+      .catch(() => setFeaturesList([]));
+    if (selectedProjectId !== defaultProjectId) {
+      setSelectedMilestoneId("");
+      setSelectedFeatureId("");
+    }
+  }, [selectedProjectId, user?.id]);
+
+
+    // When opened with a defaultProjectId, apply it immediately
+  useEffect(() => {
+    if (open && defaultProjectId) {
+      setSelectedProjectId(defaultProjectId);
+      if (defaultMilestoneId) setSelectedMilestoneId(defaultMilestoneId);
+      if (defaultFeatureId)  setSelectedFeatureId(defaultFeatureId);
+    }
+  }, [open, defaultProjectId, defaultMilestoneId, defaultFeatureId]);
 
 
   // Core: Compute assignable users for create view, with debug logs
@@ -337,6 +401,7 @@ function calculateAvailableHours(startDate: string, dueDate: string): number {
 // }
 
   // Handle form changes (typed fix)
+  
  const handleChange = (
   e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>
 ) => {
@@ -488,6 +553,7 @@ const handleSubmit = async (e: React.FormEvent) => {
     });
     return;
   }
+  
 
   setCreating(true);
 
@@ -511,6 +577,7 @@ const handleSubmit = async (e: React.FormEvent) => {
     formData.append("estimated_hours", form.estimated_hours);
     formData.append("is_time_managed", String(form.is_time_managed));
     formData.append("todos_enabled", String(form.todos_enabled));
+  
     console.log(" saksham Submitting status:", form.status);
       
     
@@ -522,14 +589,54 @@ const handleSubmit = async (e: React.FormEvent) => {
     if (form.isDependent && form.dependencyTaskId) {
       formData.append("dependencyTaskId", form.dependencyTaskId);
     }
+if (selectedProjectId) {
+  formData.append("project_id", selectedProjectId);
+}
 
+if (selectedMilestoneId) {
+  formData.append("milestone_id", selectedMilestoneId);
+}
+
+if (selectedFeatureId) {
+  formData.append("feature_id", selectedFeatureId);
+}
     // 4. Append all attachments
     // The key "attachments" must match the Multer configuration: upload.array('attachments')
     attachments.forEach((file) => {
       formData.append("attachments", file);
     });
+          const taskInput: any = {
+        title: form.title,
+        description: form.description,
+        status: form.status,
+        priority: form.priority,
+        due_date: form.due_date || null,
+        start_date: form.start_date || null,
+        type: form.type,
+        created_by: myUserId,
+        assigned_to: form.assigned_to ? form.assigned_to : null,
+        estimated_hours: form.estimated_hours ? Number(form.estimated_hours) : null,
+        team_id: null,
+        actual_completion_date: null,
+        is_time_managed: form.is_time_managed || false,
+        timer_state: 'stopped',
+        time_spent_minutes: 0,
+        timer_started_at: null,
+        timer_session_data: null,
+      };
 const availableHours = calculateAvailableHours(form.start_date, form.due_date);
   const estimatedHours = Number(form.estimated_hours);
+      //   if (selectedProjectId && !selectedMilestoneId) {
+      //   throw new Error("A milestone is required when linking a task to a project.");
+      // }
+      // if (selectedMilestoneId && !selectedFeatureId) {
+      //   throw new Error("A feature is required when a milestone is attached to a task.");
+      // }
+
+      // Project linkage fields
+      if (selectedProjectId) taskInput.project_id = selectedProjectId;
+        if (selectedMilestoneId) taskInput.milestone_id = selectedMilestoneId;
+      if (selectedFeatureId) taskInput.feature_id = selectedFeatureId;
 
   if (estimatedHours > availableHours) {
     toast({
@@ -571,11 +678,23 @@ const availableHours = calculateAvailableHours(form.start_date, form.due_date);
     await queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
     await queryClient.invalidateQueries({ queryKey: ['overdue-tasks'] });
     await queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] });
+         if (selectedProjectId) {
+        await queryClient.invalidateQueries({ queryKey: ['/api/projects', selectedProjectId, 'tasks'] });
+      }
 
     resetForm();
     setAttachments([]); // Clear files state
     setOpen(false);
     onTaskCreated();
+       setSelectedProjectId("");
+    // Restore defaults if provided by caller, otherwise clear
+    setSelectedProjectId(defaultProjectId ?? "");
+    setSelectedMilestoneId(defaultMilestoneId ?? "");
+    setSelectedFeatureId(defaultFeatureId ?? "");
+    if (!defaultProjectId) {
+      setMilestonesList([]);
+      setFeaturesList([]);
+    }
 
   } catch (err: any) {
     toast({ 
@@ -708,8 +827,12 @@ useEffect(() => {
   loadGroups();
 }, [open, form.isSubTask, form.assigned_to]);
 
-
+  const { data: settings } = useQuery({
+    queryKey: ["/api/organization-settings"],
+    queryFn: () => apiClient.get("/organization-settings"),
+  });
   // --- (dependency validation hook) ---
+      const projectManagementEnabled = settings?.project_management_enabled ?? false;
   const {
     isInvalidStartDate,
     canCompleteDependent,
@@ -1310,10 +1433,82 @@ useEffect(() => {
     </div>
   )}
 </div>
+{/* Project Linkage */}
+           {projectManagementEnabled && (     <div className="bg-white p-4 rounded-lg border border-gray-200">
+                  <div className="flex items-center mb-1">
+                    <span className="mr-2">🗂️</span>
+                    <span className="text-base font-medium text-gray-700">Link to Project</span>
+                  </div>
+                <p className="text-sm text-gray-500 mb-3">
+                    {defaultProjectId
+                      ? "This task will be linked to the current project."
+                      : "Optionally associate this task with a project milestone or feature"}
+                  </p>
+                  <div className="space-y-3">
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-1">Project</label>
+                      {defaultProjectId ? (
+                        <div className="w-full h-10 text-sm border border-gray-200 bg-gray-50 rounded-lg px-3 flex items-center gap-2 text-gray-700">
+                          <span className="text-gray-400">🔒</span>
+                          {projectsList.find(p => p.id === defaultProjectId)?.name ?? "Current Project"}
+                        </div>
+                      ) : (
+                      <select
+                        value={selectedProjectId}
+                        onChange={e => setSelectedProjectId(e.target.value)}
+                        className="w-full h-10 text-sm border border-gray-300 rounded-lg px-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                      >
+                        <option value="">Select</option>
+                        {projectsList.map(p => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                      </select> )}
+                    </div>
+                    {selectedProjectId && (
+                      <>
+                        <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">
+                            Milestone
+                            <span className="ml-1 text-xs font-normal text-amber-600">(required to close/complete this task)</span>
+                          </label>
+                          <select
+                            value={selectedMilestoneId}
+                            onChange={e => setSelectedMilestoneId(e.target.value)}
+                            className="w-full h-10 text-sm border border-gray-300 rounded-lg px-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          >
+                        <option value="">— Select a milestone —</option>
+                            {milestonesList.map(m => (
+                              <option key={m.id} value={m.id}>{m.name}</option>
+                            ))}
+                          </select>
+                         
+                        </div>
+                        <div>
+                             <label className="block text-sm font-semibold text-gray-700 mb-1">
+                            Feature
+                            <span className="ml-1 text-xs font-normal text-gray-500">(optional)</span>
+                          </label>
+                          <select
+                            value={selectedFeatureId}
+                            onChange={e => setSelectedFeatureId(e.target.value)}
+                             className="w-full h-10 text-sm border border-gray-300 rounded-lg px-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                          >
+                             <option value="">— Select a feature —</option>
+                            {featuresList.map(f => (
+                              <option key={f.id} value={f.id}>{f.tracking_number ? `[${f.tracking_number}] ` : ""}{f.name}</option>
+                            ))}
+                          </select>
+                                             
+                        </div>
+                      </>
+                    )}
+                  </div>
+                </div>)}
+              </div>
 
               </div>
             </div>
-          </div>
+         
           <SheetFooter className="mt-10 pt-6 border-t border-gray-200 flex-col sm:flex-row gap-4">
             <div className="flex gap-4 w-full">
               <Button 

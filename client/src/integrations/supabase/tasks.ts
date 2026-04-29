@@ -1,4 +1,5 @@
 import { apiClient } from "@/lib/api";
+import { query } from "express";
 
 // -------- Type Definitions --------
 export type Task = {
@@ -28,7 +29,14 @@ export type Task = {
   timer_session_data?: string | null;
   // NEW FIELDS from tasks_with_extras
   group_ids?: string[];           // array of group_ids this task belongs to (subtasks)
-  is_dependent?: boolean;         // true if this task is a dependent
+  groups?: Array<{
+    id: string;
+    name: string;
+  }>;
+  is_dependent?: boolean;
+   milestone_id?: string | null;
+  feature_id?: string | null;
+  project_id?: string | null;     // true if this task is a dependent
 };
 
 // -------- CRUD Functions --------
@@ -41,8 +49,26 @@ export async function fetchTasks(): Promise<Task[]> {
     assigned_user: task.assigned_user || null,
     actual_completion_date: task.actual_completion_date ?? null,
     group_ids: task.group_ids || [],
+    groups: task.groups || [],
     is_dependent: !!task.is_dependent,
   }));
+}
+
+export function filterTasksForTasksPageBase(tasks: Task[]): Task[] {
+  const now = new Date();
+  const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  return tasks.filter((task) => {
+    if (!task.due_date) return false;
+
+    const dueDate = new Date(task.due_date);
+
+    if (dueDate >= startOfCurrentMonth) {
+      return true;
+    }
+
+    return task.status?.toLowerCase() !== "completed";
+  });
 }
 
 // Update: require created_by in new task input
@@ -147,7 +173,35 @@ export async function fetchTasksPaginated(input: FetchTasksInput = {}): Promise<
   // For now, fetch all tasks and filter/paginate on client
   // In production, this should be implemented with server-side filtering
   const allTasks = await fetchTasks();
-  let filteredTasks = allTasks;
+  let filteredTasks = filterTasksForTasksPageBase(allTasks);
+  const now = new Date();
+  const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+filteredTasks = filteredTasks.filter((task) => {
+  if (!task.due_date) return false; // safer
+
+  const dueDate = new Date(task.due_date);
+
+  // ✅ Current month → include ALL tasks
+  if (dueDate >= startOfCurrentMonth) {
+    return true;
+  }
+
+  // ✅ Previous months → include only NOT completed
+  return task.status?.toLowerCase() !== "completed";
+});
+if (input.overdue) {
+  const today = new Date();
+today.setHours(0, 0, 0, 0);
+  filteredTasks = filteredTasks.filter((task) => {
+    if (!task.due_date) return false;
+    const due = new Date(task.due_date);
+    due.setHours(0, 0, 0, 0);
+    return due < today && task.status?.toLowerCase() !== "completed";
+  });
+
+  console.log(`[DEBUG] Tasks after overdue filter:`, filteredTasks.length);
+}
 
   console.log(`[DEBUG] fetchTasksPaginated filters:`, {
     assignedTo: input.assignedTo,
@@ -160,6 +214,7 @@ export async function fetchTasksPaginated(input: FetchTasksInput = {}): Promise<
   console.log(`[DEBUG] Total tasks before filtering:`, allTasks.length);
 
   // Apply filters
+  
   if (input.assignedTo) {
     console.log(`[DEBUG] Filtering by assignedTo: ${input.assignedTo}`);
     filteredTasks = filteredTasks.filter(task => task.assigned_to === input.assignedTo);

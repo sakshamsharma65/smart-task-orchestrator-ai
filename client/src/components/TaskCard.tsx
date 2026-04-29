@@ -236,7 +236,7 @@ function handleDeleteTask(id: string) {
     <div dangerouslySetInnerHTML={{ __html: task.description }} />
       </CardHeader>
       <CardContent>
-        <div className="flex flex-col md:flex-row md:items-center md:gap-6 gap-2 text-sm">
+        <div className="flex flex-col md:flex-row md:items-center md:gap-4 gap-1 text-sm">
           <div>
             <span className="font-semibold">Status:</span>{" "}
             <span className="capitalize">{task.status}</span>
@@ -278,18 +278,20 @@ function handleDeleteTask(id: string) {
               {formatOrgDate(task.actual_completion_date)}
             </div>
           )}
+
+          
           {groups.length > 0 && (
-            <div className="flex items-center gap-1">
+            <div className="flex  gap-1">
               <span className="font-semibold">Groups:</span>
               <div className="flex gap-1 flex-wrap">
                 {groups.map((group: any) => (
-                  <Badge 
+                  <div 
                     key={group.id} 
-                    variant="outline" 
-                    className="bg-blue-50 text-blue-700 border-blue-200 text-[10px] py-0 h-5"
+                   className="whitespace-nowrap"
+                    title={`Group: ${group.name}`}
                   >
                     {group.name}
-                  </Badge>
+                  </div>
                 ))}
               </div>
             </div>

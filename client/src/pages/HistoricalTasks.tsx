@@ -81,7 +81,7 @@ useEffect(() => {
        <h1 className="text-2xl font-bold">
   Historical Tasks
   <span className="block text-sm font-normal text-muted-foreground">
-    Displays List of Tasks Completed Last Month
+    Displays List of Tasks Completed Last Month or earlier
   </span>
 </h1>
         <div className="flex gap-2">

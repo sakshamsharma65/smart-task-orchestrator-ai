@@ -9,12 +9,13 @@ import { ClipboardList, Users2, ShieldCheck } from "lucide-react";
 import Logo from "@/components/Logo";
 import { FaEye, FaEyeSlash } from "react-icons/fa";
 import SuperAdminRegistration from "@/components/SuperAdminRegistration";
+import { GoogleLogin } from '@react-oauth/google';
 
 const AuthPage: React.FC = () => {
   const [form, setForm] = useState({ email: "", password: "" });
   const [error, setError] = useState<string | null>(null);
   const [systemHasUsers, setSystemHasUsers] = useState<boolean | null>(null);
-  const {mfaPending, verify2FA, resend2FA, setMfaPending } = useAuth();
+  const {mfaPending, verify2FA, resend2FA, setMfaPending ,loginWithGoogle,} = useAuth();
   const [otpCode, setOtpCode] = useState("");
   const [resendTimer, setResendTimer] = useState(0);
   const [checkingSystem, setCheckingSystem] = useState(true);
@@ -299,7 +300,31 @@ const onOtpSubmit = async (e: React.FormEvent) => {
                 </div>
               ) : "Sign In"}
             </Button>
+<div className="relative my-6">
+  <div className="absolute inset-0 flex items-center">
+    <span className="w-full border-t border-white/10" />
+  </div>
+  <div className="relative flex justify-center text-xs uppercase">
+    <span className="bg-[#1e293b] px-2 text-slate-400">Or</span>
+  </div>
+</div>
 
+<div className="flex justify-center w-full">
+  <GoogleLogin
+    onSuccess={(credentialResponse) => {
+      if (credentialResponse.credential) {
+        loginWithGoogle(credentialResponse.credential);
+      }
+    }}
+    onError={() => {
+      toast({ title: "Google Login Failed", variant: "destructive" });
+    }}
+    theme="filled_blue"
+    shape="pill"
+    text="continue_with"
+    width="100%"
+  />
+</div>
             <div className="text-center">
               <button 
                 type="button" 

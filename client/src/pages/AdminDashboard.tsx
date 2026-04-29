@@ -600,7 +600,7 @@ const AdminDashboard = () => {
           </Alert>
       )}
 
-      <h1 className="text-2xl font-bold mb-5">
+      <h1 className="text-2xl font-bold ">
         Dashboard
       </h1>
 

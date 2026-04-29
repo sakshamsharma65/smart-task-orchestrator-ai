@@ -220,6 +220,15 @@ async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
   if (!currentUser?.id || !task) return;
   
   const newStatus = e.target.value;
+      // Block completion for project-linked tasks without a milestone
+    if (task?.project_id && !task?.milestone_id && newStatus.toLowerCase().includes("complet")) {
+      toast({
+        title: "Cannot complete task",
+        description: "This task is linked to a project but has no milestone assigned. Please attach a milestone before completing it.",
+        variant: "destructive",
+      });
+      return;
+    }
   
   // We only care about the blocker logic if the status is being set to "Completed"
   if (newStatus.toLowerCase() === "completed") {
@@ -345,6 +354,85 @@ async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
   useEffect(() => {
     setAssignTo(task?.assigned_to || "");
   }, [task]);
+  // Project linkage state
+  const [projectsList, setProjectsList] = useState<any[]>([]);
+  const [milestonesList, setMilestonesList] = useState<any[]>([]);
+  const [featuresList, setFeaturesList] = useState<any[]>([]);
+  const [editingLinkage, setEditingLinkage] = useState(false);
+  const [linkProjectId, setLinkProjectId] = useState("");
+  const [linkMilestoneId, setLinkMilestoneId] = useState("");
+  const [linkFeatureId, setLinkFeatureId] = useState("");
+  const [savingLinkage, setSavingLinkage] = useState(false);
+
+  // Fetch confirmed projects on open
+  useEffect(() => {
+    if (!open) return;
+    fetch("/api/projects")
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setProjectsList(Array.isArray(data) ? data.filter((p: any) => p.is_confirmed) : []))
+      .catch(() => setProjectsList([]));
+  }, [open]);
+
+  // Fetch milestones + features when a project is chosen for editing
+  useEffect(() => {
+    if (!linkProjectId) {
+      setMilestonesList([]);
+      setFeaturesList([]);
+      return;
+    }
+    fetch(`/api/projects/${linkProjectId}/milestones`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setMilestonesList(Array.isArray(data) ? data : []))
+      .catch(() => setMilestonesList([]));
+    fetch(`/api/projects/${linkProjectId}/features`)
+      .then(r => r.ok ? r.json() : [])
+      .then(data => setFeaturesList(Array.isArray(data) ? data : []))
+      .catch(() => setFeaturesList([]));
+  }, [linkProjectId]);
+
+  // Resolve names for currently linked milestone/feature
+  const linkedMilestoneName = useMemo(() => {
+    if (!task?.milestone_id) return null;
+    // search in milestonesList (if already loaded) or show id
+    const found = milestonesList.find(m => m.id === task.milestone_id);
+    return found ? found.name : task.milestone_id;
+  }, [task?.milestone_id, milestonesList]);
+
+  const linkedFeatureName = useMemo(() => {
+    if (!task?.feature_id) return null;
+    const found = featuresList.find(f => f.id === task.feature_id);
+    if (found) return `${found.tracking_number ? `[${found.tracking_number}] ` : ""}${found.name}`;
+    return task.feature_id;
+  }, [task?.feature_id, featuresList]);
+
+  // Load milestone + feature names for the task's current project when open
+  useEffect(() => {
+    if (!open || !task) { setEditingLinkage(false); return; }
+    setLinkMilestoneId(task.milestone_id || "");
+    setLinkFeatureId(task.feature_id || "");
+       setLinkProjectId(task.project_id || "");
+
+  }, [open, task]);
+
+  async function handleSaveLinkage() {
+    if (!task || !currentUser?.id) return;
+        // Validate: milestone required when project selected; feature required when milestone selected
+  
+    setSavingLinkage(true);
+    try {
+      await updateTask(task.id, {
+            project_id: linkProjectId || null,
+        milestone_id: linkMilestoneId || null,
+        feature_id: linkFeatureId || null,
+      } as any);
+      toast({ title: "Project linkage updated" });
+      setEditingLinkage(false);
+      onUpdated();
+    } catch (err: any) {
+      toast({ title: "Failed to update linkage", description: err.message, variant: "destructive" });
+    }
+    setSavingLinkage(false);
+  }
 
   // Get assigned user name
   const assignedUser = users.find(u => u.id === task?.assigned_to);
@@ -528,6 +616,125 @@ async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
                       </div>
                     </div>
                   </div>
+                </div>
+              </div>
+                        {/* SECTION 3b: PROJECT LINKAGE */}
+              <div className="space-y-4">
+                <div className="bg-teal-50 p-4 rounded-lg">
+                  <div className="flex items-center justify-between mb-3">
+                    <h3 className="text-base font-medium text-gray-800 flex items-center">
+                      <span className="bg-teal-100 text-teal-800 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold mr-2">P</span>
+                      Project Linkage
+                    </h3>
+                    {showAssign && !editingLinkage && (
+                      <button
+                        type="button"
+                      onClick={() => setEditingLinkage(true)}
+                        className="text-xs text-teal-700 underline"
+                      >
+                        Edit
+                      </button>
+                    )}
+                  </div>
+
+                 {!editingLinkage ? (
+                    <div className="space-y-2">
+                      {!task?.project_id && !task?.milestone_id && !task?.feature_id ? (
+                        <p className="text-sm text-gray-400 italic">No project linkage set.</p>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+                          <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">Project</label>
+                            <div className="bg-white p-2 border rounded text-sm">
+                              {task?.project_id
+                                ? (projectsList.find(p => p.id === task.project_id)?.name || task.project_id)
+                                : <span className="text-gray-400 italic">Not linked</span>}
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">Milestone</label>
+                            <div className="bg-white p-2 border rounded text-sm">
+                              {task?.milestone_id ? (linkedMilestoneName || task.milestone_id) : <span className="text-gray-400 italic">Not linked</span>}
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">Feature</label>
+                            <div className="bg-white p-2 border rounded text-sm">
+                              {task?.feature_id ? (linkedFeatureName || task.feature_id) : <span className="text-gray-400 italic">Not linked</span>}
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                      {task?.project_id && !task?.milestone_id && (
+                        <div className="flex items-center gap-1 text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded px-2 py-1">
+                          <span>⚠️</span> This task is project-linked but has no milestone — it cannot be completed until a milestone is attached.
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      <div>
+                        <label className="block text-sm font-semibold text-gray-700 mb-1">Project</label>
+                        <select
+                          value={linkProjectId}
+                          onChange={e => { setLinkProjectId(e.target.value); setLinkMilestoneId(""); setLinkFeatureId(""); }}
+                          className="w-full h-9 text-sm border border-gray-300 rounded-md px-2 focus:ring-2 focus:ring-teal-500"
+                        >
+                          <option value="">— None (remove linkage) —</option>
+                          {projectsList.map(p => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
+                        </select>
+                      </div>
+                      
+                      {linkProjectId && (
+                        <>
+                          <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">
+                                    Milestone
+                              <span className="ml-1 text-xs font-normal text-amber-600">(required to close/complete)</span>
+                            </label>
+                            <select
+                              value={linkMilestoneId}
+                              onChange={e => setLinkMilestoneId(e.target.value)}
+                            className="w-full h-9 text-sm border border-gray-300 rounded-md px-2 focus:ring-2 focus:ring-teal-500"
+                            >
+                              <option value="">— Select a milestone —</option>
+                              {milestonesList.map(m => (
+                                <option key={m.id} value={m.id}>{m.name}</option>
+                              ))}
+                            </select>
+
+                          </div>
+                          <div>
+                            <label className="block text-sm font-semibold text-gray-700 mb-1">
+                                                  Feature
+                              <span className="ml-1 text-xs font-normal text-gray-500">(optional)</span>
+                            </label>
+                            <select
+                              value={linkFeatureId}
+                              onChange={e => setLinkFeatureId(e.target.value)}
+                                                      className="w-full h-9 text-sm border border-gray-300 rounded-md px-2 focus:ring-2 focus:ring-teal-500"
+                            >
+                              <option value="">— Select a feature —</option>
+                              {featuresList.map(f => (
+                                <option key={f.id} value={f.id}>{f.tracking_number ? `[${f.tracking_number}] ` : ""}{f.name}</option>
+                              ))}
+                            </select>
+                         
+                          </div>
+                        </>
+                      )}
+                      <div className="flex gap-2">
+                        <Button size="sm" onClick={handleSaveLinkage} disabled={savingLinkage}>
+                          {savingLinkage ? "Saving..." : "Save Linkage"}
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => setEditingLinkage(false)}>
+                          Cancel
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </div>
 

@@ -691,7 +691,7 @@ export default function MyTasksPage() {
 
             {!loading && !statusesLoading && !showTooManyWarning && view === "kanban" && searchedTasks.length > 0 && (
               <DndProvider backend={HTML5Backend}>
-                <div className="flex gap-6 overflow-x-auto pb-8 px-2">
+                <div className="flex gap-6 overflow-x-scroll min-w-[1500px] pb-8 px-2">
                   {sortedStatusKeys.map((statusKey, index) => {
                     const statusObj = statuses.find(
                       (s) => getStatusKey(s.name) === statusKey

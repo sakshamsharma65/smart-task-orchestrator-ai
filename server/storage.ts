@@ -22,6 +22,15 @@ import {
   rolePermissions,
   deletedUsers,
   deletedTasks,
+    projectTemplates,
+  projectTemplateStages,
+    projects,
+  projectMembers,
+  projectMemberHistory,
+  projectMilestones,
+  milestoneStages,
+  projectFeatureGroups,
+  projectFeatures,
   organizationSettings,
   officeLocations,
   departments,
@@ -56,6 +65,23 @@ import {
   InsertDepartment,
   License,
   InsertLicense,
+  ProjectTemplate,
+  InsertProjectTemplate,
+  ProjectTemplateStage,
+  InsertProjectTemplateStage,
+  Project,
+  InsertProject,
+  ProjectMember,
+  InsertProjectMember,
+  ProjectMemberHistory,
+  ProjectMilestone,
+  InsertProjectMilestone,
+  MilestoneStage,
+  InsertMilestoneStage,
+  ProjectFeatureGroup,
+  InsertProjectFeatureGroup,
+  ProjectFeature,
+  InsertProjectFeature,
   activityLog,
   globalTodoDefinitions,
   taskTodos
@@ -98,6 +124,7 @@ markEmailSettingsAsVerified(
   getAllTasks(): Promise<Task[]>;
   getTasksByUser(userId: string): Promise<Task[]>;
   getTasksByTeam(teamId: string): Promise<Task[]>;
+  getTasksByProject(projectId: string): Promise<Task[]>;
   createTask(task: InsertTask): Promise<Task>;
   updateTask(id: string, updates: Partial<Task>): Promise<Task>;
   deleteTask(id: string): Promise<void>;
@@ -198,6 +225,68 @@ markEmailSettingsAsVerified(
   createLicense(license: InsertLicense): Promise<License>;
   updateLicense(id: number, updates: Partial<License>): Promise<License>;
   deleteLicense(id: number): Promise<void>;
+  
+  // Project template operations
+  getAllProjectTemplates(): Promise<ProjectTemplate[]>;
+  getProjectTemplate(id: string): Promise<ProjectTemplate | undefined>;
+  createProjectTemplate(template: InsertProjectTemplate): Promise<ProjectTemplate>;
+  updateProjectTemplate(id: string, updates: Partial<ProjectTemplate>): Promise<ProjectTemplate>;
+  deleteProjectTemplate(id: string): Promise<void>;
+
+  // Project template stage operations
+  getStagesByTemplate(templateId: string): Promise<ProjectTemplateStage[]>;
+  createProjectTemplateStage(stage: InsertProjectTemplateStage): Promise<ProjectTemplateStage>;
+  updateProjectTemplateStage(id: string, updates: Partial<ProjectTemplateStage>): Promise<ProjectTemplateStage>;
+  deleteProjectTemplateStage(id: string): Promise<void>;
+  reorderProjectTemplateStages(templateId: string, stageIds: string[]): Promise<void>;
+  
+  // Project operations
+  getAllProjects(): Promise<Project[]>;
+  getProject(id: string): Promise<Project | undefined>;
+  getProjectsByUserMembership(userId: string): Promise<Project[]>;
+  getProjectsByManagedUsers(managerId: string): Promise<Project[]>;
+  createProject(project: InsertProject): Promise<Project>;
+  updateProject(id: string, updates: Partial<Project>): Promise<Project>;
+  deleteProject(id: string): Promise<void>;
+  confirmProject(id: string): Promise<Project>;
+  isUserProjectMember(projectId: string, userId: string): Promise<boolean>;
+
+  // Project member operations
+  getProjectMembers(projectId: string): Promise<ProjectMember[]>;
+  getProjectMembersWithUsers(projectId: string): Promise<(ProjectMember & { user_name?: string; email?: string })[]>;
+  getActiveProjectManager(projectId: string): Promise<ProjectMember | undefined>;
+  addProjectMember(member: InsertProjectMember): Promise<ProjectMember>;
+  updateProjectMember(id: string, updates: Partial<ProjectMember>): Promise<ProjectMember>;
+  removeProjectMember(id: string, actedBy: string, notes?: string): Promise<void>;
+  getProjectMemberHistory(projectId: string): Promise<ProjectMemberHistory[]>;
+
+  // Milestone operations
+  getProjectMilestones(projectId: string): Promise<ProjectMilestone[]>;
+  getMilestone(id: string): Promise<ProjectMilestone | undefined>;
+  createMilestone(milestone: InsertProjectMilestone): Promise<ProjectMilestone>;
+  updateMilestone(id: string, updates: Partial<ProjectMilestone>): Promise<ProjectMilestone>;
+  deleteMilestone(id: string): Promise<void>;
+
+  // Milestone stage operations
+  getMilestoneStages(milestoneId: string): Promise<MilestoneStage[]>;
+  createMilestoneStage(stage: InsertMilestoneStage): Promise<MilestoneStage>;
+  updateMilestoneStage(id: string, updates: Partial<MilestoneStage>): Promise<MilestoneStage>;
+  deleteMilestoneStage(id: string): Promise<void>;
+  reorderMilestoneStages(milestoneId: string, stageIds: string[]): Promise<void>;
+  inheritTemplateStagesToMilestone(milestoneId: string, templateId: string): Promise<MilestoneStage[]>;
+
+  // Feature group operations
+  getProjectFeatureGroups(projectId: string): Promise<ProjectFeatureGroup[]>;
+  createFeatureGroup(group: InsertProjectFeatureGroup): Promise<ProjectFeatureGroup>;
+  updateFeatureGroup(id: string, updates: Partial<ProjectFeatureGroup>): Promise<ProjectFeatureGroup>;
+  deleteFeatureGroup(id: string): Promise<void>;
+
+  // Feature operations
+  getProjectFeatures(projectId: string): Promise<ProjectFeature[]>;
+  getFeaturesByGroup(groupId: string): Promise<ProjectFeature[]>;
+  createFeature(feature: InsertProjectFeature): Promise<ProjectFeature>;
+  updateFeature(id: string, updates: Partial<ProjectFeature>): Promise<ProjectFeature>;
+  deleteFeature(id: string): Promise<void>;
 }
 // Add to your IStorage interface
 export interface IStorage {
@@ -208,6 +297,28 @@ export interface IStorage {
 }
 
 export class DatabaseStorage implements IStorage {
+  private getTaskSelectWithGroups() {
+    return {
+      ...getTableColumns(tasks),
+      groups: sql`
+        COALESCE(
+          json_agg(
+            DISTINCT jsonb_build_object('id', ${taskGroups.id}, 'name', ${taskGroups.name})
+          ) FILTER (WHERE ${taskGroups.id} IS NOT NULL),
+          '[]'::json
+        )
+      `.as("groups"),
+    };
+  }
+
+  private buildTasksWithGroupsQuery() {
+    return db
+      .select(this.getTaskSelectWithGroups())
+      .from(tasks)
+      .leftJoin(taskGroupTasks, eq(tasks.id, taskGroupTasks.task_id))
+      .leftJoin(taskGroups, eq(taskGroupTasks.group_id, taskGroups.id));
+  }
+
   // User operations
   async getUser(id: string): Promise<User | undefined> {
     const result = await db.select().from(users).where(eq(users.id, id)).limit(1);
@@ -644,29 +755,17 @@ async getAllUsers(): Promise<any[]> { // Note: Return type is now 'any[]' or a c
 
   // Task operations
   async getTask(id: string): Promise<Task | undefined> {
-    const result = await db.select().from(tasks).where(eq(tasks.id, id)).limit(1);
-    return result[0];
+    const result = await this.buildTasksWithGroupsQuery()
+      .where(eq(tasks.id, id))
+      .groupBy(tasks.id)
+      .limit(1);
+
+    return result[0] as any;
   }
 
  // Update this in your DatabaseStorage class
 async getAllTasks(): Promise<Task[]> {
-  const result = await db
-    .select({
-      // This spreads all the standard task columns
-      ...getTableColumns(tasks),
-      // This creates an array of group objects for each task
-      groups: sql`
-        COALESCE(
-          json_agg(
-            json_build_object('id', ${taskGroups.id}, 'name', ${taskGroups.name})
-          ) FILTER (WHERE ${taskGroups.id} IS NOT NULL), 
-          '[]'
-        )
-      `.as("groups"),
-    })
-    .from(tasks)
-    .leftJoin(taskGroupTasks, eq(tasks.id, taskGroupTasks.task_id))
-    .leftJoin(taskGroups, eq(taskGroupTasks.group_id, taskGroups.id))
+  const result = await this.buildTasksWithGroupsQuery()
     .groupBy(tasks.id)
     .orderBy(desc(tasks.created_at));
 
@@ -722,18 +821,27 @@ async countPendingTaskTodos(taskId: string): Promise<number> {
 }
 
 async getTasksByUser(userId: string): Promise<Task[]> {
-    return await db.select().from(tasks).where(
-      or(eq(tasks.assigned_to, userId), eq(tasks.created_by, userId))
-    )
-    .orderBy(desc(tasks.created_at));
+    return await this.buildTasksWithGroupsQuery()
+      .where(or(eq(tasks.assigned_to, userId), eq(tasks.created_by, userId)))
+      .groupBy(tasks.id)
+      .orderBy(desc(tasks.created_at)) as any;
 }
 
 
 
   async getTasksByTeam(teamId: string): Promise<Task[]> {
-    return await db.select().from(tasks).where(eq(tasks.team_id, teamId)).orderBy(desc(tasks.created_at));
+    return await this.buildTasksWithGroupsQuery()
+      .where(eq(tasks.team_id, teamId))
+      .groupBy(tasks.id)
+      .orderBy(desc(tasks.created_at)) as any;
   }
 
+  async getTasksByProject(projectId: string): Promise<Task[]> {
+    return await this.buildTasksWithGroupsQuery()
+      .where(eq(tasks.project_id, projectId))
+      .groupBy(tasks.id)
+      .orderBy(desc(tasks.created_at)) as any;
+  }
   async createTask(task: InsertTask): Promise<Task> {
     const result = await db.insert(tasks).values(task).returning();
     // 2. Logic: If todos are enabled, snapshot the global list
@@ -895,12 +1003,12 @@ async deleteTaskAttachment(id: string): Promise<void> {
   }
 
   // 3. Get all tasks assigned to these users
-  const taskList = await db
-    .select()
-    .from(tasks) // your tasks table
-    .where(inArray(tasks.assigned_to, userIds));
+  const taskList = await this.buildTasksWithGroupsQuery()
+    .where(inArray(tasks.assigned_to, userIds))
+    .groupBy(tasks.id)
+    .orderBy(desc(tasks.created_at));
 
-  return taskList;
+  return taskList as any;
 }
 
 
@@ -1733,6 +1841,375 @@ async getTaskGroupsForUser(userId: string): Promise<TaskGroup[]> {
 
   async deleteLicense(id: number): Promise<void> {
     await db.delete(licenses).where(eq(licenses.id, id));
+  }
+    // Project template operations
+  async getAllProjectTemplates(): Promise<ProjectTemplate[]> {
+    return await db.select().from(projectTemplates).orderBy(projectTemplates.created_at);
+  }
+
+  async getProjectTemplate(id: string): Promise<ProjectTemplate | undefined> {
+    const result = await db.select().from(projectTemplates).where(eq(projectTemplates.id, id)).limit(1);
+    return result[0];
+  }
+
+  async createProjectTemplate(template: InsertProjectTemplate): Promise<ProjectTemplate> {
+    const result = await db.insert(projectTemplates).values(template).returning();
+    return result[0];
+  }
+
+  async updateProjectTemplate(id: string, updates: Partial<ProjectTemplate>): Promise<ProjectTemplate> {
+    const result = await db.update(projectTemplates).set({
+      ...updates,
+      updated_at: new Date()
+    }).where(eq(projectTemplates.id, id)).returning();
+    return result[0];
+  }
+
+  async deleteProjectTemplate(id: string): Promise<void> {
+        // Hard-delete all tasks linked to this project before removing the project
+    await db.delete(tasks).where(eq(tasks.project_id, id));
+    await db.delete(projectTemplates).where(eq(projectTemplates.id, id));
+  }
+
+  // Project template stage operations
+  async getStagesByTemplate(templateId: string): Promise<ProjectTemplateStage[]> {
+    return await db.select().from(projectTemplateStages)
+      .where(eq(projectTemplateStages.template_id, templateId))
+      .orderBy(projectTemplateStages.stage_order);
+  }
+
+  async createProjectTemplateStage(stage: InsertProjectTemplateStage): Promise<ProjectTemplateStage> {
+    const result = await db.insert(projectTemplateStages).values(stage).returning();
+    return result[0];
+  }
+
+  async updateProjectTemplateStage(id: string, updates: Partial<ProjectTemplateStage>): Promise<ProjectTemplateStage> {
+    const result = await db.update(projectTemplateStages).set({
+      ...updates,
+      updated_at: new Date()
+    }).where(eq(projectTemplateStages.id, id)).returning();
+    return result[0];
+  }
+
+  async deleteProjectTemplateStage(id: string): Promise<void> {
+    await db.delete(projectTemplateStages).where(eq(projectTemplateStages.id, id));
+  }
+
+  async reorderProjectTemplateStages(templateId: string, stageIds: string[]): Promise<void> {
+    for (let i = 0; i < stageIds.length; i++) {
+      await db.update(projectTemplateStages)
+        .set({ stage_order: i + 1, updated_at: new Date() })
+        .where(and(eq(projectTemplateStages.id, stageIds[i]), eq(projectTemplateStages.template_id, templateId)));
+    }
+  }
+    // Project operations
+  async getAllProjects(): Promise<Project[]> {
+    return await db.select().from(projects).orderBy(desc(projects.created_at));
+  }
+
+  async getProject(id: string): Promise<Project | undefined> {
+    const result = await db.select().from(projects).where(eq(projects.id, id)).limit(1);
+    return result[0];
+  }
+  // Add these to your storage class/object
+async getProjectsByUserMembership(userId: string): Promise<Project[]> {
+  // We join the projects table with project_members
+  // If a row exists in project_members for this user, they see the project
+  const result = await db
+    .select({
+      project: projects,
+    })
+    .from(projects)
+    .innerJoin(projectMembers, eq(projects.id, projectMembers.project_id))
+    .where(and(eq(projectMembers.user_id, userId), eq(projectMembers.is_active, true)))
+    .orderBy(desc(projects.created_at));
+
+  return result.map(r => r.project);
+}
+
+async getProjectsByManagedUsers(managerId: string): Promise<Project[]> {
+  const managedUsers = await db
+    .select({ id: users.id })
+    .from(users)
+    .where(eq(users.manager, managerId));
+
+  const managedUserIds = managedUsers.map((user) => user.id);
+
+  if (managedUserIds.length === 0) {
+    return [];
+  }
+
+  const result = await db
+    .selectDistinct({
+      project: projects,
+    })
+    .from(projects)
+    .innerJoin(projectMembers, eq(projects.id, projectMembers.project_id))
+    .where(
+      and(
+        inArray(projectMembers.user_id, managedUserIds),
+        eq(projectMembers.is_active, true),
+      )
+    )
+    .orderBy(desc(projects.created_at));
+
+  return result.map((r) => r.project);
+}
+
+async isUserProjectMember(projectId: string, userId: string): Promise<boolean> {
+  const membership = await db
+    .select()
+    .from(projectMembers)
+    .where(
+      and(
+        eq(projectMembers.project_id, projectId),
+        eq(projectMembers.user_id, userId),
+        eq(projectMembers.is_active, true)
+      )
+    )
+    .limit(1);
+  
+  return membership.length > 0;
+}
+
+  async createProject(project: InsertProject): Promise<Project> {
+    const result = await db.insert(projects).values(project).returning();
+    
+    return result[0];
+  }
+
+  async updateProject(id: string, updates: Partial<Project>): Promise<Project> {
+    const result = await db.update(projects).set({ ...updates, updated_at: new Date() }).where(eq(projects.id, id)).returning();
+    if (!result[0]) throw new Error("Project not found");
+    return result[0];
+  }
+
+  async deleteProject(id: string): Promise<void> {
+    await db.delete(projects).where(eq(projects.id, id));
+  }
+
+  async confirmProject(id: string): Promise<Project> {
+    const result = await db.update(projects).set({ is_confirmed: true, status: "active", updated_at: new Date() }).where(eq(projects.id, id)).returning();
+    if (!result[0]) throw new Error("Project not found");
+    return result[0];
+  }
+
+  // Project member operations
+  async getProjectMembers(projectId: string): Promise<ProjectMember[]> {
+    return await db.select().from(projectMembers)
+      .where(and(eq(projectMembers.project_id, projectId), eq(projectMembers.is_active, true)))
+      .orderBy(desc(projectMembers.joined_at));
+  }
+
+  async getProjectMembersWithUsers(projectId: string): Promise<(ProjectMember & { user_name?: string; email?: string })[]> {
+    const members = await db.select({
+      ...getTableColumns(projectMembers),
+      user_name: users.user_name,
+      email: users.email,
+    })
+      .from(projectMembers)
+      .leftJoin(users, eq(projectMembers.user_id, users.id))
+      .where(and(eq(projectMembers.project_id, projectId), eq(projectMembers.is_active, true)))
+      .orderBy(desc(projectMembers.joined_at));
+    
+    return members;
+  }
+
+  async getActiveProjectManager(projectId: string): Promise<ProjectMember | undefined> {
+    const result = await db.select().from(projectMembers)
+      .where(and(eq(projectMembers.project_id, projectId), eq(projectMembers.member_type, "project_manager"), eq(projectMembers.is_active, true)))
+      .limit(1);
+    return result[0];
+  }
+
+  async addProjectMember(member: InsertProjectMember): Promise<ProjectMember> {
+    const result = await db.insert(projectMembers).values(member).returning();
+    // Log history
+    await db.insert(projectMemberHistory).values({
+      project_id: member.project_id,
+      user_id: member.user_id,
+      member_type: member.member_type,
+      project_role: member.project_role,
+      allocation_percentage: member.allocation_percentage,
+      action: "added",
+      acted_by: member.added_by,
+      notes: `Member added as ${member.member_type}`,
+    });
+    return result[0];
+  }
+
+  async updateProjectMember(id: string, updates: Partial<ProjectMember>): Promise<ProjectMember> {
+    const existing = await db.select().from(projectMembers).where(eq(projectMembers.id, id)).limit(1);
+    if (!existing[0]) throw new Error("Member not found");
+    const result = await db.update(projectMembers).set({ ...updates, updated_at: new Date() }).where(eq(projectMembers.id, id)).returning();
+    // Log history
+    let action: string = "role_changed";
+    if (updates.allocation_percentage !== undefined && updates.allocation_percentage !== existing[0].allocation_percentage) action = "allocation_changed";
+    if (updates.member_type === "project_manager") action = "promoted_pm";
+    else if (updates.member_type === "member" && existing[0].member_type === "project_manager") action = "demoted_pm";
+    await db.insert(projectMemberHistory).values({
+      project_id: existing[0].project_id,
+      user_id: existing[0].user_id,
+      member_type: updates.member_type ?? existing[0].member_type,
+      project_role: updates.project_role ?? existing[0].project_role,
+      allocation_percentage: updates.allocation_percentage ?? existing[0].allocation_percentage,
+      action,
+    });
+    return result[0];
+  }
+
+  async removeProjectMember(id: string, actedBy: string, notes?: string): Promise<void> {
+    const existing = await db.select().from(projectMembers).where(eq(projectMembers.id, id)).limit(1);
+    if (!existing[0]) throw new Error("Member not found");
+    await db.update(projectMembers).set({ is_active: false, left_at: new Date(), updated_at: new Date() }).where(eq(projectMembers.id, id));
+    await db.insert(projectMemberHistory).values({
+      project_id: existing[0].project_id,
+      user_id: existing[0].user_id,
+      member_type: existing[0].member_type,
+      project_role: existing[0].project_role,
+      allocation_percentage: existing[0].allocation_percentage,
+      action: "removed",
+      acted_by: actedBy,
+      notes: notes ?? "Member removed from project",
+    });
+  }
+
+  async getProjectMemberHistory(projectId: string): Promise<ProjectMemberHistory[]> {
+    return await db.select().from(projectMemberHistory)
+      .where(eq(projectMemberHistory.project_id, projectId))
+      .orderBy(desc(projectMemberHistory.action_date));
+  }
+
+  // Milestone operations
+  async getProjectMilestones(projectId: string): Promise<ProjectMilestone[]> {
+    return await db.select().from(projectMilestones)
+      .where(eq(projectMilestones.project_id, projectId))
+      .orderBy(projectMilestones.milestone_order);
+  }
+
+  async getMilestone(id: string): Promise<ProjectMilestone | undefined> {
+    const result = await db.select().from(projectMilestones).where(eq(projectMilestones.id, id)).limit(1);
+    return result[0];
+  }
+
+  async createMilestone(milestone: InsertProjectMilestone): Promise<ProjectMilestone> {
+    const result = await db.insert(projectMilestones).values(milestone).returning();
+    return result[0];
+  }
+
+  async updateMilestone(id: string, updates: Partial<ProjectMilestone>): Promise<ProjectMilestone> {
+    const result = await db.update(projectMilestones).set({ ...updates, updated_at: new Date() }).where(eq(projectMilestones.id, id)).returning();
+    if (!result[0]) throw new Error("Milestone not found");
+    return result[0];
+  }
+
+  async deleteMilestone(id: string): Promise<void> {
+    await db.delete(projectMilestones).where(eq(projectMilestones.id, id));
+  }
+
+  // Milestone stage operations
+  async getMilestoneStages(milestoneId: string): Promise<MilestoneStage[]> {
+    return await db.select().from(milestoneStages)
+      .where(eq(milestoneStages.milestone_id, milestoneId))
+      .orderBy(milestoneStages.stage_order);
+  }
+
+  async createMilestoneStage(stage: InsertMilestoneStage): Promise<MilestoneStage> {
+    const result = await db.insert(milestoneStages).values(stage).returning();
+    return result[0];
+  }
+
+  async updateMilestoneStage(id: string, updates: Partial<MilestoneStage>): Promise<MilestoneStage> {
+    const result = await db.update(milestoneStages).set({ ...updates, updated_at: new Date() }).where(eq(milestoneStages.id, id)).returning();
+    if (!result[0]) throw new Error("Stage not found");
+    return result[0];
+  }
+
+  async deleteMilestoneStage(id: string): Promise<void> {
+    await db.delete(milestoneStages).where(eq(milestoneStages.id, id));
+  }
+
+  async reorderMilestoneStages(milestoneId: string, stageIds: string[]): Promise<void> {
+    for (let i = 0; i < stageIds.length; i++) {
+      await db.update(milestoneStages)
+        .set({ stage_order: i + 1, updated_at: new Date() })
+        .where(and(eq(milestoneStages.id, stageIds[i]), eq(milestoneStages.milestone_id, milestoneId)));
+    }
+  }
+
+  async inheritTemplateStagesToMilestone(milestoneId: string, templateId: string): Promise<MilestoneStage[]> {
+    const templateStagesList = await db.select().from(projectTemplateStages)
+      .where(eq(projectTemplateStages.template_id, templateId))
+      .orderBy(projectTemplateStages.stage_order);
+    const newStages: MilestoneStage[] = [];
+    for (const ts of templateStagesList) {
+      const result = await db.insert(milestoneStages).values({
+        milestone_id: milestoneId,
+        template_stage_id: ts.id,
+        name: ts.name,
+        description: ts.description,
+        color: ts.color,
+        stage_order: ts.stage_order,
+        status: "pending",
+      }).returning();
+      newStages.push(result[0]);
+    }
+    return newStages;
+  }
+
+  // Feature group operations
+  async getProjectFeatureGroups(projectId: string): Promise<ProjectFeatureGroup[]> {
+    return await db.select().from(projectFeatureGroups)
+      .where(eq(projectFeatureGroups.project_id, projectId))
+      .orderBy(projectFeatureGroups.created_at);
+  }
+
+  async createFeatureGroup(group: InsertProjectFeatureGroup): Promise<ProjectFeatureGroup> {
+    // Auto-generate tracking number
+    const existing = await db.select().from(projectFeatureGroups).where(eq(projectFeatureGroups.project_id, group.project_id));
+    const trackingNumber = group.tracking_number || `FG-${String(existing.length + 1).padStart(3, "0")}`;
+    const result = await db.insert(projectFeatureGroups).values({ ...group, tracking_number: trackingNumber }).returning();
+    return result[0];
+  }
+
+  async updateFeatureGroup(id: string, updates: Partial<ProjectFeatureGroup>): Promise<ProjectFeatureGroup> {
+    const result = await db.update(projectFeatureGroups).set({ ...updates, updated_at: new Date() }).where(eq(projectFeatureGroups.id, id)).returning();
+    if (!result[0]) throw new Error("Feature group not found");
+    return result[0];
+  }
+
+  async deleteFeatureGroup(id: string): Promise<void> {
+    await db.delete(projectFeatureGroups).where(eq(projectFeatureGroups.id, id));
+  }
+
+  // Feature operations
+  async getProjectFeatures(projectId: string): Promise<ProjectFeature[]> {
+    return await db.select().from(projectFeatures)
+      .where(eq(projectFeatures.project_id, projectId))
+      .orderBy(projectFeatures.created_at);
+  }
+
+  async getFeaturesByGroup(groupId: string): Promise<ProjectFeature[]> {
+    return await db.select().from(projectFeatures)
+      .where(eq(projectFeatures.feature_group_id, groupId))
+      .orderBy(projectFeatures.created_at);
+  }
+
+  async createFeature(feature: InsertProjectFeature): Promise<ProjectFeature> {
+    const existing = await db.select().from(projectFeatures).where(eq(projectFeatures.project_id, feature.project_id));
+    const trackingNumber = feature.tracking_number || `F-${String(existing.length + 1).padStart(3, "0")}`;
+    const result = await db.insert(projectFeatures).values({ ...feature, tracking_number: trackingNumber }).returning();
+    return result[0];
+  }
+
+  async updateFeature(id: string, updates: Partial<ProjectFeature>): Promise<ProjectFeature> {
+    const result = await db.update(projectFeatures).set({ ...updates, updated_at: new Date() }).where(eq(projectFeatures.id, id)).returning();
+    if (!result[0]) throw new Error("Feature not found");
+    return result[0];
+  }
+
+  async deleteFeature(id: string): Promise<void> {
+    await db.delete(projectFeatures).where(eq(projectFeatures.id, id));
   }
 }
 

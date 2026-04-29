@@ -55,6 +55,7 @@ import {
 import { apiClient } from "@/lib/api";
 import { text } from "stream/consumers";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
+import { addTaskGroupMember } from "@/integrations/supabase/taskGroups";
 
 type Props = {
   open: boolean;
@@ -194,8 +195,9 @@ const handleAddTeam = async () => {
       
       // Add only new users to the task group
       for (const userId of newUserIds) {
-                                                            addTaskGroupMember(group.id, userId, selectedRole);
+                      await   addTaskGroupMember(group.id, userId, selectedRole);
       }
+      
       
       // Get user tasks and assign them to the group
       // for (const userId of newUserIds) {

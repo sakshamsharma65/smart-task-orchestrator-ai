@@ -86,7 +86,7 @@ export default function AnalyticsReport() {
     let completed = 0;
     let overdue = 0;
     let inProgress = 0;
-    let todo = 0;
+    let newTasks = 0;
     let review = 0;
     
     const today = new Date();
@@ -102,9 +102,9 @@ export default function AnalyticsReport() {
       
       // KPIs
       if (task.status.toLowerCase() === "completed") completed++;
-      if (task.status.toLowerCase().includes("to do")) todo++;
+      if (task.status.toLowerCase().includes("new")) newTasks++;
       if (task.status.toLowerCase().includes("review")) review++;
-      else if (task.status.toLowerCase().includes("progress")) inProgress++;
+      if (task.status.toLowerCase().includes("in progress")) inProgress++;
 
       
       if (task.due_date && task.status.toLowerCase() !== "completed" && new Date(task.due_date) < today) {
@@ -130,7 +130,7 @@ export default function AnalyticsReport() {
       userStats,
       kpis: {
         total: filteredTasks.length,
-        todo,
+        new: newTasks,
         review,
         completed,
         overdue,
@@ -147,7 +147,7 @@ export default function AnalyticsReport() {
   if (isLoading || rolesLoading) {
     return (
       <div className="max-w-7xl mx-0 p-4">
-        <h1 className="text-2xl font-semibold mb-4">Analytics Report</h1>
+        <h1 className="text-2xl font-bold mb-4">Analytics Report</h1>
         <div>Loading...</div>
       </div>
     );
@@ -156,7 +156,7 @@ export default function AnalyticsReport() {
 
   return (
     <div className="max-w-7xl mx-0 p-4">
-      <h1 className="text-2xl font-semibold mb-4">Analytics Report</h1>
+      <h1 className="text-2xl font-bold mb-4">Analytics Report</h1>
       
       {/* Advanced Filters */}
       <div className="bg-white rounded-lg border shadow-sm p-4 mb-6">
@@ -225,17 +225,17 @@ export default function AnalyticsReport() {
           <p className="text-3xl font-bold text-blue-600">{analytics.kpis.total}</p>
         </div>
         <div className="bg-white p-6 rounded-lg border shadow-sm">
-          <h3 className="text-sm font-medium text-gray-500">To Do</h3>
-          <p className="text-3xl font-bold text-blue-600">{analytics.kpis.todo}</p>
+          <h3 className="text-sm font-medium text-gray-500">New</h3>
+          <p className="text-3xl font-bold text-blue-600">{analytics.kpis.new}</p>
         </div>
          <div className="bg-white p-6 rounded-lg border shadow-sm">
           <h3 className="text-sm font-medium text-gray-500">In Progress</h3>
           <p className="text-3xl font-bold text-yellow-600">{analytics.kpis.inProgress}</p>
         </div>
-         <div className="bg-white p-6 rounded-lg border shadow-sm">
+         {/* <div className="bg-white p-6 rounded-lg border shadow-sm">
           <h3 className="text-sm font-medium text-gray-500">Review</h3>
           <p className="text-3xl font-bold text-yellow-600">{analytics.kpis.review}</p>
-        </div>
+        </div> */}
         <div className="bg-white p-6 rounded-lg border shadow-sm">
           <h3 className="text-sm font-medium text-gray-500">Completed</h3>
           <p className="text-3xl font-bold text-green-600">{analytics.kpis.completed}</p>
@@ -281,7 +281,7 @@ export default function AnalyticsReport() {
         </div>
 
         {/* Top Users by Task Count */}
-        <div className="bg-white p-6 rounded-lg border shadow-sm">
+        <div className="bg-white p-4 rounded-lg border shadow-sm">
           <h3 className="text-lg font-semibold mb-4">Top Users by Task Count</h3>
          {analytics.userStats.length === 0 ? (
   <div className="flex items-center justify-center h-48 text-gray-500">
@@ -291,9 +291,9 @@ export default function AnalyticsReport() {
   <ResponsiveContainer width="100%" height={300}>
     <BarChart
       data={analytics.userStats}
-      margin={{ top: 20, right: 30, left: 20, bottom: 5 }}
+      margin={{ top: 20, right: 30, left: 10, bottom: 5 }}
     >
-      <XAxis dataKey="name" angle={-45} textAnchor="end" height={100} />
+      <XAxis dataKey="name" angle={-25} textAnchor="end" height={100}  />
       <YAxis />
       <Tooltip />
       <Bar dataKey="tasks" fill="#8884d8" />

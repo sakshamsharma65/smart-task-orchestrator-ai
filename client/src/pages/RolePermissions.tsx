@@ -292,7 +292,7 @@ export default function RolePermissions() {
     <div className="p-6 w-full">
       <div className="flex justify-between items-center mb-6">
         <div>
-          <h1 className="text-3xl font-bold flex items-center gap-2">
+          <h1 className="text-2xl font-bold flex items-center gap-2">
             <Shield className="h-8 w-8" />
             Roles & Privileges
           </h1>

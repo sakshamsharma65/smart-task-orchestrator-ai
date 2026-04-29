@@ -1,18 +1,20 @@
 import { toast } from '@/components/ui/sonner';
-import React, { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 
-// Simple auth context to replace Supabase auth
-// For now, we'll use a mock user until proper authentication is implemented
+// --- SECURITY CONFIGURATION ---
+const MAX_IDLE_TIME = 6 * 60 * 60 * 1000; // 6 Hours of inactivity
+const MAX_SESSION_AGE = 12 * 60 * 60 * 1000; // 12 Hours total session life
+
 interface User {
   id: string;
   email: string;
   user_name?: string;
+  session_started_at?: number; // Needed for expiration tracking
 }
 
 interface AuthContextType {
   user: User | null;
   login: (email: string, password: string) => Promise<void>;
-  /// NEW: 2FA State and Methods
   mfaPending: boolean;
   tempToken: string | null;
   verify2FA: (code: string) => Promise<void>;
@@ -22,6 +24,7 @@ interface AuthContextType {
   loading: boolean;
   checkSystemStatus: () => Promise<{ hasUsers: boolean }>;
   registerSuperAdmin: (name: string, email: string, password: string) => Promise<void>;
+  loginWithGoogle: (credential: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -29,58 +32,128 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [loading, setLoading] = useState(true);
-  // NEW: Internal 2FA State
   const [mfaPending, setMfaPending] = useState(false);
   const [tempToken, setTempToken] = useState<string | null>(null);
-const [limitReached, setLimitReached] = useState(false);
 
+  // 1. Unified Logout Function
+  const logout = useCallback(() => {
+    setUser(null);
+    localStorage.removeItem('user');
+    setMfaPending(false);
+    setTempToken(null);
+  }, []);
+
+  // 2. Helper to save user with security timestamp
+  const saveUserWithTimestamp = useCallback((userData: any) => {
+    const userWithTime = { ...userData, session_started_at: Date.now() };
+    setUser(userWithTime);
+    localStorage.setItem('user', JSON.stringify(userWithTime));
+  }, []);
+
+  // 3. Initial Session Validation (Merged duplicate effects)
   useEffect(() => {
-    // Check for stored session
     const storedUser = localStorage.getItem('user');
     if (storedUser) {
       try {
-        setUser(JSON.parse(storedUser));
+        const parsed: User = JSON.parse(storedUser);
+        const currentTime = Date.now();
+        const sessionAge = currentTime - (parsed.session_started_at || 0);
+
+        // Kill session if older than 12 hours total or if timestamp is missing
+        if (!parsed.session_started_at || sessionAge > MAX_SESSION_AGE) {
+          logout();
+          toast.error("Session expired. Please login again.");
+        } else {
+          setUser(parsed);
+        }
       } catch (e) {
-        localStorage.removeItem('user');
+        logout();
       }
     }
     setLoading(false);
-  }, []);
+  }, [logout]);
 
-const login = async (email: string, password: string) => {
-  setLoading(true);
-  try {
-    const response = await fetch('/api/auth/login', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, password }),
-    });
+  // 4. Idle Timeout Logic (6 Hour Inactivity Tracker)
+  useEffect(() => {
+    if (!user) return;
 
-    const data = await response.json(); // always read JSON
+    let idleTimer: NodeJS.Timeout;
 
-    if (!response.ok) {
-      // Forward backend error message to UI
-      throw {
-        status: response.status,
-        message: data.error || "Login failed",
-      };
-    }
-    // THE FORK: If 2FA is required, update internal state and return
+    const handleIdleLogout = () => {
+      logout();
+      toast("Session Timed Out", {
+        description: "You have been logged out after 6 hours of inactivity.",
+      });
+    };
+
+    const resetTimer = () => {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(handleIdleLogout, MAX_IDLE_TIME);
+    };
+
+    const events = ['mousedown', 'mousemove', 'keypress', 'scroll', 'touchstart'];
+    events.forEach(event => document.addEventListener(event, resetTimer));
+    
+    resetTimer(); // Initialize timer
+
+    return () => {
+      clearTimeout(idleTimer);
+      events.forEach(event => document.removeEventListener(event, resetTimer));
+    };
+  }, [user, logout]);
+
+  // --- AUTH ACTIONS ---
+
+  const login = async (email: string, password: string) => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw { status: response.status, message: data.error || "Login failed" };
+
       if (response.status === 202 && data.mfaRequired) {
         setTempToken(data.tempToken);
         setMfaPending(true);
-        return; // Exits without calling setUser, keeping user as null
+        return;
       }
 
-      // SUCCESS: No 2FA required
-      setUser(data);
-      localStorage.setItem('user', JSON.stringify(data));
+      saveUserWithTimestamp(data);
     } finally {
       setLoading(false);
     }
   };
 
-  // NEW: Verification Logic
+  const loginWithGoogle = async (credential: string) => {
+    setLoading(true);
+    try {
+      const response = await fetch('/api/auth/google-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ credential }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) throw { status: response.status, message: data.error || "Google login failed" };
+
+      if (response.status === 202 && data.mfaRequired) {
+        setTempToken(data.tempToken);
+        setMfaPending(true);
+        return;
+      }
+
+      saveUserWithTimestamp(data);
+    } catch (error: any) {
+      toast.error(error.message || "Google Auth Error");
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const verify2FA = async (code: string) => {
     setLoading(true);
     try {
@@ -91,33 +164,21 @@ const login = async (email: string, password: string) => {
       });
 
       const data = await response.json();
-    if (response.status === 429) {
-    
-  setLimitReached(true);
-
-  toast({
-    title: "Limit reached",
-    description: "Too many attempts. Please login again after 15 minutes.",
-    variant: "destructive",
-  });
-
-  return;
-}
-      if (!response.ok) {
-        throw { status: response.status, message: data.error || "Verification failed" };
+      if (response.status === 429) {
+        toast.error("Too many attempts. Please wait 15 minutes.");
+        return;
       }
+      if (!response.ok) throw { status: response.status, message: data.error || "Verification failed" };
 
-      // Success! Clear MFA state and set user
       setMfaPending(false);
       setTempToken(null);
+      saveUserWithTimestamp(data);
+    } finally {
+      setLoading(false);
+    }
+  };
 
-    setUser(data);
-    localStorage.setItem('user', JSON.stringify(data));
-  } finally {
-    setLoading(false);
-  }
-};
-const resend2FA = async () => {
+  const resend2FA = async () => {
     if (!tempToken) return;
     const response = await fetch('/api/auth/resend-2fa', {
       method: 'POST',
@@ -126,24 +187,13 @@ const resend2FA = async () => {
     });
 
     const data = await response.json();
-    if (!response.ok) {
-      throw { status: response.status, message: data.error || "Failed to resend" };
-    }
-    // Update with the new token returned by the resend route
+    if (!response.ok) throw { status: response.status, message: data.error || "Failed to resend" };
     setTempToken(data.tempToken);
-  };
-
-
-  const logout = () => {
-    setUser(null);
-    localStorage.removeItem('user');
   };
 
   const checkSystemStatus = async () => {
     const response = await fetch('/api/auth/system-status');
-    if (!response.ok) {
-      throw new Error('Failed to check system status');
-    }
+    if (!response.ok) throw new Error('Failed to check system status');
     return response.json();
   };
 
@@ -156,13 +206,11 @@ const resend2FA = async () => {
         body: JSON.stringify({ name, email, password }),
       });
       
+      const data = await response.json();
       if (response.ok) {
-        const user = await response.json();
-        setUser(user);
-        localStorage.setItem('user', JSON.stringify(user));
+        saveUserWithTimestamp(data);
       } else {
-        const error = await response.json();
-        throw new Error(error.error || 'Registration failed');
+        throw new Error(data.error || 'Registration failed');
       }
     } finally {
       setLoading(false);
@@ -170,7 +218,11 @@ const resend2FA = async () => {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, logout, loading, checkSystemStatus, registerSuperAdmin,mfaPending, tempToken, verify2FA, resend2FA, setMfaPending }}>
+    <AuthContext.Provider value={{ 
+      user, login, logout, loading, checkSystemStatus, 
+      registerSuperAdmin, mfaPending, tempToken, verify2FA, 
+      resend2FA, setMfaPending, loginWithGoogle 
+    }}>
       {children}
     </AuthContext.Provider>
   );
@@ -178,25 +230,17 @@ const resend2FA = async () => {
 
 export function useAuth() {
   const context = useContext(AuthContext);
-  if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
+  if (context === undefined) throw new Error('useAuth must be used within an AuthProvider');
   return context;
 }
 
-// Legacy Supabase auth hooks for compatibility
+// Legacy Supabase hooks...
 export function useSupabaseSession() {
   const { user, loading } = useAuth();
-  return {
-    session: user ? { user } : null,
-    loading,
-  };
+  return { session: user ? { user } : null, loading };
 }
 
 export function useSupabaseUser() {
   const { user, loading } = useAuth();
-  return {
-    user,
-    loading,
-  };
+  return { user, loading };
 }

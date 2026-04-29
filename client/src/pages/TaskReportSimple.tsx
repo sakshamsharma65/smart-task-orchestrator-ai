@@ -203,7 +203,7 @@ export default function TaskReport() {
   if (isLoading || rolesLoading || statusesLoading) {
     return (
       <div className="max-w-6xl mx-0 p-4">
-        <h1 className="text-2xl font-semibold mb-4">Task Report</h1>
+        <h1 className="text-2xl font-bold mb-4">Task Report</h1>
         <div>Loading...</div>
       </div>
     );
@@ -211,7 +211,7 @@ export default function TaskReport() {
 
   return (
     <div className="w-full mx-0 p-4">
-      <h1 className="text-2xl font-semibold mb-4">Task Report</h1>
+      <h1 className="text-2xl font-bold mb-4">Task Report</h1>
       
       {/* Advanced Filters */}
       <TaskReportAdvancedFilters

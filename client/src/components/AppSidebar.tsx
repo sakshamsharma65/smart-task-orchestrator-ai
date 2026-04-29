@@ -1,8 +1,9 @@
 import React, { useState } from "react";
 import { useLocation } from "react-router-dom";
 import { useCurrentUserRoleAndTeams } from "@/hooks/useCurrentUserRoleAndTeams";
-import { ChevronDown, ChevronRight, LayoutDashboard, ClipboardList, Settings, BarChart3, ShieldCheck } from "lucide-react";
-
+import { ChevronDown, ChevronRight, LayoutDashboard, ClipboardList, Settings, BarChart3, ShieldCheck, FolderKanban } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { apiClient } from "@/lib/api";
 // Sub-menu components
 import DashboardMenu from "./AppSidebarParts/DashboardMenu";
 import TaskManagementMenu from "./AppSidebarParts/TaskManagementMenu";
@@ -10,6 +11,7 @@ import ManagementMenu from "./AppSidebarParts/ManagementMenu";
 import ReportsMenu from "./AppSidebarParts/ReportsMenu";
 import WarningNoTeams from "./AppSidebarParts/WarningNoTeams";
 import GovernanceMenu from "./AppSidebarParts/GovernanceMenu";
+import ProjectManagementMenu from "./AppSidebarParts/ProjectManagementMenu";
 
 // 1. Helper Component (Isse bahar rakha hai taaki performance achi rahe)
 const CollapsibleSection = ({ title, children, icon: Icon }) => {
@@ -47,9 +49,14 @@ export default function AppSidebar() {
   const location = useLocation();
   const { roles, teams, loading } = useCurrentUserRoleAndTeams();
 
+  const { data: settings } = useQuery({
+    queryKey: ["/api/organization-settings"],
+    queryFn: () => apiClient.get("/organization-settings"),
+  });
   const isAdmin = roles.includes("admin");
   const isManager = roles.includes("manager") || roles.includes("team_manager");
   const isUserOnly = !isAdmin && !isManager && roles.includes("user");
+  const projectManagementEnabled = settings?.project_management_enabled ?? false;
 
   const isOnTeams = location.pathname.startsWith("/teams");
   const hasTeams = teams.length > 0;
@@ -77,7 +84,14 @@ export default function AppSidebar() {
           <CollapsibleSection title="Management" icon={Settings}>
             <ManagementMenu isAdmin={isAdmin} isManager={isManager} collapsed={false} />
           </CollapsibleSection>
-
+{projectManagementEnabled && (
+  <CollapsibleSection
+    title="Project Management"
+    icon={FolderKanban}
+  >
+    <ProjectManagementMenu collapsed={false} />
+  </CollapsibleSection>
+)}
           <WarningNoTeams isOnTeams={isOnTeams} loading={loading} isUserOnly={isUserOnly} hasTeams={hasTeams} />
 
           <CollapsibleSection title="Reports" icon={BarChart3}>

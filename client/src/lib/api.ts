@@ -342,6 +342,13 @@ private async request(endpoint: string, options: RequestInit = {}) {
     });
   }
 
+  async put(endpoint: string, data?: any) {
+    return this.request(endpoint, {
+      method: 'PUT',
+      body: data ? JSON.stringify(data) : undefined,
+    });
+  }
+  
   async updateRolePermission(id: string, updates: any) {
     return this.request(`/role-permissions/${id}`, {
       method: 'PATCH',

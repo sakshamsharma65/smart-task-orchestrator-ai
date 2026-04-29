@@ -147,12 +147,12 @@ const GlobalTodoSettings = () => {
                     </div>
 
                     <div className="flex items-center gap-4">
-                      <Switch
+                      {/* <Switch
                         id={`todo-${todo.id}`}
                         checked={todo.is_active}
                         onCheckedChange={(checked) => toggleMutation.mutate({ id: todo.id, is_active: checked })}
                         className="data-[state=checked]:bg-primary"
-                      />
+                      /> */}
                       <Button 
                         variant="ghost" 
                         size="icon" 

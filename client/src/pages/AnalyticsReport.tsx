@@ -213,7 +213,7 @@ export default function AnalyticsReport() {
 
   return (
     <div className="max-w-6xl mx-auto p-4 w-full">
-      <h1 className="text-2xl font-semibold mb-4 text-left">Analytics Report</h1>
+      <h1 className="text-2xl font-bold mb-4 text-left">Analytics Report</h1>
       {/* Date Range Filter */}
       <div className="flex flex-col md:flex-row gap-2 items-center justify-between mb-4">
         <div className="flex gap-2 items-center">

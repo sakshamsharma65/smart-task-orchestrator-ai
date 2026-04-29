@@ -9,7 +9,8 @@ import { PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer } from "recha
 import { Users, Building2, ClipboardList, CheckCircle, Calendar, Clock, AlertCircle } from "lucide-react";
 import ActiveTimersBar from "@/components/ActiveTimersBar";
 import { useNavigate } from "react-router-dom";
-
+import { startOfMonth,endOfMonth } from "date-fns";
+import { filterTasksForTasksPageBase } from "@/integrations/supabase/tasks";
 const COLORS = ['#0088FE', '#00C49F', '#FFBB28', '#FF8042', '#8884D8'];
 
 function StatCard({ label, value, icon: Icon, onClick, bgColor, borderColor }: { 
@@ -62,12 +63,34 @@ const { data: tasks = [], isLoading: tasksLoading } = useQuery({
     const tomorrow = new Date(today);
     tomorrow.setDate(tomorrow.getDate() + 1);
 
-    const totalTasks = tasks.length;
-    const completedTasks = tasks.filter(task => task.status.toLowerCase() === "completed").length;
-    const newTasks = tasks.filter(task => task.status.toLowerCase() === "to do").length;   
+const totalTasks = filterTasksForTasksPageBase(tasks).length;
+const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+const endOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+endOfMonth.setHours(23, 59, 59, 999);
+
+const completedTasks = tasks.filter(task => {
+  if (task.status?.toLowerCase() !== "completed") return false;
+
+  const startDate = task.start_date ? new Date(task.start_date) : null;
+  const dueDate = task.due_date ? new Date(task.due_date) : null;
+
+  const isStartInMonth =
+    startDate &&
+    startDate >= startOfMonth &&
+    startDate <= endOfMonth;
+
+  const isDueInMonth =
+    dueDate &&
+    dueDate >= startOfMonth &&
+    dueDate <= endOfMonth;
+
+  return isStartInMonth || isDueInMonth;
+}).length;
+
+    const newTasks = tasks.filter(task => task.status.toLowerCase() === "new").length;   
     const overdueTasks = tasks.filter(task => 
       task.due_date && 
-      new Date(task.due_date) < new Date() && 
+      new Date(task.due_date) < today && 
       task.status.toLowerCase() !== "completed"
     ).length;
 
@@ -178,7 +201,7 @@ React.useEffect(() => {
 
   return (
     <div className="p-6">
-      <h1 className="text-2xl font-semibold mb-6">Dashboard</h1>
+      <h1 className="text-2xl font-bold">Dashboard</h1>
       {showTimerPopup && (
   <div className="fixed top-5 right-5 z-50 w-[380px] bg-white border border-orange-300 shadow-lg rounded-lg p-4 animate-in slide-in-from-top">
     
@@ -218,7 +241,7 @@ React.useEffect(() => {
       <ActiveTimersBar onTaskUpdated={handleTaskUpdated} />
 
       {/* KPI Cards */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8">
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-8 mt-5">
         <StatCard 
           label="Total Active Users" 
           onClick={() => navigate("/users")}

@@ -233,7 +233,7 @@ export default function TaskOverdueReport() {
 
   return (
     <div className="max-w-5xl mx-0 p-4">
-      <h1 className="text-2xl font-semibold mb-4">Task Overdue Report</h1>
+      <h1 className="text-2xl font-bold mb-4">Task Overdue Report</h1>
       <div className="flex flex-col md:flex-row gap-2 justify-between items-start mb-2">
         <div className="bg-muted rounded p-4 mb-4 md:mb-0 w-full md:w-auto">
           <TaskReportAdvancedFilters

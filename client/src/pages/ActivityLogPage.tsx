@@ -124,6 +124,16 @@ function renderSummary(log: any) {
       return <>Role {s.role_removed} was removed by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
     }
   }
+  if(log.source_table === "projects"){
+    switch(log.event_type){
+      case "PROJECT_CREATED":
+        return <>Project "{s.name}" was created by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
+    
+    case "PROJECT_MEMBER_ADDED":
+      return <>User {s.added_user_name} was added to project "{s.project_name}" as {s.role_assigned} by {usersMap?.[log.performed_by] || "Unknown User"}.</>;}
+    
+  }
+
 
   // ===== TASKS =====
   if (log.source_table === "tasks") {
@@ -140,8 +150,8 @@ function renderSummary(log: any) {
       case "ASSIGNMENT_CHANGED":
         return <>Task “{s.title || "Unknown task"}” was reassigned from {s.old_value || "Unassigned"} to {s.new_value || "Unassigned"} by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
 
-      default:
-        return <>Task “{s.title || "Unknown task"}” had action {log.event_type} performed by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
+      // default:
+      //   return <>Task “{s.title || "Unknown task"}” had action {log.event_type} performed by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
     }
   }
 
@@ -180,7 +190,7 @@ function renderSummary(log: any) {
   return (
     <Card className="p-4">
       <CardHeader>
-        <CardTitle>Activity Log</CardTitle>
+        <CardTitle className="text-xl font-bold">Activity Log</CardTitle>
       </CardHeader>
 
       <CardContent>

@@ -61,7 +61,6 @@ const TasksPage: React.FC = () => {
   const { users, teams } = useUsersAndTeams();
   const { roles, loading: rolesLoading } = useCurrentUserRoleAndTeams();
   const { statuses, loading: statusesLoading } = useTaskStatuses();
-
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
   
@@ -88,13 +87,14 @@ const TasksPage: React.FC = () => {
     const overdueParam = params.get("overdue");
     if (statusParam && statusParam !== statusFilter) {
       setStatusFilter(statusParam);
+       setShowFilters(true);
     }
     setOverdueFilter(overdueParam === "true");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [location.search]);
   const [userFilter, setUserFilter] = useState("all");
   const [teamFilter, setTeamFilter] = useState("all");
-  const [dateRange, setDateRange] = useState(defaultDateRange());
+const [dateRange, setDateRange] = useState({ from: null, to: null });
   const [preset, setPreset] = useState<string>("This Month");
     const {canCreateTask} = useRolePermissions();
   
@@ -119,7 +119,7 @@ const TasksPage: React.FC = () => {
 
   // Use React Query for tasks with stable key
   const { data: tasksResult, isLoading: loading, refetch: handleSearch } = useQuery({
-    queryKey: ["/api/tasks", "paginated", page, pageSize, priorityFilter, statusFilter, userFilter, teamFilter, dateRange, user?.id],
+    queryKey: ["/api/tasks", "paginated", page, pageSize, priorityFilter, statusFilter, userFilter, teamFilter, dateRange, user?.id,overdueFilter],
     queryFn: async () => {
       if (!user) return { tasks: [], total: 0, showTooManyWarning: false };
       
@@ -131,6 +131,7 @@ const TasksPage: React.FC = () => {
         priority: priorityFilter !== "all" ? parseInt(priorityFilter) : undefined,
         fromDate: dateRange.from ? dateRange.from.toISOString().split('T')[0] : undefined,
         toDate: dateRange.to ? dateRange.to.toISOString().split('T')[0] : undefined,
+        overdue: overdueFilter, // boolean
         offset: (page - 1) * pageSize,
         limit: pageSize,
       };
@@ -150,12 +151,24 @@ const TasksPage: React.FC = () => {
   const tasks = tasksResult?.tasks || [];
   const filteredTasks = useMemo(() => {
     let filtered = tasks;
-    if (overdueFilter) {
-      const now = new Date();
-      filtered = filtered.filter(
-        (task) => task.due_date && new Date(task.due_date) < now && task.status?.toLowerCase() !== "completed"
-      );
+ 
+
+  const now = new Date();
+  const startOfCurrentMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+
+  filtered = filtered.filter((task) => {
+    if (!task.due_date) return true;
+
+    const dueDate = new Date(task.due_date);
+
+    // 👉 If task is from previous month
+    if (dueDate < startOfCurrentMonth) {
+      // show only if NOT completed
+      return task.status?.toLowerCase() !== "completed";
     }
+
+    // 👉 Current month → show all
+    return true;  });
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       filtered = filtered.filter((task) =>

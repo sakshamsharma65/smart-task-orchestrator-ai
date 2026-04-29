@@ -139,7 +139,7 @@ export default function TaskOverdueReport() {
   if (isLoading || rolesLoading) {
     return (
       <div className="w-full mx-0 p-4">
-        <h1 className="text-2xl font-semibold mb-4">Task Overdue Report</h1>
+        <h1 className="text-2xl font-bold mb-4">Task Overdue Report</h1>
         <div>Loading...</div>
       </div>
     );
@@ -147,7 +147,7 @@ export default function TaskOverdueReport() {
 
   return (
     <div className="w-full mx-0 p-4">
-      <h1 className="text-2xl font-semibold mb-4">Task Overdue Report</h1>
+      <h1 className="text-2xl font-bold mb-4">Task Overdue Report</h1>
       
       {/* Advanced Filters */}
       <div className="bg-white rounded-lg border shadow-sm p-4 mb-6">

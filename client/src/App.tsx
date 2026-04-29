@@ -33,11 +33,16 @@ import VerifyOtp from "@/pages/VerifyOtp";
 import ResetPassword from "@/pages/ResetPassword";
 import ForgotPasswordFlow from "@/pages/ForgotPasswordFlow";
 import ActivityLogPage from "@/pages/ActivityLogPage";
-
-
+import ProjectReports from "@/pages/ProjectReports";
+import Projects from "@/pages/Projects";
+import ProjectDetail from "@/pages/ProjectDetail";
+import CreateProject from "@/pages/CreateProject";
+import { GoogleOAuthProvider } from '@react-oauth/google';
+const GOOGLE_CLIENT_ID = "145033670665-8jufo1s5bfujldjm9uik95l5kgdkrqli.apps.googleusercontent.com";
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <TooltipProvider>
+      <GoogleOAuthProvider clientId={GOOGLE_CLIENT_ID}>
       <Toaster />
       <Sonner />
       <AuthProvider>
@@ -108,8 +113,41 @@ const App = () => (
                 </AdminLayout>
               }
             />
+                 <Route
+              path="/projects/reports"
+              element={
+                <AdminLayout>
+                  <ProjectReports />
+                </AdminLayout>
+              }
+            />
+               {/* Projects route */}
             <Route
-              path="/my-tasks"
+              path="/projects"
+              element={
+                <AdminLayout>
+                  <Projects />
+                </AdminLayout>
+              }
+            />
+            <Route
+              path="/projects/:id"
+              element={
+                <AdminLayout>
+                  <ProjectDetail />
+                </AdminLayout>
+              }
+            />
+     <Route
+              path="/projects/new"
+              element={
+                <AdminLayout>
+                  <CreateProject />
+                </AdminLayout>
+              }
+            />
+            <Route
+          path="/my-tasks"
               element={
                 <AdminLayout>
                   <MyTasksPage />
@@ -227,7 +265,7 @@ const App = () => (
         </BrowserRouter>
       </RoleProvider>
       </AuthProvider>
-    </TooltipProvider>
+    </GoogleOAuthProvider></TooltipProvider>
   </QueryClientProvider>
 );
 

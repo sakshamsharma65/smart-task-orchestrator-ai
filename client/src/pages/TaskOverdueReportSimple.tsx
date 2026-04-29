@@ -92,7 +92,7 @@ export default function TaskOverdueReport() {
 
   return (
     <div className="w-full mx-0 p-2">
-      <h1 className="text-2xl font-semibold mb-4">Task Overdue Report</h1>
+      <h1 className="text-2xl font-bold mb-4">Task Overdue Report</h1>
       <div className="bg-white rounded-lg border shadow-sm">
         <div className="p-4">
           <p className="text-sm text-gray-600 mb-4">

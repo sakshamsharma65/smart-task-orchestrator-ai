@@ -4,7 +4,7 @@ import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import passwordResetRouter from "./passwordResetRoutes";
 import { licenseManager, APP_ID } from "./license-manager";
-import { insertUserSchema, insertTaskSchema, insertTeamSchema, insertTaskGroupSchema, insertRoleSchema, insertOfficeLocationSchema, userRoles } from "@shared/schema";
+import { insertUserSchema, insertTaskSchema, insertTeamSchema, insertTaskGroupSchema, insertRoleSchema, insertOfficeLocationSchema, insertProjectMilestoneSchema, insertProjectSchema, userRoles } from "@shared/schema";
 import { db } from "./db";
 import bcrypt from "bcrypt";
 import { toast } from "@/hooks/use-toast";
@@ -23,6 +23,8 @@ import { v4 as uuidv4 } from "uuid";
 import { taskAttachments } from "@shared/schema";
 
 import fs from "fs";
+import { OAuth2Client } from "google-auth-library";
+const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Multer configuration for file uploads
 const storageConfig = multer.diskStorage({
@@ -180,6 +182,50 @@ async function getUserVisibilityScope(userId: string): Promise<{ scope: string; 
     return { scope: "user", roleNames: [] };
   }
 }
+
+function mergeProjectsById(projectLists: any[][]) {
+  const seen = new Map<string, any>();
+
+  for (const projectList of projectLists) {
+    for (const project of projectList) {
+      if (!seen.has(project.id)) {
+        seen.set(project.id, project);
+      }
+    }
+  }
+
+  return Array.from(seen.values());
+}
+
+async function getProjectAccessContext(userId: string, projectId: string) {
+  const { scope, roleNames } = await getUserVisibilityScope(userId);
+  const isAdmin = scope === "organization";
+  const isDirectMember = await storage.isUserProjectMember(projectId, userId);
+  const isManagerRole = roleNames.includes("manager") || roleNames.includes("team_manager");
+
+  let isVisibleViaManagedUser = false;
+
+  if (!isAdmin && isManagerRole && !isDirectMember) {
+    const managedProjects = await storage.getProjectsByManagedUsers(userId);
+    isVisibleViaManagedUser = managedProjects.some((project) => project.id === projectId);
+  }
+
+  const canViewProject = isAdmin || isDirectMember || isVisibleViaManagedUser;
+  const canManageProject = isAdmin || isDirectMember;
+  const canAddTasks = canViewProject;
+
+  return {
+    scope,
+    roleNames,
+    isAdmin,
+    isManagerRole,
+    isDirectMember,
+    isVisibleViaManagedUser,
+    canViewProject,
+    canManageProject,
+    canAddTasks,
+  };
+}
 export async function registerRoutes(app: Express): Promise<Server> {
   // Authentication routes
   // Check if system has any users (for initial setup)
@@ -189,6 +235,64 @@ const uploadsDir = path.join(process.cwd(), "uploads");
     fs.mkdirSync(uploadsDir, { recursive: true });
     console.log("📁 'uploads' directory created.");
   }
+  app.post("/api/auth/google-login", async (req, res) => {
+  try {
+    const { credential } = req.body;
+
+    // 1. Verify Google Credential
+    const ticket = await googleClient.verifyIdToken({
+      idToken: credential,
+      audience: process.env.GOOGLE_CLIENT_ID,
+    });
+    
+    const payload = ticket.getPayload();
+    if (!payload || !payload.email) {
+      return res.status(400).json({ error: "Invalid Google token" });
+    }
+
+    // 2. Find user in your Database
+    const user = await storage.getUserByEmail(payload.email);
+
+    if (!user) {
+      // Since you don't allow signups, we reject unknown emails
+      return res.status(403).json({ error: "Account not found. Please contact an Admin." });
+    }
+
+    if (!user.is_active) {
+      return res.status(403).json({ error: "Your account is deactivated." });
+    }
+
+    // 3. Trigger 2FA/MFA if enabled (Matching your existing logic)
+    if (user.is_2fa_enabled) {
+      const otpCode = Math.floor(100000 + Math.random() * 900000).toString();
+      const otpHash = await bcrypt.hash(otpCode, 10);
+      const tempToken = uuidv4();
+      const expiresAt = new Date(Date.now() + 5 * 60 * 1000);
+
+      await storage.invalidateOldLoginOtps(user.id);
+      await storage.createLoginOtp(user.id, tempToken, otpHash, expiresAt);
+
+      const emailSettings = await storage.getEmailSettings();
+      if (emailSettings?.isActive) {
+        const emailService = new EmailService(emailSettings);
+        await emailService.sendLoginOTP(user.email, otpCode, user.user_name || "User");
+      }
+
+      return res.status(202).json({ 
+        mfaRequired: true, 
+        tempToken: tempToken 
+      });
+    }
+
+    // 4. Final Success
+    const { password_hash, ...userInfo } = user;
+    res.json(userInfo);
+
+  } catch (error) {
+    console.error("Google login backend error:", error);
+    res.status(500).json({ error: "Internal server error during Google login" });
+  }
+});
   app.use('/uploads', express.static('uploads'));
   app.get("/api/auth/system-status", async (req, res) => {
     try {
@@ -575,7 +679,7 @@ app.patch("/api/users/:id/2fa", requireAdmin, async (req, res) => {
 app.put("/api/users/:id", async (req, res) => {
   const userId = req.params.id;
   const actingUserId = req.user?.id; // whoever is logged in
-
+  
   try {
     // 1️⃣ Fetch old user details (before update)
     const [oldUser] = await db
@@ -1000,6 +1104,13 @@ app.post("/api/tasks", requireAnyAuthenticated, upload.array('attachments'), asy
         todos_enabled: req.body.todos_enabled === 'true'
       };
 
+      if (rawBody.project_id) {
+        const access = await getProjectAccessContext(userId, rawBody.project_id);
+        if (!access.canAddTasks) {
+          return res.status(403).json({ error: "You cannot add tasks to this project" });
+        }
+      }
+
       // 1. Create the Task
       const taskData = insertTaskSchema.parse(rawBody);
       const task = await storage.createTask(taskData);
@@ -1042,7 +1153,7 @@ if (settings && task.assigned_to) {
       // 3. Log Activity
       await storage.logActivity({
         source_table: "tasks",
-        event_type: "created",
+        event_type: "CREATED_TASK",
         record_id: task.id,
         summary: { 
           title: task.title, 
@@ -1373,7 +1484,6 @@ app.delete("/api/users/:id", requireAdmin, async (req, res) => {
 
 
  app.post("/api/tasks", requireAnyAuthenticated, async (req, res) => {
-  debugger
   try {
     const userId = req.headers["x-user-id"] as string;
 
@@ -1441,6 +1551,18 @@ await storage.logActivity({
     try {
       console.log("[DEBUG] Task update request body:", JSON.stringify(req.body, null, 2));
       const oldTask = await storage.getTask(req.params.id);
+            // Block completing a project-linked task that has no milestone
+      if (req.body.status && req.body.status.toLowerCase().includes("complet") && oldTask) {
+        const taskProjectId = req.body.project_id ?? oldTask.project_id;
+        const taskMilestoneId = req.body.milestone_id ?? oldTask.milestone_id;
+        if (taskProjectId && !taskMilestoneId) {
+          return res.status(400).json({
+            error: "Milestone required",
+            details: "A project-linked task cannot be completed or closed without a milestone attached. Please assign a milestone first.",
+          });
+        }
+      }
+
       const actingUserId = req.headers['x-user-id'] as string;
       const taskId = req.params.id;
       if (req.body.status.toLowerCase() === "completed") {
@@ -1543,7 +1665,7 @@ const assignedUser = task.assigned_to
     created_at: task.created_at,
   },
   performed_by: userId,
-});
+}); 
 
  if (emailSettings && assignedUser?.email) {
     await new EmailService(emailSettings).sendNotification({
@@ -1741,18 +1863,16 @@ app.delete("/api/tasks/:id", requireAnyAuthenticated, async (req, res) => {
     await storage.deleteTask(taskId);
     await storage.logActivity({
   source_table: "tasks",
-  event_type: "DELETE",
+  event_type: "DELETED_TASK",
   record_id: taskId,
   summary: {
     title: task.title,
-     
-        action_type: "deleted",
+     action_type: "deleted",
        
         // new_value: `Task "${task.title}" was deleted`,
         acted_by: user?.email,
 
-
-  },
+ },
   performed_by: userId
 });
 
@@ -1875,13 +1995,13 @@ app.patch("/api/task-todos/:id/toggle", requireAnyAuthenticated, async (req, res
     const todo = await storage.updateTaskTodoStatus(req.params.id, is_completed);
     
     // Optional: Log activity on the parent task
-    await storage.logTaskActivity({
-      task_id: todo.task_id,
-      action_type: "todo_toggled",
-      old_value: (!is_completed).toString(),
-      new_value: is_completed.toString(),
-      acted_by: req.headers['x-user-id'] as string,
-    });
+    // await storage.logTaskActivity({
+    //   task_id: todo.task_id,
+    //   action_type: "todo_toggled",
+    //   old_value: (!is_completed).toString(),
+    //   new_value: is_completed.toString(),
+    //   acted_by: req.headers['x-user-id'] as string,
+    // });
 
     res.json(todo);
   } catch (error) {
@@ -3109,6 +3229,685 @@ app.post("/api/email-settings/test", async (req, res) => {
     } catch (error) {
       console.error("Failed to get current license:", error);
       res.status(500).json({ error: "Failed to get current license" });
+    }
+  });
+app.get("/api/projects", requireAnyAuthenticated, async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    const { scope, roleNames } = await getUserVisibilityScope(userId);
+
+    let projects;
+
+    if (scope === "organization") {
+      // Admins see everything
+      projects = await storage.getAllProjects();
+    } else if (roleNames.includes("manager") || roleNames.includes("team_manager")) {
+      const directMembershipProjects = await storage.getProjectsByUserMembership(userId);
+      const managedUserProjects = await storage.getProjectsByManagedUsers(userId);
+      projects = mergeProjectsById([directMembershipProjects, managedUserProjects]);
+    } else {
+      // Users only see projects where they are added as members
+      projects = await storage.getProjectsByUserMembership(userId);
+    }
+
+    const isManagerRole = roleNames.includes("manager") || roleNames.includes("team_manager");
+    const directMembershipProjects = scope === "organization"
+      ? []
+      : await storage.getProjectsByUserMembership(userId);
+    const directMembershipProjectIds = new Set(directMembershipProjects.map((project) => project.id));
+
+    res.json(
+      projects.map((project: any) => ({
+        ...project,
+        _access: {
+          canManageProject: scope === "organization" || directMembershipProjectIds.has(project.id),
+          canAddTasks: scope === "organization" || directMembershipProjectIds.has(project.id) || isManagerRole || roleNames.includes("user"),
+          isDirectMember: directMembershipProjectIds.has(project.id),
+        },
+      }))
+    );
+  } catch (error) {
+    console.error('Error fetching projects with visibility:', error);
+    res.status(500).json({ error: "Failed to fetch projects" });
+  }
+});
+
+app.get("/api/projects/:id", requireAnyAuthenticated, async (req, res) => {
+  try {
+    const userId = req.headers['x-user-id'] as string;
+    const projectId = req.params.id;
+
+    const project = await storage.getProject(projectId);
+    if (!project) return res.status(404).json({ error: "Project not found" });
+
+    const access = await getProjectAccessContext(userId, projectId);
+    if (!access.canViewProject) {
+      return res.status(403).json({ error: "Access denied. You cannot view this project." });
+    }
+
+    res.json({
+      ...project,
+      _access: {
+        canManageProject: access.canManageProject,
+        canAddTasks: access.canAddTasks,
+        isDirectMember: access.isDirectMember,
+        isVisibleViaManagedUser: access.isVisibleViaManagedUser,
+      },
+    });
+  } catch (error) {
+    res.status(500).json({ error: "Failed to fetch project" });
+  }
+});
+
+  app.post("/api/projects", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const projectData = insertProjectSchema.parse({
+        ...req.body,
+        created_by: userId,
+      });
+      const project = await storage.createProject(projectData);
+      await storage.logActivity({
+        source_table: "projects",
+        event_type: "PROJECT_CREATED",
+        id: project.id,
+        user_id: userId,
+      summary: {name: project.name},
+      performed_by: userId,
+      });
+      res.status(201).json(project);
+
+    } catch (error: any) {
+      console.error("[ERROR] Failed to create project:", error?.message, error?.stack);
+      res.status(400).json({ error: "Failed to create project", details: error?.message });
+    }
+  });
+
+  app.put("/api/projects/:id", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const access = await getProjectAccessContext(userId, req.params.id);
+      if (!access.canManageProject) {
+        return res.status(403).json({ error: "Only direct project members or admins can update this project" });
+      }
+      const existing = await storage.getProject(req.params.id);
+      if (!existing) return res.status(404).json({ error: "Project not found" });
+      if (existing.is_confirmed && req.body.template_id && req.body.template_id !== existing.template_id) {
+        return res.status(400).json({ error: "Cannot change template after project is confirmed" });
+      }
+      const projectData = insertProjectSchema.partial().parse(req.body);
+      const project = await storage.updateProject(req.params.id, projectData);
+      res.json(project);
+    } catch (error) {
+      res.status(400).json({ error: "Failed to update project" , details: error instanceof Error ? error.message : "Unknown error" });
+    }
+  });
+
+  app.post("/api/projects/:id/confirm", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const access = await getProjectAccessContext(userId, req.params.id);
+      if (!access.canManageProject) {
+        return res.status(403).json({ error: "Only direct project members or admins can confirm this project" });
+      }
+      const project = await storage.confirmProject(req.params.id);
+
+      res.json(project);
+    } catch (error) {
+      res.status(400).json({ error: "Failed to confirm project" });
+    }
+  });
+
+  app.delete("/api/projects/:id", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const access = await getProjectAccessContext(userId, req.params.id);
+      if (!access.canManageProject) {
+        return res.status(403).json({ error: "Only direct project members or admins can delete this project" });
+      }
+      await storage.deleteProject(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete project" });
+    }
+  });
+
+  // ========== PROJECT MEMBERS ==========
+  app.get("/api/projects/:id/members", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const access = await getProjectAccessContext(userId, req.params.id);
+      if (!access.canViewProject) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const members = await storage.getProjectMembersWithUsers(req.params.id);
+      res.json(members);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch members" });
+    }
+  });
+
+  app.get("/api/projects/:id/members/history", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const access = await getProjectAccessContext(userId, req.params.id);
+      if (!access.canManageProject) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const history = await storage.getProjectMemberHistory(req.params.id);
+      res.json(history);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch member history" });
+    }
+  });
+
+  app.post("/api/projects/:id/members", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const access = await getProjectAccessContext(userId, req.params.id);
+      if (!access.canManageProject) {
+        return res.status(403).json({ error: "Only direct project members or admins can manage project members" });
+      }
+      const projectId = req.params.id;
+      const project = await storage.getProject(projectId);
+      const addedUser = await storage.getUser(req.body.user_id);
+      const member = await storage.addProjectMember({
+        ...req.body,
+        project_id: projectId,
+        added_by: userId,
+      });
+      await storage.logActivity({
+        source_table: "projects",
+        event_type: "PROJECT_MEMBER_ADDED",
+        record_id: projectId,
+  
+        summary: {
+          project_name: project?.name,
+          added_user_name: addedUser?.user_name || addedUser?.email,
+          role_assigned: req.body.project_role,
+          member_type: req.body.member_type,
+        },
+           performed_by: userId,
+      });
+      res.status(201).json(member);
+    } catch (error) {
+      res.status(400).json({ error: "Failed to add member" });
+    }
+  });
+
+  app.put("/api/projects/:projectId/members/:memberId", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const access = await getProjectAccessContext(userId, req.params.projectId);
+      if (!access.canManageProject) {
+        return res.status(403).json({ error: "Only direct project members or admins can manage project members" });
+      }
+      const member = await storage.updateProjectMember(req.params.memberId, req.body);
+      res.json(member);
+    } catch (error) {
+      res.status(400).json({ error: "Failed to update member" });
+    }
+  });
+
+  app.delete("/api/projects/:projectId/members/:memberId", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const access = await getProjectAccessContext(userId, req.params.projectId);
+      if (!access.canManageProject) {
+        return res.status(403).json({ error: "Only direct project members or admins can manage project members" });
+      }
+      const { notes } = req.body;
+      await storage.removeProjectMember(req.params.memberId, userId, notes);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to remove member" });
+    }
+  });
+
+  // ========== MILESTONES ==========
+  app.get("/api/projects/:id/milestones", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const access = await getProjectAccessContext(userId, req.params.id);
+      if (!access.canViewProject) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const milestoneList = await storage.getProjectMilestones(req.params.id);
+      res.json(milestoneList);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch milestones" });
+    }
+  });
+
+  app.post("/api/projects/:id/milestones", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const access = await getProjectAccessContext(userId, req.params.id);
+      if (!access.canManageProject) {
+        return res.status(403).json({ error: "Only direct project members or admins can manage milestones" });
+      }
+      const existing = await storage.getProjectMilestones(req.params.id);
+      const milestoneData = insertProjectMilestoneSchema.parse({
+        ...req.body,
+        project_id: req.params.id,
+        milestone_order: req.body.milestone_order ?? existing.length + 1,
+      });
+      const milestone = await storage.createMilestone(milestoneData);
+      // If project has a template, inherit stages
+      const project = await storage.getProject(req.params.id);
+      if (project?.template_id && req.body.inherit_stages !== false) {
+        await storage.inheritTemplateStagesToMilestone(milestone.id, project.template_id);
+      }
+      res.status(201).json(milestone);
+    } catch (error) {
+      res.status(400).json({ error: "Failed to create milestone" ,error: error.message });
+    }
+  });
+
+  app.put("/api/projects/:projectId/milestones/:milestoneId", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const access = await getProjectAccessContext(userId, req.params.projectId);
+      if (!access.canManageProject) {
+        return res.status(403).json({ error: "Only direct project members or admins can manage milestones" });
+      }
+      const milestoneData = insertProjectMilestoneSchema.partial().parse(req.body);
+      const milestone = await storage.updateMilestone(req.params.milestoneId, milestoneData);
+      res.json(milestone);
+    } catch (error) {
+      res.status(400).json({ error: "Failed to update milestone" ,error: error.message });
+    }
+  });
+
+  app.delete("/api/projects/:projectId/milestones/:milestoneId", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const access = await getProjectAccessContext(userId, req.params.projectId);
+      if (!access.canManageProject) {
+        return res.status(403).json({ error: "Only direct project members or admins can manage milestones" });
+      }
+      await storage.deleteMilestone(req.params.milestoneId);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete milestone" });
+    }
+  });
+
+  // ========== MILESTONE STAGES ==========
+  app.get("/api/milestones/:milestoneId/stages", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const stages = await storage.getMilestoneStages(req.params.milestoneId);
+      res.json(stages);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch milestone stages" });
+    }
+  });
+
+  app.post("/api/milestones/:milestoneId/stages", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const existing = await storage.getMilestoneStages(req.params.milestoneId);
+      const stage = await storage.createMilestoneStage({
+        ...req.body,
+        milestone_id: req.params.milestoneId,
+        stage_order: req.body.stage_order ?? existing.length + 1,
+      });
+      res.status(201).json(stage);
+    } catch (error) {
+      res.status(400).json({ error: "Failed to create milestone stage" });
+    }
+  });
+
+  app.put("/api/milestones/:milestoneId/stages/:stageId", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const stage = await storage.updateMilestoneStage(req.params.stageId, req.body);
+      res.json(stage);
+    } catch (error) {
+      res.status(400).json({ error: "Failed to update milestone stage" });
+    }
+  });
+
+  app.delete("/api/milestones/:milestoneId/stages/:stageId", requireAnyAuthenticated, async (req, res) => {
+    try {
+      await storage.deleteMilestoneStage(req.params.stageId);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete milestone stage" });
+    }
+  });
+
+  app.put("/api/milestones/:milestoneId/stages/reorder", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const { stageIds } = req.body;
+      await storage.reorderMilestoneStages(req.params.milestoneId, stageIds);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(400).json({ error: "Failed to reorder stages" });
+    }
+  });
+
+  app.post("/api/milestones/:milestoneId/stages/inherit/:templateId", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const stages = await storage.inheritTemplateStagesToMilestone(req.params.milestoneId, req.params.templateId);
+      res.status(201).json(stages);
+    } catch (error) {
+      res.status(400).json({ error: "Failed to inherit stages" });
+    }
+  });
+
+  // ========== FEATURE GROUPS ==========
+  app.get("/api/projects/:id/feature-groups", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const access = await getProjectAccessContext(userId, req.params.id);
+      if (!access.canViewProject) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const groups = await storage.getProjectFeatureGroups(req.params.id);
+      res.json(groups);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch feature groups" });
+    }
+  });
+
+  app.post("/api/projects/:id/feature-groups", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const access = await getProjectAccessContext(userId, req.params.id);
+      if (!access.canManageProject) {
+        return res.status(403).json({ error: "Only direct project members or admins can manage feature groups" });
+      }
+      const group = await storage.createFeatureGroup({ ...req.body, project_id: req.params.id });
+      res.status(201).json(group);
+    } catch (error) {
+      res.status(400).json({ error: "Failed to create feature group" });
+    }
+  });
+
+  app.put("/api/projects/:projectId/feature-groups/:groupId", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const access = await getProjectAccessContext(userId, req.params.projectId);
+      if (!access.canManageProject) {
+        return res.status(403).json({ error: "Only direct project members or admins can manage feature groups" });
+      }
+      const group = await storage.updateFeatureGroup(req.params.groupId, req.body);
+      res.json(group);
+    } catch (error) {
+      res.status(400).json({ error: "Failed to update feature group" });
+    }
+  });
+
+  app.delete("/api/projects/:projectId/feature-groups/:groupId", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const access = await getProjectAccessContext(userId, req.params.projectId);
+      if (!access.canManageProject) {
+        return res.status(403).json({ error: "Only direct project members or admins can manage feature groups" });
+      }
+      await storage.deleteFeatureGroup(req.params.groupId);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete feature group" });
+    }
+  });
+
+  // ========== FEATURES ==========
+  app.get("/api/projects/:id/features", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const access = await getProjectAccessContext(userId, req.params.id);
+      if (!access.canViewProject) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const featuresList = await storage.getProjectFeatures(req.params.id);
+      res.json(featuresList);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch features" });
+    }
+  });
+
+  app.post("/api/projects/:id/features", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const access = await getProjectAccessContext(userId, req.params.id);
+      if (!access.canManageProject) {
+        return res.status(403).json({ error: "Only direct project members or admins can manage features" });
+      }
+      const feature = await storage.createFeature({ ...req.body, project_id: req.params.id });
+      res.status(201).json(feature);
+    } catch (error) {
+      res.status(400).json({ error: "Failed to create feature" });
+    }
+  });
+
+  app.put("/api/projects/:projectId/features/:featureId", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const access = await getProjectAccessContext(userId, req.params.projectId);
+      if (!access.canManageProject) {
+        return res.status(403).json({ error: "Only direct project members or admins can manage features" });
+      }
+      const feature = await storage.updateFeature(req.params.featureId, req.body);
+      res.json(feature);
+    } catch (error) {
+      res.status(400).json({ error: "Failed to update feature" });
+    }
+  });
+
+  app.delete("/api/projects/:projectId/features/:featureId", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const access = await getProjectAccessContext(userId, req.params.projectId);
+      if (!access.canManageProject) {
+        return res.status(403).json({ error: "Only direct project members or admins can manage features" });
+      }
+      await storage.deleteFeature(req.params.featureId);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete feature" });
+    }
+  });
+    // Project tasks
+  app.get("/api/projects/:id/tasks", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const access = await getProjectAccessContext(userId, req.params.id);
+      if (!access.canViewProject) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const projectTasks = await storage.getTasksByProject(req.params.id);
+      res.json(projectTasks);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch project tasks" });
+    }
+  });
+
+   app.get("/api/project-templates", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const templates = await storage.getAllProjectTemplates();
+      res.json(templates);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch project templates" });
+    }
+  });
+
+  app.get("/api/project-templates/:id", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const template = await storage.getProjectTemplate(req.params.id);
+      if (!template) return res.status(404).json({ error: "Template not found" });
+      res.json(template);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch project template" });
+    }
+  });
+
+  app.post("/api/project-templates", requireAdmin, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const template = await storage.createProjectTemplate({ ...req.body, created_by: userId });
+      res.status(201).json(template);
+    } catch (error) {
+      res.status(400).json({ error: "Failed to create project template" });
+    }
+  });
+
+  app.put("/api/project-templates/:id", requireAdmin, async (req, res) => {
+    try {
+      const template = await storage.updateProjectTemplate(req.params.id, req.body);
+      res.json(template);
+    } catch (error) {
+      res.status(400).json({ error: "Failed to update project template" });
+    }
+  });
+
+  app.delete("/api/project-templates/:id", requireAdmin, async (req, res) => {
+    try {
+      await storage.deleteProjectTemplate(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete project template" });
+    }
+  });
+
+  // Project Template Stages routes
+  app.get("/api/project-templates/:templateId/stages", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const stages = await storage.getStagesByTemplate(req.params.templateId);
+      res.json(stages);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch template stages" });
+    }
+  });
+
+  app.post("/api/project-templates/:templateId/stages", requireAdmin, async (req, res) => {
+    try {
+      const templateId = req.params.templateId;
+      const existingStages = await storage.getStagesByTemplate(templateId);
+      const nextOrder = existingStages.length > 0 ? Math.max(...existingStages.map(s => s.stage_order)) + 1 : 1;
+      const stage = await storage.createProjectTemplateStage({
+        ...req.body,
+        template_id: templateId,
+        stage_order: req.body.stage_order ?? nextOrder,
+      });
+      res.status(201).json(stage);
+    } catch (error) {
+      res.status(400).json({ error: "Failed to create template stage" });
+    }
+  });
+
+  app.put("/api/project-templates/:templateId/stages/:stageId", requireAdmin, async (req, res) => {
+    try {
+      const stage = await storage.updateProjectTemplateStage(req.params.stageId, req.body);
+      res.json(stage);
+    } catch (error) {
+      res.status(400).json({ error: "Failed to update template stage" });
+    }
+  });
+
+  app.delete("/api/project-templates/:templateId/stages/:stageId", requireAdmin, async (req, res) => {
+    try {
+      await storage.deleteProjectTemplateStage(req.params.stageId);
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete template stage" });
+    }
+  });
+
+  app.put("/api/project-templates/:templateId/stages/reorder", requireAdmin, async (req, res) => {
+    try {
+      const { stageIds } = req.body;
+      await storage.reorderProjectTemplateStages(req.params.templateId, stageIds);
+      res.json({ success: true });
+    } catch (error) {
+      res.status(400).json({ error: "Failed to reorder stages" });
+    }
+  });
+  
+  // ============================================================
+  //  REPORTING ENDPOINTS
+  // ============================================================
+
+  // Comprehensive project data for all project reports
+  app.get("/api/reports/project-summary", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const allProjects = await storage.getAllProjects();
+      const allTasks = await storage.getAllTasks();
+      const allUsers = await storage.getAllUsers();
+
+      const projectData = await Promise.all(
+        allProjects.map(async (project) => {
+          const [milestones, members, features] = await Promise.all([
+            storage.getProjectMilestones(project.id),
+            storage.getProjectMembers(project.id),
+            storage.getProjectFeatures(project.id),
+          ]);
+
+          const milestonesWithStages = await Promise.all(
+            milestones.map(async (ms) => {
+              const stages = await storage.getMilestoneStages(ms.id);
+              return { ...ms, stages };
+            })
+          );
+
+          const projectTasks = allTasks.filter((t) => t.project_id === project.id);
+
+          return {
+            ...project,
+            milestones: milestonesWithStages,
+            members,
+            features,
+            tasks: projectTasks,
+          };
+        })
+      );
+
+      res.json({ projects: projectData, users: allUsers });
+    } catch (error) {
+      console.error("Report error:", error);
+      res.status(500).json({ error: "Failed to generate report" });
+    }
+  });
+    //  REPORTING ENDPOINTS
+  // ============================================================
+
+  // All project members across all projects (for listing page PM display)
+  app.get("/api/projects-members-all", requireAnyAuthenticated, async (req, res) => {
+    try {
+      const userId = req.headers['x-user-id'] as string;
+      const { scope, roleNames } = await getUserVisibilityScope(userId);
+      let allProjects;
+
+      if (scope === "organization") {
+        allProjects = await storage.getAllProjects();
+      } else if (roleNames.includes("manager") || roleNames.includes("team_manager")) {
+        const directMembershipProjects = await storage.getProjectsByUserMembership(userId);
+        const managedUserProjects = await storage.getProjectsByManagedUsers(userId);
+        allProjects = mergeProjectsById([directMembershipProjects, managedUserProjects]);
+      } else {
+        allProjects = await storage.getProjectsByUserMembership(userId);
+      }
+
+      const allUsers = await storage.getAllUsers();
+      const result: { project_id: string; user_id: string; member_type: string; project_role: string | null; allocation_percentage: number; user_name: string }[] = [];
+      await Promise.all(
+        allProjects.map(async (p) => {
+          const members = await storage.getProjectMembers(p.id);
+          members.forEach((m) => {
+            const user = allUsers.find((u) => u.id === m.user_id);
+            result.push({
+              project_id: p.id,
+              user_id: m.user_id,
+              member_type: m.member_type,
+              project_role: m.project_role,
+              allocation_percentage: m.allocation_percentage,
+              user_name: user?.user_name ?? "Unknown",
+            });
+          });
+        })
+      );
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to fetch project members" });
     }
   });
 
