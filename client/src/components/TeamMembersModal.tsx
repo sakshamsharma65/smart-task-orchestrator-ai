@@ -10,6 +10,7 @@ import {
   DialogClose,
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
+import { formatOrgDate } from "@/lib/dateUtils";
 
 type TeamMember = {
   id: string;
@@ -49,7 +50,7 @@ export default function TeamMembersModal({ open, onOpenChange, members, teamName
                 <tr key={m.id}>
                   <td className="py-1 pl-1">{m.user_name ?? "-"}</td>
                   <td className="py-1">{m.email}</td>
-                  <td className="py-1">{m.allocationDate ? new Date(m.allocationDate).toLocaleDateString() : "-"}</td>
+                  <td className="py-1">{formatOrgDate(m.allocationDate, "-")}</td>
                 </tr>
               ))}
             </tbody>

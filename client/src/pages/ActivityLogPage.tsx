@@ -7,6 +7,7 @@ import {useState,useMemo} from "react";
 import { useQuery } from "@tanstack/react-query";
 import {apiClient} from "@/lib/api";
 import { Switch } from "@radix-ui/react-switch";
+import { formatOrgDateTime } from "@/lib/dateUtils";
 
 
 export default function ActivityLogPage() {
@@ -111,6 +112,8 @@ function renderSummary(log: any) {
 
       case "DEACTIVATED":
         return <>User {s.user_name}  was deactivated by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
+        case "PASSWORD_RESET":
+        return <>Password for user {s.user_name} was reset by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
     }
   }
 
@@ -279,7 +282,7 @@ function renderSummary(log: any) {
 
               <p className="text-xs text-gray-500 mt-1">
               
-                {new Date(log.occurred_at).toLocaleString()}
+                {formatOrgDateTime(log.occurred_at)}
               </p>
             </div>
           ))}

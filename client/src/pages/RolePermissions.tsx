@@ -53,9 +53,9 @@ const MENU_RESOURCES = [
   { id: 'historical-tasks', name: 'Historical Tasks', icon: '📜', category: 'Task Management' },
   
   // Management
-  { id: 'user-management', name: 'User Management', icon: '👥', category: 'Management' },
-  { id: 'team-management', name: 'Team Management', icon: '🏢', category: 'Management' },
-  { id: 'roles-privileges', name: 'Roles & Privileges', icon: '🔐', category: 'Management' },
+  { id: 'user-management', name: 'User Management', icon: '👥', category: ' Organisation Management' },
+  { id: 'team-management', name: 'Team Management', icon: '🏢', category: ' Organisation Management' },
+  { id: 'roles-privileges', name: 'Roles & Privileges', icon: '🔐', category: ' Organisation Management' },
   
   // Reports
   { id: 'task-report', name: 'Task Reports', icon: '📈', category: 'Reports' },

@@ -8,7 +8,7 @@ import { useRole } from "@/contexts/RoleProvider";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 import HelpButton from "@/components/help/HelpButton";
 import { Button } from "@/components/ui/button";
-
+import ResetUserPasswordDialog from "./ResetUserPasswordDialog";
 const USER_PLACEHOLDER = {
   name: "Jane Doe",
   email: "janedoe@email.com",
@@ -30,6 +30,7 @@ interface TopbarProps {
 const Topbar: React.FC<TopbarProps> = ({ sidebarOpen, setSidebarOpen }) => {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
+    const [resetDialogOpen, setResetDialogOpen] = React.useState(false);
   const { userName, highestRole, loading } = useRole();
   const { canViewSettings } = useRolePermissions();
 
@@ -40,10 +41,20 @@ const Topbar: React.FC<TopbarProps> = ({ sidebarOpen, setSidebarOpen }) => {
     logout();
     navigate("/auth");
   };
+  function handleResetPassword() {
+    setResetDialogOpen(true);
+  }
 
   return (
+    
     <header className="flex items-center justify-between border-b px-4 sm:px-6 gap-2 sm:gap-4 bg-[#66655833] border-gray-200" style={{ height: '56px', minHeight: '56px', maxHeight: '56px' }}>
       {/* Left: Hamburger menu for mobile */}
+        {user && <ResetUserPasswordDialog
+        open={resetDialogOpen}
+        onOpenChange={setResetDialogOpen}
+        userId={user.id}
+        userEmail={user.email}
+      />}
       <div className="flex items-center gap-3">
         <Button
           variant="ghost"
@@ -129,9 +140,14 @@ const Topbar: React.FC<TopbarProps> = ({ sidebarOpen, setSidebarOpen }) => {
               <div>{displayName}</div>
               <div className="text-muted-foreground">{displayEmail}</div>
             </div>
+            
+            <button className="w-full text-left px-2 py-1.5 text-sm hover:bg-accent text-muted-foreground hover:text-accent-foreground" onClick={handleResetPassword}>
+              Change Password
+            </button>
             <DropdownMenuItem onClick={handleLogout} className="gap-2 mt-1 cursor-pointer">
               <LogOut className="w-4 h-4" /> Log out
             </DropdownMenuItem>
+
           </DropdownMenuContent>
         </DropdownMenu>
       </div>

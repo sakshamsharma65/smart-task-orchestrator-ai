@@ -14,8 +14,9 @@ import {
   Milestone, BarChart3, FileText, RefreshCw, Activity, Search,
   Filter, X, ChevronDown, ChevronUp, Download, PackageCheck, Printer, Layers,
 } from "lucide-react";
-import { format, differenceInDays, isPast } from "date-fns";
+import {  differenceInDays, isPast } from "date-fns";
 import * as XLSX from "xlsx";
+import { formatOrgDate } from "@/lib/dateUtils";
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface MilestoneStage { id: string; name: string; status: string; }
@@ -186,7 +187,7 @@ function downloadExcel(
 
   // Style the header row (bold) via a simple comment — xlsx-light doesn't support full styles
   XLSX.utils.book_append_sheet(wb, ws, sheetName);
-  XLSX.writeFile(wb, `${filename}_${format(new Date(), "yyyy-MM-dd")}.xlsx`);
+  XLSX.writeFile(wb, `${filename}_${formatOrgDate(new Date(), "yyyy-MM-dd")}.xlsx`);
 }
 
 // ── Main Component ─────────────────────────────────────────────────────────
@@ -306,13 +307,13 @@ export default function ProjectReports() {
       {/* ═══ HEADER ═══ */}
       <div className="flex items-center justify-between flex-wrap gap-3">
         <div className="flex items-center gap-3">
-          <Link to="/projects">
+          {/* <Link to="/projects">
             <Button variant="ghost" size="sm"><ArrowLeft className="h-4 w-4 mr-1" />Projects</Button>
-          </Link>
+          </Link> */}
           <div>
             <h1 className="text-2xl font-bold text-gray-900 dark:text-white">Project Reports</h1>
             <p className="text-sm text-gray-500 dark:text-gray-400">
-              Showing {projects.length} of {data?.projects.length ?? 0} projects · {format(new Date(), "MMM d, yyyy")}
+              Showing {projects.length} of {data?.projects.length ?? 0} projects · {formatOrgDate(new Date(), "MMM d, yyyy")}
             </p>
           </div>
         </div>
@@ -481,7 +482,7 @@ export default function ProjectReports() {
                 size="sm"
                 className="gap-1.5 h-8 text-xs shrink-0"
                 onClick={() => {
-                  const meta = [["Project Status Report"], [`Generated: ${format(new Date(), "PPP")}`], [`Filters: ${activeFilters.length ? activeFilters.map((f) => f.label).join(", ") : "None"}`]];
+                  const meta = [["Project Status Report"], [`Generated: ${formatOrgDate(new Date(), "PPP")}`], [`Filters: ${activeFilters.length ? activeFilters.map((f) => f.label).join(", ") : "None"}`]];
                   const headers = ["Project", "Client", "Type", "Status", "Start Date", "Target End Date", "Milestones Done", "Milestones Total", "Tasks Done", "Tasks Total", "Features Done", "Features Total", "% Complete", "Schedule Health"];
                   const rows = projects.map((p) => {
                     const delay = delayTrafficLight(p);
@@ -490,8 +491,8 @@ export default function ProjectReports() {
                       p.client_name ?? "",
                       TYPE_LABELS[p.project_type] ?? p.project_type,
                       STATUS_LABELS[p.status] ?? p.status,
-                      p.start_date ? format(new Date(p.start_date), "d MMM yyyy") : "",
-                      p.projected_end_date ? format(new Date(p.projected_end_date), "d MMM yyyy") : "",
+                      p.start_date ? formatOrgDate(new Date(p.start_date), "d MMM yyyy") : "",
+                      p.projected_end_date ? formatOrgDate(new Date(p.projected_end_date), "d MMM yyyy") : "",
                       p.milestones.filter((m) => isCompleted(m.status)).length,
                       p.milestones.length,
                       p.tasks.filter((t) => isCompleted(t.status)).length,
@@ -536,8 +537,8 @@ export default function ProjectReports() {
                               <td className="px-4 py-3 text-gray-600 dark:text-gray-400 text-xs max-w-[120px] truncate">{p.client_name ?? "—"}</td>
                               <td className="px-4 py-3 whitespace-nowrap"><Badge variant="outline" className="text-xs">{TYPE_LABELS[p.project_type] ?? p.project_type}</Badge></td>
                               <td className="px-4 py-3 whitespace-nowrap"><Badge className={`text-xs border-0 ${STATUS_COLORS[p.status]}`}>{STATUS_LABELS[p.status]}</Badge></td>
-                              <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">{p.start_date ? format(new Date(p.start_date), "d MMM yy") : "—"}</td>
-                              <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">{p.projected_end_date ? format(new Date(p.projected_end_date), "d MMM yy") : "—"}</td>
+                              <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">{p.start_date ? formatOrgDate(new Date(p.start_date), "d MMM yy") : "—"}</td>
+                              <td className="px-4 py-3 text-xs text-gray-600 dark:text-gray-400 whitespace-nowrap">{p.projected_end_date ? formatOrgDate(new Date(p.projected_end_date), "d MMM yy") : "—"}</td>
                               <td className="px-4 py-3 text-xs whitespace-nowrap">{p.milestones.length ? <>{doneMilestones}/{p.milestones.length}</> : <span className="text-gray-300">—</span>}</td>
                               <td className="px-4 py-3 text-xs whitespace-nowrap">{p.tasks.length ? <>{doneTasks}/{p.tasks.length}</> : <span className="text-gray-300">—</span>}</td>
                               <td className="px-4 py-3 text-xs whitespace-nowrap">{p.features.length ? <>{doneFeatures}/{p.features.length}</> : <span className="text-gray-300">—</span>}</td>
@@ -586,7 +587,7 @@ export default function ProjectReports() {
               size="sm"
               className="gap-1.5 h-8 text-xs ml-auto"
               onClick={() => {
-                const meta = [["Resource Utilization Report"], [`Generated: ${format(new Date(), "PPP")}`], [`Filters: ${activeFilters.length ? activeFilters.map((f) => f.label).join(", ") : "None"}`]];
+                const meta = [["Resource Utilization Report"], [`Generated: ${formatOrgDate(new Date(), "PPP")}`], [`Filters: ${activeFilters.length ? activeFilters.map((f) => f.label).join(", ") : "None"}`]];
                 const headers = ["Resource", "Project", "Client", "Member Type", "Project Role", "Allocation %", "Tasks Assigned", "Tasks Done", "Est. Hours", "Hours Tracked", "Utilization %"];
                 const rows = resourceRows.map(({ p, m, memberTasks, doneTasks, estHrs, trackedHrs }) => [
                   userName(m.user_id),
@@ -681,7 +682,7 @@ export default function ProjectReports() {
               size="sm"
               className="gap-1.5 h-8 text-xs"
               onClick={() => {
-                const meta = [["Milestone Status Report"], [`Generated: ${format(new Date(), "PPP")}`], [`Filters: ${activeFilters.length ? activeFilters.map((f) => f.label).join(", ") : "None"}`]];
+                const meta = [["Milestone Status Report"], [`Generated: ${formatOrgDate(new Date(), "PPP")}`], [`Filters: ${activeFilters.length ? activeFilters.map((f) => f.label).join(", ") : "None"}`]];
                 const headers = ["Project", "Client", "Project Status", "Milestone", "Milestone Status", "Start Date", "End Date", "Days Remaining", "Stages Done", "Stages Total", "Health"];
                 const rows: (string | number)[][] = [];
                 projects.forEach((p) => {
@@ -701,8 +702,8 @@ export default function ProjectReports() {
                       STATUS_LABELS[p.status] ?? p.status,
                       ms.name,
                       ms.status.replace(/_/g, " "),
-                      ms.start_date ? format(new Date(ms.start_date), "d MMM yyyy") : "",
-                      ms.end_date   ? format(new Date(ms.end_date), "d MMM yyyy") : "",
+                      ms.start_date ? formatOrgDate(new Date(ms.start_date), "d MMM yyyy") : "",
+                      ms.end_date   ? formatOrgDate(new Date(ms.end_date), "d MMM yyyy") : "",
                       daysRemaining,
                       doneStages, ms.stages.length,
                       health,
@@ -776,8 +777,8 @@ export default function ProjectReports() {
                                 {ms.status.replace(/_/g, " ")}
                               </Badge>
                             </td>
-                            <td className="px-4 py-2.5 text-xs text-gray-500">{ms.start_date ? format(new Date(ms.start_date), "d MMM yy") : "—"}</td>
-                            <td className="px-4 py-2.5 text-xs text-gray-500">{ms.end_date ? format(new Date(ms.end_date), "d MMM yy") : "—"}</td>
+                            <td className="px-4 py-2.5 text-xs text-gray-500">{ms.start_date ? formatOrgDate(new Date(ms.start_date), "d MMM yy") : "—"}</td>
+                            <td className="px-4 py-2.5 text-xs text-gray-500">{ms.end_date ? formatOrgDate(new Date(ms.end_date), "d MMM yy") : "—"}</td>
                             <td className="px-4 py-2.5">{daysInfo}</td>
                             <td className="px-4 py-2.5 text-xs">
                               {ms.stages.length > 0 ? (
@@ -822,7 +823,7 @@ export default function ProjectReports() {
               size="sm"
               className="gap-1.5 h-8 text-xs"
               onClick={() => {
-                const meta = [["Performance Analysis Report"], [`Generated: ${format(new Date(), "PPP")}`], [`Filters: ${activeFilters.length ? activeFilters.map((f) => f.label).join(", ") : "None"}`]];
+                const meta = [["Performance Analysis Report"], [`Generated: ${formatOrgDate(new Date(), "PPP")}`], [`Filters: ${activeFilters.length ? activeFilters.map((f) => f.label).join(", ") : "None"}`]];
                 const headers = ["Project", "Client", "Type", "Status", "Milestone Completion %", "Task Completion %", "Feature Completion %", "Effort Burn %", "Overall Score %", "Schedule Health", "Team Size", "Avg Allocation %", "Budget (hrs)", "Budget Amount"];
                 const rows = projects.map((p) => {
                   const delay          = delayTrafficLight(p);
@@ -969,7 +970,7 @@ export default function ProjectReports() {
                 size="sm"
                 className="gap-1.5 h-8 text-xs shrink-0"
                 onClick={() => {
-                  const meta = [["Time Utilization Report"], [`Generated: ${format(new Date(), "PPP")}`], [`Filters: ${activeFilters.length ? activeFilters.map((f) => f.label).join(", ") : "None"}`]];
+                  const meta = [["Time Utilization Report"], [`Generated: ${formatOrgDate(new Date(), "PPP")}`], [`Filters: ${activeFilters.length ? activeFilters.map((f) => f.label).join(", ") : "None"}`]];
                   const headers = ["Project", "Client", "Type", "Status", "Allocated (hrs)", "Estimated (task hrs)", "Hours Tracked", "Hours Remaining", "% Used", "Remark"];
                   const rows = projects.map((p) => {
                     const allocated  = p.total_effort_hours ?? 0;
@@ -1108,7 +1109,7 @@ export default function ProjectReports() {
                 onClick={() => {
                   const meta = [
                     ["Feature Release Report"],
-                    [`Generated: ${format(new Date(), "PPP")}`],
+                    [`Generated: ${formatOrgDate(new Date(), "PPP")}`],
                     [`Filters: ${activeFilters.length ? activeFilters.map((f) => f.label).join(", ") : "None"}`],
                   ];
                   const headers = [
@@ -1144,7 +1145,7 @@ export default function ProjectReports() {
                           STATUS_LABELS[p.status] ?? p.status,
                           ms.name,
                           ms.status.replace(/_/g, " "),
-                          ms.end_date ? format(new Date(ms.end_date), "d MMM yyyy") : "",
+                          ms.end_date ? formatOrgDate(new Date(ms.end_date), "d MMM yyyy") : "",
                           feat.tracking_number,
                           feat.name,
                           feat.status.replace(/_/g, " "),
@@ -1209,7 +1210,7 @@ export default function ProjectReports() {
                           {p.client_name && <span>{p.client_name} · </span>}
                           {TYPE_LABELS[p.project_type] ?? p.project_type}
                           {p.projected_end_date && (
-                            <span> · Target: {format(new Date(p.projected_end_date), "d MMM yyyy")}</span>
+                            <span> · Target: {formatOrgDate(new Date(p.projected_end_date), "d MMM yyyy")}</span>
                           )}
                         </p>
                       </div>
@@ -1240,7 +1241,7 @@ export default function ProjectReports() {
                               </div>
                               <div className="flex items-center gap-3 text-xs text-gray-500">
                                 {ms.end_date && (
-                                  <span>{format(new Date(ms.end_date), "d MMM yyyy")}</span>
+                                  <span>{formatOrgDate(new Date(ms.end_date), "d MMM yyyy")}</span>
                                 )}
                                 <span className="font-medium">
                                   {releasedCount}/{totalFeatures} released

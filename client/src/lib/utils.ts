@@ -1,22 +1,8 @@
-import { clsx, type ClassValue } from "clsx"
-import { twMerge } from "tailwind-merge"
+import { clsx, type ClassValue } from "clsx";
+import { twMerge } from "tailwind-merge";
+
+export { formatOrgDate, formatOrgDateTime, getOrgDateFormat, setOrgDateSettings } from "./dateUtils";
 
 export function cn(...inputs: ClassValue[]) {
-  return twMerge(clsx(inputs))
+  return twMerge(clsx(inputs));
 }
-
-export function formatOrgDate(dateString: string) {
-  if (!dateString) return "—";
-
-  const date = new Date(dateString);
-
-  return date.toLocaleString("en-US", {
-    timeZone: "UTC",
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-}
-

@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { useAuth } from "@/contexts/AuthContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -111,20 +110,18 @@ function getProjectTypeLabel(type: string) {
 // Sub-component that renders stages for a single template (allows proper hook usage)
 function TemplateStagesPanel({
   template,
-  userId,
   onAddStage,
   onEditStage,
   onDeleteStage,
 }: {
   template: ProjectTemplate;
-  userId: string;
   onAddStage: (templateId: string) => void;
   onEditStage: (templateId: string, stage: ProjectTemplateStage) => void;
   onDeleteStage: (templateId: string, stageId: string) => void;
 }) {
   const { data: stages = [] } = useQuery<ProjectTemplateStage[]>({
     queryKey: ["/api/project-templates", template.id, "stages"],
-    queryFn: () => apiClient.get(`/project-templates/${template.id}/stages`, { headers: { "x-user-id": userId } }),
+    queryFn: () => apiClient.get(`/project-templates/${template.id}/stages`),
   });
 
   return (
@@ -179,10 +176,7 @@ function TemplateStagesPanel({
 }
 
 export default function ProjectTemplates() {
-  const { user } = useAuth();
   const queryClient = useQueryClient();
-  const userId = user?.id ?? "";
-
   const [expandedTemplate, setExpandedTemplate] = useState<string | null>(null);
   const [templateDialog, setTemplateDialog] = useState<{ open: boolean; mode: "create" | "edit"; template?: ProjectTemplate }>({ open: false, mode: "create" });
   const [stageDialog, setStageDialog] = useState<{ open: boolean; mode: "create" | "edit"; templateId?: string; stage?: ProjectTemplateStage }>({ open: false, mode: "create" });
@@ -193,78 +187,96 @@ export default function ProjectTemplates() {
 
   const { data: templates = [], isLoading } = useQuery<ProjectTemplate[]>({
     queryKey: ["/api/project-templates"],
-    queryFn: () => apiClient.get("/project-templates", { headers: { "x-user-id": userId } }),
+    queryFn: () => apiClient.get("/project-templates"),
   });
 
   const createTemplateMutation = useMutation({
-    mutationFn: (data: any) => apiClient.post("/project-templates", data, { headers: { "x-user-id": userId } }),
+    mutationFn: (data: any) => apiClient.post("/project-templates", data),
     onSuccess: async (newTemplate: any) => {
-      queryClient.invalidateQueries({ queryKey: ["/api/project-templates"] });
-      toast({ title: "Success", description: "Project template created with default stages" });
-      setTemplateDialog({ open: false, mode: "create" });
-      const defaults = DEFAULT_STAGES[templateForm.project_type] ?? [];
-      for (let i = 0; i < defaults.length; i++) {
-        await apiClient.post(`/project-templates/${newTemplate.id}/stages`, {
-          name: defaults[i].name, color: defaults[i].color, stage_order: i + 1, description: ""
-        }, { headers: { "x-user-id": userId } });
+      try {
+        const defaults = DEFAULT_STAGES[templateForm.project_type] ?? [];
+        for (let i = 0; i < defaults.length; i++) {
+          await apiClient.post(`/project-templates/${newTemplate.id}/stages`, {
+            name: defaults[i].name,
+            color: defaults[i].color,
+            stage_order: i + 1,
+            description: "",
+          });
+        }
+
+        await queryClient.invalidateQueries({ queryKey: ["/api/project-templates"] });
+        await queryClient.invalidateQueries({ queryKey: ["/api/project-templates", newTemplate.id, "stages"] });
+        setExpandedTemplate(newTemplate.id);
+        setTemplateDialog({ open: false, mode: "create" });
+        setTemplateForm({ name: "", description: "", project_type: "fixed_cost", is_active: true });
+        toast({ title: "Success", description: "Project template created with default stages" });
+      } catch (error) {
+        console.error("Failed to create default template stages:", error);
+        await queryClient.invalidateQueries({ queryKey: ["/api/project-templates"] });
+        setExpandedTemplate(newTemplate.id);
+        setTemplateDialog({ open: false, mode: "create" });
+        toast({
+          title: "Template created",
+          description: "The template was saved, but some default stages could not be created.",
+          variant: "destructive",
+        });
       }
-      queryClient.invalidateQueries({ queryKey: ["/api/project-templates", newTemplate.id, "stages"] });
     },
-    onError: () => toast({ title: "Error", description: "Failed to create template", variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Error", description: error.message || "Failed to create template", variant: "destructive" }),
   });
 
   const updateTemplateMutation = useMutation({
     mutationFn: ({ id, data }: { id: string; data: any }) =>
-      apiClient.put(`/project-templates/${id}`, data, { headers: { "x-user-id": userId } }),
+      apiClient.put(`/project-templates/${id}`, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/project-templates"] });
       toast({ title: "Success", description: "Template updated" });
       setTemplateDialog({ open: false, mode: "create" });
     },
-    onError: () => toast({ title: "Error", description: "Failed to update template", variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Error", description: error.message || "Failed to update template", variant: "destructive" }),
   });
 
   const deleteTemplateMutation = useMutation({
-    mutationFn: (id: string) => apiClient.delete(`/project-templates/${id}`, { headers: { "x-user-id": userId } }),
+    mutationFn: (id: string) => apiClient.delete(`/project-templates/${id}`),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/project-templates"] });
       toast({ title: "Success", description: "Template deleted" });
       setDeleteConfirm(null);
     },
-    onError: () => toast({ title: "Error", description: "Failed to delete template", variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Error", description: error.message || "Failed to delete template", variant: "destructive" }),
   });
 
   const createStageMutation = useMutation({
     mutationFn: ({ templateId, data }: { templateId: string; data: any }) =>
-      apiClient.post(`/project-templates/${templateId}/stages`, data, { headers: { "x-user-id": userId } }),
+      apiClient.post(`/project-templates/${templateId}/stages`, data),
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ["/api/project-templates", vars.templateId, "stages"] });
       toast({ title: "Success", description: "Stage added" });
       setStageDialog({ open: false, mode: "create" });
     },
-    onError: () => toast({ title: "Error", description: "Failed to add stage", variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Error", description: error.message || "Failed to add stage", variant: "destructive" }),
   });
 
   const updateStageMutation = useMutation({
     mutationFn: ({ templateId, stageId, data }: { templateId: string; stageId: string; data: any }) =>
-      apiClient.put(`/project-templates/${templateId}/stages/${stageId}`, data, { headers: { "x-user-id": userId } }),
+      apiClient.put(`/project-templates/${templateId}/stages/${stageId}`, data),
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ["/api/project-templates", vars.templateId, "stages"] });
       toast({ title: "Success", description: "Stage updated" });
       setStageDialog({ open: false, mode: "create" });
     },
-    onError: () => toast({ title: "Error", description: "Failed to update stage", variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Error", description: error.message || "Failed to update stage", variant: "destructive" }),
   });
 
   const deleteStageMutation = useMutation({
     mutationFn: ({ templateId, stageId }: { templateId: string; stageId: string }) =>
-      apiClient.delete(`/project-templates/${templateId}/stages/${stageId}`, { headers: { "x-user-id": userId } }),
+      apiClient.delete(`/project-templates/${templateId}/stages/${stageId}`),
     onSuccess: (_, vars) => {
       queryClient.invalidateQueries({ queryKey: ["/api/project-templates", vars.templateId, "stages"] });
       toast({ title: "Success", description: "Stage deleted" });
       setDeleteConfirm(null);
     },
-    onError: () => toast({ title: "Error", description: "Failed to delete stage", variant: "destructive" }),
+    onError: (error: Error) => toast({ title: "Error", description: error.message || "Failed to delete stage", variant: "destructive" }),
   });
 
   function openCreateTemplate() {
@@ -417,7 +429,6 @@ export default function ProjectTemplates() {
                 {isExpanded && (
                   <TemplateStagesPanel
                     template={template}
-                    userId={userId}
                     onAddStage={handleAddStage}
                     onEditStage={handleEditStage}
                     onDeleteStage={handleDeleteStage}
@@ -531,6 +542,7 @@ export default function ProjectTemplates() {
                 {STAGE_COLORS.map(c => (
                   <button
                     key={c}
+                    type="button"
                     className={`w-7 h-7 rounded-full border-2 transition-all ${stageForm.color === c ? "border-foreground scale-110" : "border-transparent"}`}
                     style={{ backgroundColor: c }}
                     onClick={() => setStageForm(prev => ({ ...prev, color: c }))}

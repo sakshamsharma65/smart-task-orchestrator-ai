@@ -12,7 +12,9 @@ import ReportsMenu from "./AppSidebarParts/ReportsMenu";
 import WarningNoTeams from "./AppSidebarParts/WarningNoTeams";
 import GovernanceMenu from "./AppSidebarParts/GovernanceMenu";
 import ProjectManagementMenu from "./AppSidebarParts/ProjectManagementMenu";
+import DefectManagementMenu from "./AppSidebarParts/DefectManagementMenu";
 
+// Sub-menu components
 // 1. Helper Component (Isse bahar rakha hai taaki performance achi rahe)
 const CollapsibleSection = ({ title, children, icon: Icon }) => {
   const [isOpen, setIsOpen] = useState(false); // Default: Closed
@@ -57,7 +59,7 @@ export default function AppSidebar() {
   const isManager = roles.includes("manager") || roles.includes("team_manager");
   const isUserOnly = !isAdmin && !isManager && roles.includes("user");
   const projectManagementEnabled = settings?.project_management_enabled ?? false;
-
+const defectManagementEnabled = settings?.defect_management_enabled ?? false;
   const isOnTeams = location.pathname.startsWith("/teams");
   const hasTeams = teams.length > 0;
 
@@ -72,19 +74,14 @@ export default function AppSidebar() {
       {/* Menu Sections */}
       <div className="flex-1 overflow-auto px-2 py-4 bg-[#e3e2de] lg:pt-4 pt-6">
         <div className="space-y-2">
-          
-          <CollapsibleSection title="Dashboard" icon={LayoutDashboard}>
-            <DashboardMenu isUserOnly={isUserOnly} collapsed={false} />
-          </CollapsibleSection>
 
-          <CollapsibleSection title="Tasks" icon={ClipboardList}>
+            <DashboardMenu isUserOnly={isUserOnly} collapsed={false} />
+     
+
+          <CollapsibleSection title="Task Management" icon={ClipboardList}>
             <TaskManagementMenu collapsed={false} />
           </CollapsibleSection>
-
-          <CollapsibleSection title="Management" icon={Settings}>
-            <ManagementMenu isAdmin={isAdmin} isManager={isManager} collapsed={false} />
-          </CollapsibleSection>
-{projectManagementEnabled && (
+          {projectManagementEnabled && (
   <CollapsibleSection
     title="Project Management"
     icon={FolderKanban}
@@ -92,11 +89,21 @@ export default function AppSidebar() {
     <ProjectManagementMenu collapsed={false} />
   </CollapsibleSection>
 )}
-          <WarningNoTeams isOnTeams={isOnTeams} loading={loading} isUserOnly={isUserOnly} hasTeams={hasTeams} />
-
+           {defectManagementEnabled && (
+            <CollapsibleSection title="Defect Management" icon={ClipboardList}>
+            <DefectManagementMenu collapsed={false} />
+          </CollapsibleSection>
+          )}
           <CollapsibleSection title="Reports" icon={BarChart3}>
             <ReportsMenu isUserOnly={isUserOnly} collapsed={false} />
           </CollapsibleSection>
+
+          <CollapsibleSection title="Org Management" icon={Settings}>
+            <ManagementMenu isAdmin={isAdmin} isManager={isManager} collapsed={false} />
+          </CollapsibleSection>
+
+          <WarningNoTeams isOnTeams={isOnTeams} loading={loading} isUserOnly={isUserOnly} hasTeams={hasTeams} />
+
 
           <CollapsibleSection title="Governance" icon={ShieldCheck}>
             <GovernanceMenu collapsed={false} />

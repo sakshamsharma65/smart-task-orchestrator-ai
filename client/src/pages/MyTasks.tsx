@@ -6,7 +6,7 @@ import { useUsersAndTeams } from "@/hooks/useUsersAndTeams";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Filter, Search, Kanban, List, Plus } from "lucide-react";
+import { Filter, Search, Kanban, List, Plus, Sparkles } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { useTaskStatuses } from "@/hooks/useTaskStatuses";
 import { useStatusTransitionValidation } from "@/hooks/useStatusTransitionValidation";
@@ -15,6 +15,8 @@ import { HTML5Backend } from "react-dnd-html5-backend";
 import TaskDetailsSheet from "@/components/TaskDetailsSheet";
 import TaskCard from "@/components/TaskCard";
 import CreateTaskSheet from "@/components/CreateTaskSheet";
+import AiTaskCreationSheet from "@/components/AiTaskCreationSheet";
+import { useQuery } from "@tanstack/react-query";
 import KanbanColumn from "./MyTasks/KanbanColumn";
 import KanbanTaskCard from "./MyTasks/KanbanTaskCard";
 import TaskCardClickable from "./MyTasks/TaskCardClickable";
@@ -24,7 +26,6 @@ import { apiClient } from "@/lib/api";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 import DateRangePresetSelector from "@/components/DateRangePresetSelector";
 import ActiveTimersBar from "@/components/ActiveTimersBar";
-import { useRolePermissions } from "@/hooks/useRolePermissions";
 
 function defaultDateRange() {
   const now = new Date();
@@ -203,7 +204,7 @@ export default function MyTasksPage() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [totalTasks, setTotalTasks] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [view, setView] = useState<"list" | "kanban">("kanban");
+  const [view, setView] = useState<"list" | "kanban">("list");
 
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(25);
@@ -217,9 +218,8 @@ export default function MyTasksPage() {
   const [statusFilter, setStatusFilter] = useState<string>("all");
   const [userFilter, setUserFilter] = useState<string>("all");
   const [teamFilter, setTeamFilter] = useState<string>("all");
-  const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>(defaultDateRange());
+  const [dateRange, setDateRange] = useState(defaultDateRange());
   const [preset, setPreset] = useState<string>("This Month");
-  const {canCreateMy_Tasks,canEditMy_Tasks} = useRolePermissions();
   
   // Sort states
   const [sortBy, setSortBy] = useState<string>("created_at");
@@ -227,13 +227,25 @@ export default function MyTasksPage() {
 
   function handlePresetChange(range: { from: Date | null; to: Date | null }, p: string) {
     setPreset(p);
-    // Always propagate the selected range to parent so custom inputs update the parent state
+    if (p === "custom") return;
     setDateRange(range);
   }
 
   const { users, teams } = useUsersAndTeams();
   const { statuses, loading: statusesLoading } = useTaskStatuses();
   const { getStatusSequence } = useStatusTransitionValidation();
+
+  // AI Task Creation
+  const [aiSheetOpen, setAiSheetOpen] = useState(false);
+  const { data: aiAccess } = useQuery({
+    queryKey: ["/api/ai/access"],
+    queryFn: async () => {
+      try { return await apiClient.get("/ai/access"); }
+      catch { return { can_use: false }; }
+    },
+    enabled: !!user,
+  });
+  const aiEnabled = !!(aiAccess?.can_use);
 
   // Sheet (modal) state for Task Details
   const [detailsTask, setDetailsTask] = useState<Task | null>(null);
@@ -376,20 +388,6 @@ export default function MyTasksPage() {
     
     return sorted;
   }, [tasks, sortBy, sortOrder]);
-  const searchedTasks = useMemo(()=>{
-    if (!searchQuery.trim()) return sortedTasks;
-    const q = searchQuery.toLowerCase();
-    return sortedTasks.filter((task)=>{
-      return(
-        task.title?.toLowerCase().includes(q) ||
-        task.description?.toLowerCase().includes(q)||
-          task.status?.toLowerCase().includes(q)||
-          task.assigned_to?.toLowerCase().includes(q)
-
-
-      )
-    })
-  },[searchQuery,sortedTasks])
 
   // Grouped tasks for Kanban
   const tasksByStatus = useMemo(() => {
@@ -398,7 +396,7 @@ export default function MyTasksPage() {
       const key = getStatusKey(statusObj.name);
       columns[key] = [];
     });
-    searchedTasks.forEach((task) => {
+    sortedTasks.forEach((task) => {
       const key = getStatusKey(task.status || "new");
       if (!columns[key]) columns[key] = [];
       columns[key].push(task);
@@ -419,24 +417,15 @@ export default function MyTasksPage() {
     const transitionSequence = getStatusSequence();
     const statusMap = new Map(statuses.map(s => [s.name, s]));
     
-    // Preferred explicit ordering for Kanban columns (if those statuses exist)
-    // This enforces: To Do -> In Progress -> Review -> Completed
-    const preferredOrder = ["new", "In Progress", "Approval", "Completed"];
-    const orderedStatuses: string[] = [];
-
-    // Add preferred statuses first when they exist in the status list
-    preferredOrder.forEach(pref => {
-      const found = statuses.find(s => getStatusKey(s.name) === getStatusKey(pref));
-      if (found && !orderedStatuses.includes(found.name)) orderedStatuses.push(found.name);
-    });
-
-    // Then ensure the default status is included (if not already)
+    // Start with default status first
     const defaultStatus = statuses.find(s => s.is_default);
-    if (defaultStatus && !orderedStatuses.includes(defaultStatus.name)) {
+    const orderedStatuses: string[] = [];
+    
+    if (defaultStatus) {
       orderedStatuses.push(defaultStatus.name);
     }
-
-    // Add statuses following the transition sequence (skip duplicates)
+    
+    // Add statuses following the transition sequence
     transitionSequence.forEach(statusName => {
       if (statusMap.has(statusName) && !orderedStatuses.includes(statusName)) {
         orderedStatuses.push(statusName);
@@ -522,11 +511,22 @@ export default function MyTasksPage() {
             Kanban
           </Button>
           <CreateTaskSheet onTaskCreated={load}>
-         {canCreateMy_Tasks &&  <Button size="sm" className="gap-2">
+            <Button size="sm" className="gap-2">
               <Plus className="w-4 h-4" />
               Create Task
-            </Button>}
+            </Button>
           </CreateTaskSheet>
+          {aiEnabled && (
+            <Button
+              size="sm"
+              variant="outline"
+              className="gap-2 border-purple-300 text-purple-700 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-300 dark:hover:bg-purple-950"
+              onClick={() => setAiSheetOpen(true)}
+            >
+              <Sparkles className="w-4 h-4" />
+              AI Create
+            </Button>
+          )}
         </div>
       </div>
 
@@ -661,7 +661,7 @@ export default function MyTasksPage() {
           <div className="text-muted-foreground mb-4 text-center">Loading...</div>
         )}
 
-        {!loading && !statusesLoading && !showTooManyWarning && searchedTasks.length === 0 && (
+        {!loading && !statusesLoading && !showTooManyWarning && sortedTasks.length === 0 && (
           <div className="flex flex-col items-center justify-center mt-16">
             <div className="w-40 h-40 bg-gray-100 rounded-lg mb-4 flex items-center justify-center">
               <Search className="w-16 h-16 text-gray-400" />
@@ -671,9 +671,9 @@ export default function MyTasksPage() {
           </div>
         )}
 
-            {!loading && !statusesLoading && !showTooManyWarning && searchedTasks.length > 0 && view === "list" && (
+            {!loading && !statusesLoading && !showTooManyWarning && sortedTasks.length > 0 && view === "list" && (
               <div className="grid grid-cols-1 gap-6">
-                {searchedTasks.map((task) => {
+                {sortedTasks.map((task) => {
                   const statusObj = statuses.find(s => getStatusKey(s.name) === getStatusKey(task.status));
                   return (
                     <TaskCardClickable
@@ -689,9 +689,9 @@ export default function MyTasksPage() {
               </div>
             )}
 
-            {!loading && !statusesLoading && !showTooManyWarning && view === "kanban" && searchedTasks.length > 0 && (
+            {!loading && !statusesLoading && !showTooManyWarning && view === "kanban" && (
               <DndProvider backend={HTML5Backend}>
-                <div className="flex gap-6 overflow-x-scroll min-w-[1500px] pb-8 px-2">
+                <div className="flex gap-6 overflow-x-auto pb-8 px-2">
                   {sortedStatusKeys.map((statusKey, index) => {
                     const statusObj = statuses.find(
                       (s) => getStatusKey(s.name) === statusKey
@@ -763,7 +763,13 @@ export default function MyTasksPage() {
                 pageSizeOptions={pageSizeOptions}
               />
             )}
+            <AiTaskCreationSheet
+              open={aiSheetOpen}
+              onOpenChange={setAiSheetOpen}
+              onTaskCreated={load}
+              currentUserId={user?.id}
+            />
         </div>
       </div>
-    );
-  }
+  );
+}

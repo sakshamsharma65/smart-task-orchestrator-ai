@@ -26,7 +26,8 @@ import { TaskChecklist } from "./TaskChecklist";
 import { apiRequest } from "@/lib/queryClient";
 import { useQuery } from "@tanstack/react-query";
 import DOMPurify from 'dompurify'
-
+import { apiClient } from "@/lib/api";
+import { formatOrgDate } from "@/lib/dateUtils";
 import { 
   AlertDialog, 
   AlertDialogAction, 
@@ -364,30 +365,33 @@ async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
   const [linkFeatureId, setLinkFeatureId] = useState("");
   const [savingLinkage, setSavingLinkage] = useState(false);
 
-  // Fetch confirmed projects on open
+  // Fetch all projects on open (no is_confirmed filter so names always resolve)
   useEffect(() => {
     if (!open) return;
-    fetch("/api/projects")
-      .then(r => r.ok ? r.json() : [])
-      .then(data => setProjectsList(Array.isArray(data) ? data.filter((p: any) => p.is_confirmed) : []))
+    apiClient.get("/projects")
+      .then(data => setProjectsList(Array.isArray(data) ? data : []))
       .catch(() => setProjectsList([]));
   }, [open]);
 
-  // Fetch milestones + features when a project is chosen for editing
-  useEffect(() => {
-    if (!linkProjectId) {
+  // Fetch milestones + features for a given project id — used both for display and editing
+  const fetchMilestonesAndFeatures = (projectId: string) => {
+    if (!projectId) {
       setMilestonesList([]);
       setFeaturesList([]);
       return;
     }
-    fetch(`/api/projects/${linkProjectId}/milestones`)
-      .then(r => r.ok ? r.json() : [])
+    apiClient.get(`/projects/${projectId}/milestones`)
       .then(data => setMilestonesList(Array.isArray(data) ? data : []))
       .catch(() => setMilestonesList([]));
-    fetch(`/api/projects/${linkProjectId}/features`)
-      .then(r => r.ok ? r.json() : [])
+    apiClient.get(`/projects/${projectId}/features`)
       .then(data => setFeaturesList(Array.isArray(data) ? data : []))
       .catch(() => setFeaturesList([]));
+  };
+
+  // Re-fetch milestones + features whenever the editing project changes
+  useEffect(() => {
+    fetchMilestonesAndFeatures(linkProjectId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [linkProjectId]);
 
   // Resolve names for currently linked milestone/feature
@@ -395,24 +399,27 @@ async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
     if (!task?.milestone_id) return null;
     // search in milestonesList (if already loaded) or show id
     const found = milestonesList.find(m => m.id === task.milestone_id);
-    return found ? found.name : task.milestone_id;
+    return found ? found.name : null;
   }, [task?.milestone_id, milestonesList]);
 
   const linkedFeatureName = useMemo(() => {
     if (!task?.feature_id) return null;
     const found = featuresList.find(f => f.id === task.feature_id);
     if (found) return `${found.tracking_number ? `[${found.tracking_number}] ` : ""}${found.name}`;
-    return task.feature_id;
+    return null;
   }, [task?.feature_id, featuresList]);
 
   // Load milestone + feature names for the task's current project when open
+   // On open: sync edit state AND immediately fetch milestones/features for the task's project
   useEffect(() => {
     if (!open || !task) { setEditingLinkage(false); return; }
+    setLinkProjectId(task.project_id || "");
     setLinkMilestoneId(task.milestone_id || "");
     setLinkFeatureId(task.feature_id || "");
-       setLinkProjectId(task.project_id || "");
-
-  }, [open, task]);
+    // Eagerly fetch so names resolve for the view (read-only) display
+    if (task.project_id) fetchMilestonesAndFeatures(task.project_id);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, task?.id]);
 
   async function handleSaveLinkage() {
     if (!task || !currentUser?.id) return;
@@ -443,15 +450,6 @@ async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
   const createdByUserName = createdByUser ? (createdByUser.user_name || createdByUser.email) : "Unknown";
 
   // Format dates
-  const formatDate = (dateString: string | null) => {
-    if (!dateString) return "Not set";
-    return new Date(dateString).toLocaleDateString('en-US', {
-      year: 'numeric',
-      month: 'short',
-      day: 'numeric'
-    });
-  };
-
   const getPriorityLabel = (priority: number) => {
     switch (priority) {
       case 1: return "High";
@@ -612,7 +610,7 @@ async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">Created Date</label>
                       <div className="bg-white p-2 border rounded">
-                        {formatDate(task.created_at)}
+                        {formatOrgDate(task.created_at, "Not set")}
                       </div>
                     </div>
                   </div>
@@ -749,13 +747,13 @@ async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">Start Date</label>
                       <div className="bg-white p-2 border rounded">
-                        {formatDate(task.start_date)}
+                        {formatOrgDate(task.start_date, "Not set")}
                       </div>
                     </div>
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">Due Date</label>
                       <div className="bg-white p-2 border rounded">
-                        {formatDate(task.due_date)}
+                        {formatOrgDate(task.due_date, "Not set")}
                       </div>
                     </div>
                     <div>
@@ -767,7 +765,7 @@ async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">Completion Date</label>
                       <div className="bg-white p-2 border rounded">
-                        {formatDate(task.actual_completion_date)}
+                        {formatOrgDate(task.actual_completion_date, "Not set")}
                       </div>
                     </div>
                   </div>

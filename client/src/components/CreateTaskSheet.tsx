@@ -11,11 +11,12 @@ import {
 } from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
 import { useRef } from "react";
 import ReactQuill from "react-quill";
 import "react-quill/dist/quill.snow.css";
 import { fetchTasks, Task } from "@/integrations/supabase/tasks";
-
+import { Loader2 } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
 import useSupabaseSession from "@/hooks/useSupabaseSession";
 import { useTaskStatuses } from "@/hooks/useTaskStatuses";
@@ -25,7 +26,9 @@ import { useDependencyConstraintValidation } from "@/hooks/useDependencyConstrai
 import { apiClient } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
 import { useQuery } from "@tanstack/react-query";
-
+import {ListChecks} from "lucide-react";
+import { Label } from "./ui/label";
+import { formatOrgDate } from "@/lib/dateUtils";
 // Simulated quick user record
 type User = { id: string; email: string; user_name: string | null; manager: string | null };
 type Role = { name: string };
@@ -57,12 +60,15 @@ async function fetchUsersSupabase(): Promise<User[]> {
 }
 
 interface Props {
-  onTaskCreated: () => void;
+  onTaskCreated?: () => void;
   children?: React.ReactNode;
   defaultAssignedTo?: string;
    defaultProjectId?: string;
   defaultMilestoneId?: string;
   defaultFeatureId?: string;
+  initialData?: any; // <--- Add this
+  isOpen?: boolean;   // <--- Add this to control it from Dashboard
+  onClose?: () => void; // <--- Add this
 }
 
 const initialForm = {
@@ -80,6 +86,7 @@ const initialForm = {
   dependencyTaskId: "",
   is_time_managed: false,
   todos_enabled: false,
+  todo_group_id: "",
 };
 
 const priorityOptions = [
@@ -97,9 +104,17 @@ const typeOptions = [
 
 const CreateTaskSheet: React.FC<Props> = ({
   onTaskCreated, children, defaultAssignedTo,
-  defaultProjectId, defaultMilestoneId, defaultFeatureId,
+  defaultProjectId, defaultMilestoneId, defaultFeatureId,initialData, isOpen, onClose
 }) => {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(isOpen ?? false);
+  useEffect(() => {
+    if (isOpen !== undefined) setOpen(isOpen);
+  }, [isOpen]);
+
+  const handleOpenChange = (newOpen: boolean) => {
+    setOpen(newOpen);
+    if (!newOpen && onClose) onClose();
+  };
   const [TimeEnabled, setTimeEnabled] = useState(false);
   const [form, setForm] = useState(initialForm);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -114,6 +129,8 @@ const CreateTaskSheet: React.FC<Props> = ({
   const [teams, setTeams] = useState<any[]>([]);
   const [selectedTeam, setSelectedTeam] = useState("");
   const [teamMembers, setTeamMembers] = useState<any[]>([]);
+  const [aiTeamCandidates, setAiTeamCandidates] = useState<any[]>([]);
+  const [aiAssignmentWarning, setAiAssignmentWarning] = useState("");
   const [attachments,setAttachments] = useState<File[]>([]);
   const [selectedProjectId, setSelectedProjectId] = useState<string>(defaultProjectId ?? "");
   const [selectedMilestoneId, setSelectedMilestoneId] = useState<string>(defaultMilestoneId ?? "");
@@ -121,6 +138,9 @@ const CreateTaskSheet: React.FC<Props> = ({
   const [projectsList, setProjectsList] = useState<any[]>([]);
   const [milestonesList, setMilestonesList] = useState<any[]>([]);
   const [featuresList, setFeaturesList] = useState<any[]>([]);
+  const [showAddMemberDialog, setShowAddMemberDialog] = useState(false);
+  const [pendingMemberAdd, setPendingMemberAdd] = useState<{projectId: string; userId: string; userName: string} | null>(null);
+  const [addingMemberToProject, setAddingMemberToProject] = useState(false);
 
   // const [form, setForm] = useState<{description: string;}>({ description: "",});
   const modules = {
@@ -157,7 +177,7 @@ const CreateTaskSheet: React.FC<Props> = ({
 }, [form.estimated_hours, form.start_date, form.due_date]);
 useEffect(() => {
   if (open && !statusLoading && statuses.length > 0) {
-    const defaultStatus = statuses.find(s => s.is_default);
+    const defaultStatus = statuses.find((s: any) => s.is_default);
     if (defaultStatus) {
       setForm(prev => ({
         ...prev,
@@ -167,12 +187,50 @@ useEffect(() => {
     }
   }
 }, [open, statuses, statusLoading]);
-
 useEffect(() => {
-  if (open) {
-    resetForm();
-  }
+  if (initialData && open) {
+    const isSelf = initialData.assigned_to === user?.id;
+    const hasTeamCandidates = Array.isArray(initialData.team_candidates) && initialData.team_candidates.length > 0;
+    const resolvedType = initialData.type || (
+      initialData.team_id ||
+      hasTeamCandidates ||
+      (!isSelf && initialData.assigned_to)
+        ? "team"
+        : "personal"
+    );
+    const candidates = Array.isArray(initialData.team_candidates) ? initialData.team_candidates : [];
+    const resolvedTeamId =
+      initialData.team_id ||
+      (candidates.length === 1 ? candidates[0]?.id : "");
 
+    setForm(prev => ({
+      ...prev,
+      title: initialData.title || prev.title,
+      type: resolvedType, 
+      assigned_to: initialData.assigned_to || prev.assigned_to,
+      priority: Number(initialData.priority) || 2,
+      due_date: initialData.due_date || prev.due_date,
+      start_date: initialData.start_date || prev.start_date,
+      estimated_hours: initialData.estimated_hours?.toString() || prev.estimated_hours,
+      todos_enabled: !!initialData.todos_enabled,
+    }));
+
+    if (resolvedType === "team") {
+      setAiTeamCandidates(candidates);
+      setSelectedTeam(resolvedTeamId);
+      setAiAssignmentWarning(initialData.warning || "");
+    } else {
+      setAiTeamCandidates([]);
+      setSelectedTeam("");
+      setAiAssignmentWarning("");
+    }
+
+    if (initialData.description && quillRef.current) {
+      quillRef.current.getEditor().clipboard.dangerouslyPasteHTML(initialData.description);
+    }
+  }
+}, [initialData, open, user?.id]);
+useEffect(() => {
   if (user?.id) {
     fetchUserRolesFromSupabase(user.id).then(setUserRoles);
   }
@@ -190,7 +248,12 @@ useEffect(() => {
     .catch((err) => console.error("Failed to fetch teams:", err));
 
 }, [open, user?.id]);
-
+// Near your other useQuery calls
+const { data: todoGroups = [] } = useQuery({
+  queryKey: ["/api/todo-groups"],
+  queryFn: () => apiClient.get("/todo-groups"),
+  enabled: open, // Only fetch when sheet is open
+});
 useEffect(() => {
   if (!selectedTeam) {
     setTeamMembers([]);
@@ -204,7 +267,37 @@ useEffect(() => {
 
 }, [selectedTeam]);
 
+useEffect(() => {
+  if (form.type !== "team") {
+    setAiAssignmentWarning("");
+    return;
+  }
 
+  if (!selectedTeam && aiTeamCandidates.length > 1) {
+    setAiAssignmentWarning("This assignee belongs to multiple teams. Please choose which team to use.");
+    return;
+  }
+
+  if (selectedTeam && aiAssignmentWarning) {
+    setAiAssignmentWarning("");
+  }
+}, [form.type, selectedTeam, aiTeamCandidates.length, aiAssignmentWarning]);
+
+useEffect(() => {
+  if (form.type !== "team" || !selectedTeam || !form.assigned_to || teamMembers.length === 0) return;
+
+  const isAssignedUserInSelectedTeam = teamMembers.some((member) => member.user?.id === form.assigned_to);
+  if (!isAssignedUserInSelectedTeam) {
+    setForm((prev) => ({ ...prev, assigned_to: "" }));
+  }
+}, [form.type, selectedTeam, form.assigned_to, teamMembers]);
+
+// Near your other queries
+const { data: previewItems = [], isLoading: loadingPreview } = useQuery({
+  queryKey: ["todo-group-preview", form.todo_group_id],
+  queryFn: () => apiClient.get(`/todo-groups/${form.todo_group_id}/items`),
+  enabled: !!form.todo_group_id,
+});
   // On open: fetch users and user roles afresh
   useEffect(() => {
     if (!open || !user?.id) return;
@@ -559,7 +652,28 @@ const handleSubmit = async (e: React.FormEvent) => {
 
   try {
     const myUserId = user?.id;
-    if (!myUserId) throw new Error("No current user!");
+      if (!myUserId) throw new Error("No current user!");
+
+      
+      // Mandatory field validations
+      if (!form.status) {
+        throw new Error("Status is required.");
+      }
+      if (!form.estimated_hours || Number(form.estimated_hours) <= 0) {
+        throw new Error("Estimated hours is required and must be greater than 0.");
+      }
+      if (!form.start_date) {
+        throw new Error("Start date is required.");
+      }
+      if (!form.due_date) {
+        throw new Error("End date is required.");
+      }
+
+      // Only require subtask+group validation if checkbox is set
+      if (form.type === "personal" && form.isSubTask) {
+        const group = taskGroups.find(g => g.id === selectedTaskGroup && g.visibility === "private");
+        if (!group) throw new Error("Personal tasks marked as subtask must be added to a Private Task Group.");
+      }
 
     // 1. Create FormData Object
     const formData = new FormData();
@@ -577,7 +691,8 @@ const handleSubmit = async (e: React.FormEvent) => {
     formData.append("estimated_hours", form.estimated_hours);
     formData.append("is_time_managed", String(form.is_time_managed));
     formData.append("todos_enabled", String(form.todos_enabled));
-  
+   // true if group picked
+    formData.append("todo_group_id", form.todo_group_id || "");    // <--- ADD THIS 
     console.log(" saksham Submitting status:", form.status);
       
     
@@ -635,6 +750,7 @@ const availableHours = calculateAvailableHours(form.start_date, form.due_date);
 
       // Project linkage fields
       if (selectedProjectId) taskInput.project_id = selectedProjectId;
+   
         if (selectedMilestoneId) taskInput.milestone_id = selectedMilestoneId;
       if (selectedFeatureId) taskInput.feature_id = selectedFeatureId;
 
@@ -670,8 +786,26 @@ const availableHours = calculateAvailableHours(form.start_date, form.due_date);
       });
     }
 
-   
-    
+    // 7. Check if assigned user needs to be added to project
+    if (selectedProjectId && form.assigned_to) {
+      try {
+        const projectMembers = await apiClient.getProjectMembers(selectedProjectId);
+        const isUserAlreadyMember = projectMembers.some((m: any) => m.user_id === form.assigned_to);
+        
+        if (!isUserAlreadyMember) {
+          const assignedUser = users.find(u => u.id === form.assigned_to);
+          setPendingMemberAdd({
+            projectId: selectedProjectId,
+            userId: form.assigned_to,
+            userName: assignedUser?.user_name || assignedUser?.email || "User"
+          });
+          setShowAddMemberDialog(true);
+        }
+      } catch (err) {
+        console.error("Failed to check project members:", err);
+      }
+    }
+
     toast({ title: "Task Created", description: form.title });
 
     // Refresh UI
@@ -685,7 +819,7 @@ const availableHours = calculateAvailableHours(form.start_date, form.due_date);
     resetForm();
     setAttachments([]); // Clear files state
     setOpen(false);
-    onTaskCreated();
+    onTaskCreated?.();
        setSelectedProjectId("");
     // Restore defaults if provided by caller, otherwise clear
     setSelectedProjectId(defaultProjectId ?? "");
@@ -724,7 +858,7 @@ const availableHours = calculateAvailableHours(form.start_date, form.due_date);
 
   // Reset form
 const resetForm = () => {
-  const defaultStatus = statuses.find(s => s.is_default)?.name || "";
+  const defaultStatus = statuses.find((s: any) => s.is_default)?.name || "";
   setForm({
     ...initialForm,
     status: defaultStatus,
@@ -733,6 +867,34 @@ const resetForm = () => {
   });
   setSelectedDependencyTask(null);
   setSearchQuery("");
+};
+
+const handleAddMemberToProject = async () => {
+  if (!pendingMemberAdd) return;
+  
+  setAddingMemberToProject(true);
+  try {
+    await apiClient.addProjectMember(
+      pendingMemberAdd.projectId,
+      pendingMemberAdd.userId,
+      null,
+      'member'
+    );
+    toast({
+      title: "Success",
+      description: `${pendingMemberAdd.userName} has been added to the project.`,
+    });
+  } catch (err: any) {
+    toast({
+      title: "Failed to add member",
+      description: err.message || "An error occurred",
+      variant: "destructive",
+    });
+  } finally {
+    setAddingMemberToProject(false);
+    setShowAddMemberDialog(false);
+    setPendingMemberAdd(null);
+  }
 };
 const handleDescriptionChange = (value: string) => {
   const editor = quillRef.current?.getEditor();
@@ -934,24 +1096,57 @@ useEffect(() => {
             </div>
           </div>
           
-{/* Organization Todos Toggle */}
-<div className="bg-white p-4 rounded-lg border border-gray-200">
-  <label className="flex items-center cursor-pointer text-base font-medium text-gray-700">
-    <input
-      type="checkbox"
-      name="todos_enabled"
-      checked={form.todos_enabled}
-      onChange={handleChange}
-      className="w-5 h-5 text-blue-600 border-gray-300 rounded focus:ring-blue-500 mr-3"
-    />
-    <span className="flex items-center">
-      <span className="mr-2">✅</span>
-      Enable Required Todos
-    </span>
-  </label>
-  <p className="text-sm text-gray-500 mt-1 ml-8">
-    If enabled, this task must pass all organization-defined todos before it can be completed.
-  </p>
+{/* SECTION: WORKFLOW TEMPLATE & PREVIEW */}
+<div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-4">
+  <div className="flex items-center gap-2">
+    <ListChecks className="h-5 w-5 text-blue-600" />
+    <Label className="text-base font-bold text-slate-800">Workflow Template</Label>
+  </div>
+
+  <select
+    name="todo_group_id"
+    value={form.todo_group_id}
+    onChange={(e) => setForm(f => ({ 
+      ...f, 
+      todo_group_id: e.target.value, 
+      todos_enabled: !!e.target.value 
+    }))}
+    className="w-full h-11 text-sm border rounded-lg bg-white shadow-sm focus:ring-2 focus:ring-blue-500"
+  >
+    <option value="">No Template (Manual Task)</option>
+    {todoGroups.map((g: any) => (
+      <option key={g.id} value={g.id}>{g.name}</option>
+    ))}
+  </select>
+
+  {/* Associated Todos Preview with Radio Look */}
+  {form.todo_group_id && (
+    <div className="space-y-3 pt-2 animate-in fade-in slide-in-from-top-1 duration-300">
+      <p className="text-[11px] font-bold text-slate-400 uppercase px-1 tracking-wider">
+        Template Requirements:
+      </p>
+      <div className="bg-white border rounded-lg divide-y shadow-sm">
+        {loadingPreview ? (
+          <div className="p-4 flex justify-center"><Loader2 className="h-5 w-5 animate-spin text-blue-500" /></div>
+        ) : previewItems.length === 0 ? (
+          <p className="p-4 text-xs text-slate-400 italic text-center">No items defined in this template.</p>
+        ) : (
+          previewItems.map((item: any) => (
+            <div key={item.id} className="p-3 flex items-center justify-between text-sm text-slate-600">
+              <span className="font-medium">{item.title}</span>
+              <div className="flex items-center gap-2 opacity-60">
+                {/* Visual "Radio" Indicator */}
+                <div className="h-4 w-4 rounded-full border-2 border-blue-500 flex items-center justify-center">
+                   <div className="h-2 w-2 rounded-full bg-blue-500" />
+                </div>
+                <span className="text-[10px] font-bold text-blue-600 uppercase">Required</span>
+              </div>
+            </div>
+          ))
+        )}
+      </div>
+    </div>
+  )}
 </div>
           {/* SECTION 2: TASK SETTINGS */}
           <div className="space-y-3 sm:space-y-4">
@@ -1101,6 +1296,8 @@ useEffect(() => {
           onChange={(e) => {
             handleChange(e);
             setSelectedTeam("");
+            setAiTeamCandidates([]);
+            setAiAssignmentWarning("");
             setForm((f) => ({ ...f, assigned_to: "" }));
           }}
           className="w-full h-12 text-base border rounded-lg px-4"
@@ -1115,16 +1312,26 @@ useEffect(() => {
       {form.type === "team" && (
         <div>
           <label className="block text-sm font-semibold text-gray-700 mb-2">Select Team *</label>
+          {aiAssignmentWarning && (
+            <div className="mb-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+              {aiAssignmentWarning}
+            </div>
+          )}
           <select
             value={selectedTeam}
             onChange={(e) => {
               setSelectedTeam(e.target.value);
-              setForm((f) => ({ ...f, assigned_to: "" }));
+              setForm((f) => ({
+                ...f,
+                assigned_to: initialData?.assigned_to && initialData?.assigned_to === f.assigned_to
+                  ? f.assigned_to
+                  : "",
+              }));
             }}
             className="w-full h-12 text-base border rounded-lg px-4"
           >
             <option value="">Select Team</option>
-            {teams.map((t) => (
+            {(aiTeamCandidates.length > 0 ? teams.filter((t) => aiTeamCandidates.some((candidate) => candidate.id === t.id)) : teams).map((t) => (
               <option key={t.id} value={t.id}>{t.name}</option>
             ))}
           </select>
@@ -1313,7 +1520,7 @@ useEffect(() => {
                                         )}
                                         {task.due_date && (
                                           <span className="text-gray-500">
-                                            📅 Due: {new Date(task.due_date).toLocaleDateString()}
+                                            📅 Due: {formatOrgDate(task.due_date)}
                                           </span>
                                         )}
                                       </div>
@@ -1545,6 +1752,45 @@ useEffect(() => {
           </SheetFooter>
         </form>
       </SheetContent>
+
+      {/* Add Member to Project Dialog */}
+      <Dialog open={showAddMemberDialog} onOpenChange={setShowAddMemberDialog}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Add Member to Project</DialogTitle>
+            <DialogDescription>
+              The assigned user is not a member of this project. Would you like to add them?
+            </DialogDescription>
+          </DialogHeader>
+          
+          <div className="py-4">
+            <p className="text-sm text-gray-600">
+              <strong>{pendingMemberAdd?.userName}</strong> will be added to the project as a <strong>member</strong>.
+            </p>
+          </div>
+
+          <DialogFooter className="gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => {
+                setShowAddMemberDialog(false);
+                setPendingMemberAdd(null);
+              }}
+              disabled={addingMemberToProject}
+            >
+              Skip
+            </Button>
+            <Button
+              type="button"
+              onClick={handleAddMemberToProject}
+              disabled={addingMemberToProject}
+            >
+              {addingMemberToProject ? "Adding..." : "Add Member"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </Sheet>
   );
   };

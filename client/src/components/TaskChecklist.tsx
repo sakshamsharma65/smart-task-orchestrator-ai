@@ -5,7 +5,7 @@ import { Label } from "@/components/ui/label";
 import { apiClient } from "@/lib/api";
 import { Loader2, ListChecks, CheckCircle2 } from "lucide-react";
 import { toast } from "@/components/ui/use-toast";
-
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 interface TaskTodo {
   id: string;
   title: string;
@@ -61,31 +61,32 @@ export const TaskChecklist: React.FC<Props> = ({ taskId, readOnly = false }) => 
 
       <div className="space-y-2">
         {todos.map((todo) => (
-          <div 
-            key={todo.id} 
-            className={`flex items-center space-x-3 p-3 rounded-lg border transition-all ${
-              todo.is_completed ? 'bg-green-50/50 border-green-100' : 'bg-white border-slate-100 shadow-sm'
-            }`}
-          >
-            <Checkbox 
-              id={todo.id} 
-              checked={todo.is_completed} 
-              disabled={readOnly || toggleMutation.isPending}
-              onCheckedChange={(checked) => 
-                toggleMutation.mutate({ todoId: todo.id, is_completed: !!checked })
-              }
-            />
-            <Label 
-              htmlFor={todo.id} 
-              className={`text-sm flex-1 cursor-pointer transition-colors ${
-                todo.is_completed ? 'line-through text-slate-400' : 'text-slate-700 font-medium'
-              }`}
-            >
-              {todo.title}
-            </Label>
-            {todo.is_completed && <CheckCircle2 className="h-4 w-4 text-green-500" />}
-          </div>
-        ))}
+  <div 
+    key={todo.id} 
+    className={`flex items-center justify-between p-3 rounded-xl border transition-all ${
+      todo.is_completed ? 'bg-blue-50/50 border-blue-100' : 'bg-white border-slate-100 shadow-sm'
+    }`}
+  >
+    <Label htmlFor={todo.id} className="flex-1 cursor-pointer font-medium text-slate-700">
+      {todo.title}
+    </Label>
+
+    <RadioGroup
+      value={todo.is_completed ? "done" : "pending"}
+      onValueChange={(val) => toggleMutation.mutate({ todoId: todo.id, is_completed: val === "done" })}
+      className="flex gap-4"
+    >
+      <div className="flex items-center space-x-2">
+        <RadioGroupItem value="pending" id={`${todo.id}-p`} className="border-slate-300" />
+        <Label htmlFor={`${todo.id}-p`} className="text-[10px] font-bold uppercase text-slate-400">Pending</Label>
+      </div>
+      <div className="flex items-center space-x-2">
+        <RadioGroupItem value="done" id={`${todo.id}-d`} className="text-blue-600 border-blue-600" />
+        <Label htmlFor={`${todo.id}-d`} className="text-[10px] font-bold uppercase text-blue-600">Done</Label>
+      </div>
+    </RadioGroup>
+  </div>
+))}
       </div>
     </div>
   );

@@ -9,6 +9,8 @@ export type TaskStatus = {
   description: string | null;
   color?: string;
   sequence_order: number;
+  is_default?: boolean;
+  can_delete?: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -20,8 +22,8 @@ export type StatusTransition = {
   created_at: string;
 };
 
-export function useTaskStatuses() {
-  const { data: statuses = [], isLoading: loading, refetch } = useQuery({
+export function useTaskStatuses(): { statuses: TaskStatus[]; loading: boolean; refreshStatuses: () => void } {
+  const { data: statuses = [], isLoading: loading, refetch } = useQuery<TaskStatus[]>({
     queryKey: ['/api/task-statuses'],
     queryFn: () => apiClient.getTaskStatuses(),
   });
@@ -33,8 +35,8 @@ export function useTaskStatuses() {
   return { statuses, loading, refreshStatuses };
 }
 
-export function useStatusTransitions() {
-  const { data: transitions = [], isLoading: loading, refetch } = useQuery({
+export function useStatusTransitions(): { transitions: StatusTransition[]; loading: boolean; setTransitions: (newTransitions: StatusTransition[]) => void } {
+  const { data: transitions = [], isLoading: loading, refetch } = useQuery<StatusTransition[]>({
     queryKey: ['/api/task-status-transitions'],
     queryFn: async () => {
       const userStr = localStorage.getItem('user');

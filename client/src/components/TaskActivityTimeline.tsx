@@ -1,7 +1,7 @@
 import React from "react";
-import { format, addMinutes } from "date-fns";
 import { TaskActivity } from "@/integrations/supabase/taskActivity";
 import { useUserDisplayNames } from "@/hooks/useUserDisplayNames"; // Assuming this hook is correctly imported
+import { formatOrgDateTime } from "@/lib/dateUtils";
 
 // Define the type for the map returned by the hook
 type UsersMap = Record<string, string>;
@@ -125,7 +125,7 @@ const TaskActivityTimeline: React.FC<Props> = ({ activity, usersById }) => {
           bg-white" />
           <div className={`ml-2 p-2 rounded-md shadow-sm ${typeToColor(act.action_type)}`}>
             <div className="text-xs mb-1">
-              {new Date(act.created_at).toLocaleString("en-GB", { timeZone: "UTC" })}
+              {formatOrgDateTime(act.created_at)}
             </div>
             <div className="text-sm">
               {/* FIX 2: Pass usersMap to actionLabel */}

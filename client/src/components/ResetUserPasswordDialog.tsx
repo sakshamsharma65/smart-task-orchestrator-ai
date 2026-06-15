@@ -29,9 +29,21 @@ const ResetUserPasswordDialog: React.FC<ResetUserPasswordDialogProps> = ({
   // }
 
 
+  const passwordRegex = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*])[A-Za-z\d!@#$%^&*]{6,}$/;
+
   const handleReset = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!userId || !password) return;
+
+    if (!passwordRegex.test(password)) {
+      toast({
+        title: "Invalid Password",
+        description:
+          "Password must be at least 6 characters and include uppercase, lowercase, number, and special character.",
+        variant: "destructive",
+      });
+      return;
+    }
 
     setSaving(true);
 
@@ -46,7 +58,7 @@ const ResetUserPasswordDialog: React.FC<ResetUserPasswordDialogProps> = ({
     } catch (err: any) {
       toast({ 
         title: "Password reset failed", 
-        description: err.message || "Error occurred." 
+        description: err.response?.data?.error || err.message || "Error occurred." 
       });
     } finally {
       setSaving(false);
@@ -66,15 +78,15 @@ const ResetUserPasswordDialog: React.FC<ResetUserPasswordDialogProps> = ({
             </div>
             <Input
               type="password"
-              placeholder="New password (minimum 6 characters)"
+              placeholder="New password (uppercase, lowercase, number, special char)"
               value={password}
               onChange={e => setPassword(e.target.value)}
               required
               minLength={6}
             />
-            {password && password.length < 6 && (
+            {password && !passwordRegex.test(password) && (
               <p className="text-xs text-red-500 mt-1">
-                Password must be at least 6 characters long
+                Password must include uppercase, lowercase, number, and special character.
               </p>
             )}
           </div>

@@ -2,15 +2,18 @@
 import React, { useState, useEffect, useMemo, useCallback } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { fetchTasks, Task } from "@/integrations/supabase/tasks";
+import { DndProvider } from "react-dnd";
+import { HTML5Backend } from "react-dnd-html5-backend";
+import { fetchTasks, Task, updateTask } from "@/integrations/supabase/tasks";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Filter, Search, Plus } from "lucide-react";
+import { Filter, Search, Plus, Sparkles, List, Kanban } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import useSupabaseSession from "@/hooks/useSupabaseSession";
 import CreateTaskSheet from "@/components/CreateTaskSheet";
 import TaskCard from "@/components/TaskCard";
+import AiTaskCreationSheet from "@/components/AiTaskCreationSheet";
 import TaskDetailsSheet from "@/components/TaskDetailsSheet";
 import EditTaskSheet from "@/components/EditTaskSheet";
 import { useUsersAndTeams } from "@/hooks/useUsersAndTeams";
@@ -20,10 +23,13 @@ import TasksList from "@/components/TasksList";
 import TasksNoResults from "@/components/TasksNoResults";
 import TasksPagination from "@/components/TasksPagination";
 import { useCurrentUserRoleAndTeams } from "@/hooks/useCurrentUserRoleAndTeams";
+import { useStatusTransitionValidation } from "@/hooks/useStatusTransitionValidation";
+import KanbanColumn from "./MyTasks/KanbanColumn";
+import KanbanTaskCard from "./MyTasks/KanbanTaskCard";
 import { format, startOfMonth, endOfMonth } from "date-fns";
 import DateRangePresetSelector from "@/components/DateRangePresetSelector";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
-
+import { apiClient } from "@/lib/api";
 function defaultDateRange() {
 
   const now = new Date();
@@ -56,14 +62,43 @@ const fallbackImage =
 
 const pageSizeOptions = [25, 50, 75, 100];
 
+const getStatusKey = (status: string) => {
+  return status.trim().toLowerCase().replace(/_/g, " ");
+};
+
+const getStatusStyle = () => ({
+  bg: "bg-neutral-50/30",
+  header: "text-neutral-700 bg-neutral-100/60 border-neutral-200",
+  count: "bg-neutral-200 text-neutral-700",
+  customStyles: {},
+});
+
 const TasksPage: React.FC = () => {
   const { session, user, loading: sessionLoading } = useSupabaseSession();
   const { users, teams } = useUsersAndTeams();
   const { roles, loading: rolesLoading } = useCurrentUserRoleAndTeams();
   const { statuses, loading: statusesLoading } = useTaskStatuses();
+  const { getStatusSequence } = useStatusTransitionValidation();
   const [page, setPage] = useState(1);
+  const [view, setView] = useState<"list" | "kanban">("list");
   const [pageSize, setPageSize] = useState(25);
+    // AI Task Creation
+  const [aiSheetOpen, setAiSheetOpen] = useState(false);
+
+  const { data: aiAccess } = useQuery({
+    queryKey: ["/api/ai/access"],
+    queryFn: async () => {
+      try {
+        return await apiClient.get("/ai/access");
+      } catch {
+        return { can_use: false };
+      }
+    },
+    enabled: !!user,
+  });
+
   
+  const aiEnabled = !!(aiAccess?.can_use);
   // Task Details Modal States
   const [detailsTask, setDetailsTask] = useState<Task | null>(null);
   const [detailsOpen, setDetailsOpen] = useState(false);
@@ -94,7 +129,7 @@ const TasksPage: React.FC = () => {
   }, [location.search]);
   const [userFilter, setUserFilter] = useState("all");
   const [teamFilter, setTeamFilter] = useState("all");
-const [dateRange, setDateRange] = useState({ from: null, to: null });
+  const [dateRange, setDateRange] = useState<{ from: Date | null; to: Date | null }>(defaultDateRange());
   const [preset, setPreset] = useState<string>("This Month");
     const {canCreateTask} = useRolePermissions();
   
@@ -185,6 +220,66 @@ const [dateRange, setDateRange] = useState({ from: null, to: null });
   const totalTasks = tasksResult?.total || 0;
   const showTooManyWarning = tasksResult?.showTooManyWarning || false;
 
+  const tasksByStatus = useMemo(() => {
+    const columns: Record<string, Task[]> = {};
+    statuses.forEach((statusObj) => {
+      columns[getStatusKey(statusObj.name)] = [];
+    });
+
+    filteredTasks.forEach((task) => {
+      const key = getStatusKey(task.status || "new");
+      if (!columns[key]) columns[key] = [];
+      columns[key].push(task);
+    });
+
+    return columns;
+  }, [filteredTasks, statuses]);
+
+  const sortedStatusKeys = useMemo(() => {
+    const transitionSequence = getStatusSequence();
+    const statusMap = new Map(statuses.map((status) => [status.name, status]));
+    const defaultStatus = statuses.find((status) => status.is_default);
+    const orderedStatuses: string[] = [];
+
+    if (defaultStatus) orderedStatuses.push(defaultStatus.name);
+
+    transitionSequence.forEach((statusName) => {
+      if (statusMap.has(statusName) && !orderedStatuses.includes(statusName)) {
+        orderedStatuses.push(statusName);
+      }
+    });
+
+    statuses
+      .filter((status) => !orderedStatuses.includes(status.name))
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .forEach((status) => orderedStatuses.push(status.name));
+
+    return orderedStatuses.map((name) => getStatusKey(name));
+  }, [statuses, getStatusSequence]);
+
+  const CARD_TYPE = "TASK_CARD";
+
+  const handleTaskDrop = async (taskId: string, newStatusKey: string) => {
+    const statusObj = statuses.find((status) => getStatusKey(status.name) === newStatusKey);
+
+    if (!statusObj) {
+      toast({ title: "Invalid status" });
+      return;
+    }
+
+    try {
+      await updateTask(taskId, { status: statusObj.name });
+      handleSearch();
+      toast({ title: "Status updated", description: `Task moved to "${statusObj.name}"` });
+    } catch (error: any) {
+      toast({ title: "Failed to update status", description: error.message });
+    }
+  };
+
+  const onDropTask = (item: { id: string; status: string }, statusKey: string) => {
+    handleTaskDrop(item.id, statusKey);
+  };
+
   // Restrict delete to status 'pending' or 'new'
   function canDelete(status: string) {
     // Find the status object and check its can_delete property
@@ -224,7 +319,33 @@ const [dateRange, setDateRange] = useState({ from: null, to: null });
             <Filter size={16} />
             Filters
           </Button>
-      
+          <Button
+            variant={view === "list" ? "default" : "outline"}
+            onClick={() => setView("list")}
+            className="gap-2"
+          >
+            <List className="w-4 h-4" />
+            List
+          </Button>
+          <Button
+            variant={view === "kanban" ? "default" : "outline"}
+            onClick={() => setView("kanban")}
+            className="gap-2"
+          >
+            <Kanban className="w-4 h-4" />
+            Kanban
+          </Button>
+       {aiEnabled && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="gap-2 border-purple-300 text-purple-700 hover:bg-purple-50 dark:border-purple-700 dark:text-purple-300 dark:hover:bg-purple-950"
+              onClick={() => setAiSheetOpen(true)}
+            >
+              <Sparkles className="w-4 h-4" />
+              AI Create
+            </Button>
+          )}
         <CreateTaskSheet onTaskCreated={handleSearch}>
             <Button size="sm" className="gap-2">
               <Plus className="w-4 h-4" />
@@ -308,7 +429,7 @@ const [dateRange, setDateRange] = useState({ from: null, to: null });
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Users</SelectItem>
-                    {users.map(user => (
+                    {users.map((user: any) => (
                       <SelectItem key={user.id} value={user.id}>
                         {user.user_name || user.email}
                       </SelectItem>
@@ -326,7 +447,7 @@ const [dateRange, setDateRange] = useState({ from: null, to: null });
                   </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="all">All Teams</SelectItem>
-                    {teams.map(team => (
+                    {teams.map((team: any) => (
                       <SelectItem key={team.id} value={team.id}>
                         {team.name}
                       </SelectItem>
@@ -362,7 +483,7 @@ const [dateRange, setDateRange] = useState({ from: null, to: null });
           </div>
         )}
 
-        {!loading && filteredTasks.length > 0 && (
+        {!loading && filteredTasks.length > 0 && view === "list" && (
           <>
             <div className="mb-4 text-sm text-gray-600">
               Showing {filteredTasks.length} of {totalTasks} tasks
@@ -383,6 +504,49 @@ const [dateRange, setDateRange] = useState({ from: null, to: null });
               pageSizeOptions={pageSizeOptions}
             />
           </>
+        )}
+
+        {!loading && filteredTasks.length > 0 && view === "kanban" && (
+          <DndProvider backend={HTML5Backend}>
+            <div className="flex gap-6 overflow-x-auto pb-8 px-2">
+              {sortedStatusKeys.map((statusKey, index) => {
+                const statusObj = statuses.find((status) => getStatusKey(status.name) === statusKey);
+
+                return (
+                  <React.Fragment key={statusKey}>
+                    <KanbanColumn
+                      statusKey={statusKey}
+                      statusLabel={statusObj ? statusObj.name : statusKey}
+                      onDrop={onDropTask}
+                      CARD_TYPE={CARD_TYPE}
+                      statusStyle={getStatusStyle()}
+                      taskCount={tasksByStatus[statusKey]?.length || 0}
+                    >
+                      {tasksByStatus[statusKey] && tasksByStatus[statusKey].length > 0 ? (
+                        tasksByStatus[statusKey].map((task) => (
+                          <KanbanTaskCard
+                            key={task.id}
+                            task={task}
+                            CARD_TYPE={CARD_TYPE}
+                            onClick={() => openDetailsForTask(task)}
+                            statusColor={statusObj?.color}
+                          />
+                        ))
+                      ) : (
+                        <div className="text-muted-foreground text-sm py-4 text-center">No tasks</div>
+                      )}
+                    </KanbanColumn>
+
+                    {index < sortedStatusKeys.length - 1 && (
+                      <div className="flex items-stretch py-4 px-2">
+                        <div className="w-px bg-gradient-to-b from-transparent via-gray-300/60 to-transparent min-h-[400px] flex-shrink-0" />
+                      </div>
+                    )}
+                  </React.Fragment>
+                );
+              })}
+            </div>
+          </DndProvider>
         )}
       </div>
 
@@ -405,6 +569,13 @@ const [dateRange, setDateRange] = useState({ from: null, to: null });
         }}
         open={editOpen}
         onOpenChange={setEditOpen}
+      />
+            {/* AI Task Creation Sheet */}
+      <AiTaskCreationSheet
+        open={aiSheetOpen}
+        onOpenChange={setAiSheetOpen}
+        onTaskCreated={handleSearch}
+        currentUserId={user?.id}
       />
     </div>
   );

@@ -56,6 +56,7 @@ import { apiClient } from "@/lib/api";
 import { text } from "stream/consumers";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { addTaskGroupMember } from "@/integrations/supabase/taskGroups";
+import { formatOrgDate } from "@/lib/dateUtils";
 
 type Props = {
   open: boolean;
@@ -125,14 +126,6 @@ export default function TaskGroupDetailsSheet({ open, onOpenChange, group, refet
     }
   };
 
-  const formatDate = (dateString: string) => {
-    if (!dateString) return 'Not set';
-    return new Date(dateString).toLocaleDateString('en-US', {
-      month: 'short',
-      day: 'numeric',
-      year: 'numeric'
-    });
-  };
 useEffect(() => {
   setSelectedUserIds([]);
 }, [selectedTeamId, userSource, selectedRole]);
@@ -684,7 +677,7 @@ useEffect(() => {
                               {task?.due_date && (
                                 <div className="flex items-center gap-1">
                                   <Calendar className="h-3 w-3" />
-                                  Due: {formatDate(task.due_date)}
+                                  Due: {formatOrgDate(task.due_date, "Not set")}
                                 </div>
                               )}
                               {task?.estimated_hours && (

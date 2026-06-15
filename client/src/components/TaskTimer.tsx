@@ -57,12 +57,16 @@ export default function TaskTimer({ task, onTaskUpdated, compact = false }: Task
     return `${hours}h ${mins}m`;
   };
 
-  const onStart = () => {
+  const onStart = async () => {
     // Check and update status to "In Progress" if currently "To Do"
     if (task.status === "To Do") {
-      updateTaskStatus(task.id, "In Progress");
+      try {
+        await updateTaskStatus(task.id, "In Progress");
+      } catch (err) {
+        console.error("Failed to update status", err);
+      }
     }
-    handleTimerAction("start");
+    await handleTimerAction("start");
   };
 
   // Modified handleTimerAction to optionally suppress toast and handle auto-stop better

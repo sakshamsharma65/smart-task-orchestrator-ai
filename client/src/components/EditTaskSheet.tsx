@@ -1,7 +1,17 @@
 import React, { useState, useEffect, useMemo } from "react";
-import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription, SheetFooter, SheetClose, SheetTrigger } from "@/components/ui/sheet";
+import {
+  Sheet,
+  SheetContent,
+  SheetHeader,
+  SheetTitle,
+  SheetDescription,
+  SheetFooter,
+  SheetClose,
+  SheetTrigger,
+} from "@/components/ui/sheet";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Task } from "@/integrations/supabase/tasks";
 import { toast } from "@/components/ui/use-toast";
 import { useTaskStatuses } from "@/hooks/useTaskStatuses";
@@ -10,28 +20,12 @@ import { apiClient } from "@/lib/api";
 import { queryClient } from "@/lib/queryClient";
 import { useUsersAndTeams } from "@/hooks/useUsersAndTeams";
 import { useCurrentUserRoleAndTeams } from "@/hooks/useCurrentUserRoleAndTeams";
-import { Download, FileIcon, ImageIcon, Loader2, Paperclip, AlertCircle } from "lucide-react";
 import ReactQuill from "react-quill";
-import "react-quill/dist/quill.snow.css";
-import { TaskChecklist } from "./TaskChecklist";
-import { 
-  AlertDialog, 
-  AlertDialogAction, 
-  AlertDialogContent, 
-  AlertDialogDescription, 
-  AlertDialogFooter, 
-  AlertDialogHeader, 
-  AlertDialogTitle 
-} from "@/components/ui/alert-dialog";
-
-// --- Constants ---
-const modules = {
-  toolbar: [
-    ["bold", "italic", "underline"],
-    [{ color: [] }],
-    [{ list: "ordered" }, { list: "bullet" }],
-  ],
-};
+import { Calendar } from "@/components/ui/calendar";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { formatOrgDate, getOrgDateFormat } from "@/lib/dateUtils";
+import { CalendarIcon } from "lucide-react";
+import { format } from "date-fns";
 
 type Props = {
   task: Task | null;
@@ -52,44 +46,40 @@ const EditTaskSheet: React.FC<Props> = ({
   const open = controlledOpen !== undefined ? controlledOpen : internalOpen;
   const onOpenChange = controlledOnOpenChange !== undefined ? controlledOnOpenChange : setInternalOpen;
 
-  // State for Assignment
   const [newAssignee, setNewAssignee] = useState(task?.assigned_to || "");
   const [form, setForm] = useState({
     title: task?.title || "",
     description: task?.description || "",
-    start_date: task?.start_date ? task?.start_date.slice(0, 10) : "",
     priority: task?.priority || 2,
     due_date: task?.due_date ? task?.due_date?.slice(0, 10) : "",
     status: task?.status || "",
     estimated_hours: task?.estimated_hours || "",
     actual_completion_date: task?.actual_completion_date || "",
-    is_time_managed: task?.is_time_managed || false,
-    timer_state: task?.timer_state || null,
   });
-
   const [loading, setLoading] = useState(false);
-  const [attachments, setAttachments] = useState<File[]>([]);
-  const [showTodoWarning, setShowTodoWarning] = useState(false);
-  const [pendingCount, setPendingCount] = useState(0);
+
+  // Project linkage state
+  const [projectsList, setProjectsList] = useState<any[]>([]);
+  const [milestonesList, setMilestonesList] = useState<any[]>([]);
+  const [featuresList, setFeaturesList] = useState<any[]>([]);
+  const [linkProjectId, setLinkProjectId] = useState("");
+  const [linkMilestoneId, setLinkMilestoneId] = useState("");
+  const [linkFeatureId, setLinkFeatureId] = useState("");
 
   const { users } = useUsersAndTeams();
   const { roles: currentRoles, user: currentUser } = useCurrentUserRoleAndTeams();
   const { statuses, loading: statusesLoading } = useTaskStatuses();
 
-  // --- Permission Logic ---
-  const isAdminOrManager = useMemo(() => 
-    currentRoles.some(r => ["admin", "manager", "team manager"].includes(r)), 
-    [currentRoles]
-  );
-  
-  const isUser = !isAdminOrManager;
+  const isAdmin    = useMemo(() => currentRoles.includes("admin"), [currentRoles]);
+  const isManager  = useMemo(() => currentRoles.some(r => r === "manager" || r === "team manager"), [currentRoles]);
+  const isAdminOrManager = isAdmin || isManager;
+  const isUser     = !isAdmin && !isManager;
 
-  // Logic to determine who can be assigned
   const allowedAssignUsers = useMemo(() => {
     if (isAdminOrManager) return users;
-    if (isUser && currentUser) {
+    if (isUser) {
       const myManagerName = currentUser?.user_metadata?.manager || null;
-      const myManager = users.find((u) => u.user_name === myManagerName);
+      const myManager = users.find(u => u.user_name === myManagerName);
       return myManager ? [myManager] : [];
     }
     return [];
@@ -100,237 +90,462 @@ const EditTaskSheet: React.FC<Props> = ({
     (isUser && task && task.type !== "personal" && allowedAssignUsers.length > 0)
   );
 
-  const availableHoursRemaining = useMemo(() => {
-    if (!form.start_date || !form.due_date) return 0;
-    const now = new Date();
-    const endSelection = new Date(form.due_date);
-    endSelection.setHours(23, 59, 59, 999);
-    const diffMs = endSelection.getTime() - now.getTime();
-    return diffMs <= 0 ? 0 : parseFloat((diffMs / (1000 * 60 * 60)).toFixed(1));
-  }, [form.due_date, open]);
+  // Fetch projects on open
+  useEffect(() => {
+    if (!open) return;
+    apiClient.get("/projects")
+      .then(data => setProjectsList(Array.isArray(data) ? data : []))
+      .catch(() => setProjectsList([]));
+  }, [open]);
 
+  // Fetch milestones + features when project changes
+  const fetchMilestonesAndFeatures = (projectId: string) => {
+    if (!projectId) {
+      setMilestonesList([]);
+      setFeaturesList([]);
+      return;
+    }
+    apiClient.get(`/projects/${projectId}/milestones`)
+      .then(data => setMilestonesList(Array.isArray(data) ? data : []))
+      .catch(() => setMilestonesList([]));
+    apiClient.get(`/projects/${projectId}/features`)
+      .then(data => setFeaturesList(Array.isArray(data) ? data : []))
+      .catch(() => setFeaturesList([]));
+  };
+
+  useEffect(() => {
+    fetchMilestonesAndFeatures(linkProjectId);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [linkProjectId]);
+
+  // Sync form + linkage on open
   useEffect(() => {
     if (open && task) {
       setForm({
         title: task.title,
         description: task.description || "",
         priority: task.priority || 2,
-        start_date: task.start_date ? task.start_date.slice(0, 10) : "",
         due_date: task.due_date ? task.due_date.slice(0, 10) : "",
-        status: task.status || "",
+        status: task.status && statuses.length > 0 && statuses.some(s => s.name === task.status)
+          ? task.status
+          : (statuses[0]?.name || ""),
         estimated_hours: task.estimated_hours || "",
         actual_completion_date: task.actual_completion_date || "",
-        is_time_managed: task.is_time_managed || false,
-        timer_state: task.timer_state || null,
       });
-      setNewAssignee(task.assigned_to || "");
+      setLinkProjectId(task.project_id || "");
+      setLinkMilestoneId(task.milestone_id || "");
+      setLinkFeatureId(task.feature_id || "");
+      if (task.project_id) fetchMilestonesAndFeatures(task.project_id);
     }
-  }, [open, task]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, task?.id, statuses]);
+
+  useEffect(() => {
+    setNewAssignee(task?.assigned_to || "");
+  }, [task, open]);
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
     setForm(f => ({ ...f, [name]: name === "priority" ? Number(value) : value }));
   };
 
-  // Dedicated function to handle assignment ONLY (saves time if only assignee changes)
-  const handleAssignmentUpdate = async () => {
-    if (!task) return;
+  const parseStoredDate = (value: string) => {
+    if (!value) return undefined;
+
+    const [year, month, day] = value.slice(0, 10).split("-").map(Number);
+    if (!year || !month || !day) return undefined;
+
+    return new Date(year, month - 1, day);
+  };
+
+  const updateDateField = (field: "due_date" | "actual_completion_date", date?: Date) => {
+    setForm((current) => ({
+      ...current,
+      [field]: date ? format(date, "yyyy-MM-dd") : "",
+    }));
+  };
+
+  const invalidateAll = async () => {
+    await queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
+    await queryClient.invalidateQueries({ queryKey: ['overdue-tasks'] });
+    await queryClient.invalidateQueries({ queryKey: ['analytics-tasks'] });
+    await queryClient.invalidateQueries({ queryKey: ['task-activity'] });
+    await queryClient.invalidateQueries({ queryKey: ['my-tasks'] });
+    await queryClient.invalidateQueries({ queryKey: ['dashboard-tasks'] });
+    await queryClient.refetchQueries({ queryKey: ['/api/tasks'] });
+  };
+
+  const handleAssignment = async (e: React.MouseEvent) => {
+    e.preventDefault();
+    if (newAssignee === task?.assigned_to) {
+      toast({ title: "No changes to assignment." });
+      return;
+    }
     setLoading(true);
     try {
-      await apiClient.patch(`/tasks/${task.id}`, { assigned_to: newAssignee });
+      await apiClient.updateTask(task!.id, { ...form, assigned_to: newAssignee });
       toast({ title: "Task assignee updated" });
-      queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
-      onUpdated?.();
+      await invalidateAll();
+      onOpenChange(false);
+      if (typeof onUpdated === 'function') onUpdated();
     } catch (err: any) {
-      toast({ title: "Assignment failed", description: err.message, variant: "destructive" });
-    } finally {
-      setLoading(false);
+      toast({ title: "Assignment failed", description: err.message });
     }
+    setLoading(false);
   };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!task || !currentUser) return;
-
     setLoading(true);
     try {
-      const updatePayload = {
-        ...form,
-        assigned_to: newAssignee, // Ensure assignee is included in the main update
+      const updatePayload: any = {
+        title: form.title,
+        description: form.description,
+        priority: form.priority,
+        due_date: form.due_date || null,
+        status: form.status,
         estimated_hours: form.estimated_hours ? Number(form.estimated_hours) : null,
-        actual_completion_date: form.status.toLowerCase() === "completed" 
-          ? (form.actual_completion_date || new Date().toISOString().slice(0, 10)) 
+        actual_completion_date: form.status === "completed"
+          ? (form.actual_completion_date || new Date().toISOString().slice(0, 10))
           : null,
+        project_id:   linkProjectId   || null,
+        milestone_id: linkMilestoneId || null,
+        feature_id:   linkFeatureId   || null,
       };
 
-      const response = await fetch(`/api/tasks/${task.id}`, {
-        method: "PATCH",
-        headers: { 
-          "Content-Type": "application/json",
-          "x-user-id": currentUser.id 
-        },
-        body: JSON.stringify(updatePayload)
-      });
-
-      const data = await response.json();
-
-      if (!response.ok) {
-        if (data.error === "PENDING_TODOS_REMAINING") {
-          setPendingCount(data.count);
-          setShowTodoWarning(true);
-          setLoading(false);
-          return;
-        }
-        throw new Error(data.error || "Update failed");
-      }
-
+      await apiClient.updateTask(task!.id, updatePayload);
       toast({ title: "Task updated successfully" });
-      queryClient.invalidateQueries({ queryKey: ['/api/tasks'] });
+      await invalidateAll();
       onOpenChange(false);
-      onUpdated?.();
+      if (typeof onUpdated === 'function') onUpdated();
     } catch (err: any) {
-      toast({ title: "Update failed", description: err.message, variant: "destructive" });
-    } finally {
-      setLoading(false);
+      toast({ title: "Update failed", description: err.message });
     }
+    setLoading(false);
   };
+const modules = {
+  toolbar: [
+    ["bold", "italic", "underline"],
+    [{ color: [] }],
+    [{ list: "ordered" }, { list: "bullet" }],
+  ],
+};
+  const priorityLabel = (p: number) => p === 1 ? "🔴 High" : p === 2 ? "🟡 Medium" : "🟢 Low";
 
   return (
     <Sheet open={open} onOpenChange={onOpenChange}>
       {children && <SheetTrigger asChild>{children}</SheetTrigger>}
-      <SheetContent side="right" className="w-full sm:w-[90vw] md:w-[70vw] lg:w-[50vw] lg:min-w-[800px] flex flex-col p-0">
-        <form className="flex-1 flex flex-col p-4 gap-4 overflow-y-auto" onSubmit={handleSubmit}>
-          <SheetHeader>
-            <SheetTitle>Edit Task</SheetTitle>
-            <SheetDescription>Update task details and manage organization requirements.</SheetDescription>
+      <SheetContent
+        side="right"
+        className="w-full sm:w-[90vw] md:w-[70vw] lg:w-[50vw] lg:min-w-[800px] max-w-none overflow-y-auto p-0"
+      >
+        <form className="p-3 sm:p-6 space-y-4 sm:space-y-6" onSubmit={handleSubmit}>
+
+          {/* ── Header ── */}
+          <SheetHeader className="space-y-1 pb-4 border-b border-gray-200">
+            <SheetTitle className="text-xl sm:text-2xl lg:text-3xl font-bold text-gray-900">Edit Task</SheetTitle>
+            <SheetDescription className="text-sm sm:text-base text-gray-600">
+              Update the details below and click Save Changes to apply.
+            </SheetDescription>
           </SheetHeader>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          {/* ── SECTION 1: Basic Information ── */}
+          <div className="bg-gray-50 p-3 sm:p-4 rounded-lg space-y-4">
+            <h3 className="text-sm sm:text-base font-medium text-gray-800 flex items-center">
+              <span className="bg-blue-100 text-blue-800 rounded-full w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center text-xs font-bold mr-2">1</span>
+              Basic Information
+            </h3>
             <div>
-              <label className="block mb-1 text-sm font-medium">Task Title</label>
-              <Input name="title" value={form.title} onChange={handleChange} required disabled={isUser} />
-            </div>
-            <div>
-              <label className="block mb-1 text-sm font-medium">Priority</label>
-              <select name="priority" value={form.priority} onChange={handleChange} className="w-full border rounded p-2" disabled={isUser}>
-                <option value={1}>High</option>
-                <option value={2}>Medium</option>
-                <option value={3}>Low</option>
-              </select>
-            </div>
-            <div>
-              <label className="block mb-1 text-sm font-medium">Status</label>
-              <EditTaskStatusSelect
-                currentStatus={form.status}
-                onStatusChange={(newStatus) => setForm(f => ({ ...f, status: newStatus }))}
-                disabled={statusesLoading}
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Task Title <span className="text-red-500">*</span></label>
+              <Input
+                name="title"
+                value={form.title}
+                onChange={handleChange}
+                required
+                placeholder="Enter a clear, descriptive task title"
+                className="text-base h-12"
+                disabled={isUser}
               />
             </div>
             <div>
-              <label className="block mb-1 text-sm font-medium">Due Date</label>
-              <Input name="due_date" type="date" value={form.due_date} onChange={handleChange} disabled={isUser} required />
+              <label className="block text-sm font-semibold text-gray-700 mb-2">Description</label>
+               <ReactQuill
+                modules={modules}
+                // name="description"
+                value={form.description}
+                 onChange={(val) => setForm(f => ({ ...f, description: val }))} 
+                placeholder="Provide detailed information about the task objectives, requirements, and deliverables"
+                className="text-base min-h-[100px] resize-y"
+                readOnly={isUser}
+              />
             </div>
+          </div>
 
-            {/* Assignment Section Restored */}
-            {canShowAssign && (
-              <div className="sm:col-span-2 bg-slate-50 p-3 rounded-lg border border-slate-200">
-                <label className="block mb-1 text-sm font-medium">Assign To</label>
-                <div className="flex gap-2">
-                  <select
-                    value={newAssignee}
-                    onChange={(e) => setNewAssignee(e.target.value)}
-                    className="flex-1 border rounded p-2 bg-white"
-                  >
-                    <option value="">Unassigned</option>
-                    {allowedAssignUsers.map((u) => (
-                      <option key={u.id} value={u.id}>
-                        {u.user_name ?? u.email}
-                      </option>
-                    ))}
-                  </select>
-                  <Button 
-                    type="button" 
-                    variant="secondary"
-                    size="sm"
-                    disabled={loading || newAssignee === task?.assigned_to}
-                    onClick={handleAssignmentUpdate}
-                  >
-                    Update Assignee
-                  </Button>
+          {/* ── SECTION 2: Task Settings ── */}
+          <div className="bg-green-50 p-3 sm:p-4 rounded-lg space-y-4">
+            <h3 className="text-sm sm:text-base font-medium text-gray-800 flex items-center">
+              <span className="bg-green-100 text-green-800 rounded-full w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center text-xs font-bold mr-2">2</span>
+              Task Settings
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Priority Level</label>
+                <select
+                  name="priority"
+                  value={form.priority}
+                  onChange={handleChange}
+                  className="w-full h-12 text-base border border-gray-300 rounded-lg px-4 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                  disabled={isUser}
+                >
+                  <option value={1}>🔴 High</option>
+                  <option value={2}>🟡 Medium</option>
+                  <option value={3}>🟢 Low</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Status <span className="text-red-500">*</span></label>
+                <div className="h-12 flex items-center">
+                  <div className="w-full">
+                    <EditTaskStatusSelect
+                      currentStatus={form.status}
+                      onStatusChange={(s) => setForm(f => ({ ...f, status: s }))}
+                      disabled={statusesLoading || statuses.length === 0}
+                    />
+                  </div>
                 </div>
               </div>
-            )}
-
-            {task?.todos_enabled && (
-              <div className="sm:col-span-2 border-y py-4 my-2">
-                <TaskChecklist taskId={task.id} />
-              </div>
-            )}
-
-            <div className="sm:col-span-2">
-              <label className="block mb-1 text-sm font-medium">Estimated Hours</label>
-              <Input 
-                name="estimated_hours" 
-                value={form.estimated_hours} 
-                onChange={handleChange} 
-                type="number" 
-                step="0.1" 
-                disabled={isUser && form.timer_state !== "stopped"}
-                required 
-              />
-              <p className={`text-[11px] mt-1 flex items-center gap-1 ${Number(form.estimated_hours) > availableHoursRemaining ? 'text-red-500 font-bold underline' : 'text-gray-500'}`}>
-                <AlertCircle size={12} />
-                Max available from now: {availableHoursRemaining}h
-              </p>
-            </div>
-
-            <div className="sm:col-span-2">
-              <label className="block mb-1 text-sm font-medium">Description</label>
-              <div className="border rounded-md overflow-hidden">
-                <ReactQuill 
-                  theme="snow" 
-                  modules={modules} 
-                  value={form.description} 
-                  onChange={(val) => setForm(f => ({ ...f, description: val }))} 
-                  className="h-44" 
-                  readOnly={isUser}
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Estimated Hours <span className="text-red-500">*</span></label>
+                <Input
+                  name="estimated_hours"
+                  value={form.estimated_hours}
+                  onChange={handleChange}
+                  type="number"
+                  min="0"
+                  step="0.5"
+                  placeholder="e.g. 8.5"
+                  className="text-base h-12"
+                  disabled={isUser}
+                  required
                 />
               </div>
             </div>
           </div>
 
-          <SheetFooter className="mt-auto pt-4 border-t gap-2">
-            <Button type="submit" disabled={loading} className="flex-1">
-              {loading ? <Loader2 className="h-4 w-4 animate-spin mr-2" /> : null}
-              Update Task
-            </Button>
-            <SheetClose asChild>
-              <Button type="button" variant="outline">Cancel</Button>
-            </SheetClose>
+          {/* ── SECTION 3: Timeline ── */}
+          <div className="bg-purple-50 p-3 sm:p-4 rounded-lg space-y-4">
+            <h3 className="text-sm sm:text-base font-medium text-gray-800 flex items-center">
+              <span className="bg-purple-100 text-purple-800 rounded-full w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center text-xs font-bold mr-2">3</span>
+              Timeline &amp; Scheduling
+            </h3>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 sm:gap-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">Due Date <span className="text-red-500">*</span></label>
+                <Popover>
+                  <PopoverTrigger asChild>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="h-12 w-full justify-start text-left font-normal"
+                      disabled={isUser}
+                    >
+                      <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+                      {form.due_date ? formatOrgDate(form.due_date) : "Select due date"}
+                    </Button>
+                  </PopoverTrigger>
+                  <PopoverContent className="w-auto p-0" align="start">
+                    <Calendar
+                      mode="single"
+                      selected={parseStoredDate(form.due_date)}
+                      onSelect={(date) => updateDateField("due_date", date)}
+                      initialFocus
+                    />
+                  </PopoverContent>
+                </Popover>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Format: {getOrgDateFormat()}
+                </p>
+                <input name="due_date" value={form.due_date} readOnly required hidden />
+              </div>
+              {form.status === "completed" && (
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Actual Completion Date</label>
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-12 w-full justify-start text-left font-normal"
+                        disabled={isUser}
+                      >
+                        <CalendarIcon className="mr-2 h-4 w-4 shrink-0" />
+                        {formatOrgDate(
+                          form.actual_completion_date || new Date().toISOString().slice(0, 10),
+                        )}
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent className="w-auto p-0" align="start">
+                      <Calendar
+                        mode="single"
+                        selected={parseStoredDate(form.actual_completion_date || new Date().toISOString().slice(0, 10))}
+                        onSelect={(date) => updateDateField("actual_completion_date", date)}
+                        initialFocus
+                      />
+                    </PopoverContent>
+                  </Popover>
+                  <p className="mt-2 text-xs text-muted-foreground">
+                    Format: {getOrgDateFormat()}
+                  </p>
+                </div>
+              )}
+            </div>
+          </div>
+
+          {/* ── SECTION 4: Assignment ── */}
+          {canShowAssign && (
+            <div className="bg-orange-50 p-3 sm:p-4 rounded-lg space-y-4">
+              <h3 className="text-sm sm:text-base font-medium text-gray-800 flex items-center">
+                <span className="bg-orange-100 text-orange-800 rounded-full w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center text-xs font-bold mr-2">4</span>
+                Assignment &amp; Responsibility
+              </h3>
+              <div className="flex gap-3 items-end">
+                <div className="flex-1">
+                  <label className="block text-sm font-semibold text-gray-700 mb-2">Assigned To</label>
+                  <select
+                    value={newAssignee}
+                    onChange={(e) => setNewAssignee(e.target.value)}
+                    className="w-full h-12 text-base border border-gray-300 rounded-lg px-4 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                    disabled={isUser && allowedAssignUsers.length < 1}
+                  >
+                    <option value="">— Unassigned —</option>
+                    {allowedAssignUsers.map(u => (
+                      <option key={u.id} value={u.id}>{u.user_name ?? u.email}</option>
+                    ))}
+                  </select>
+                </div>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-12 px-5 shrink-0"
+                  disabled={loading || newAssignee === task?.assigned_to}
+                  onClick={handleAssignment}
+                >
+                  {loading ? "Saving…" : "Assign"}
+                </Button>
+              </div>
+            </div>
+          )}
+
+          {/* ── SECTION 5: Project Linkage (admin/manager only) ── */}
+          {isAdminOrManager && (
+            <div className="bg-gray-50 p-3 sm:p-4 rounded-lg border-2 border-dashed border-gray-300 space-y-4">
+              <h3 className="text-sm sm:text-base font-medium text-gray-800 flex items-center">
+                <span className="bg-gray-200 text-gray-800 rounded-full w-5 h-5 sm:w-6 sm:h-6 flex items-center justify-center text-xs font-bold mr-2">
+                  {canShowAssign ? "5" : "4"}
+                </span>
+                Advanced Options
+              </h3>
+
+              <div className="bg-white p-4 rounded-lg border border-gray-200 space-y-3">
+                <div className="flex items-center mb-1 gap-2">
+                  <span>🗂️</span>
+                  <span className="text-base font-medium text-gray-700">Link to Project</span>
+                </div>
+                <p className="text-sm text-gray-500">
+                  Associate this task with a project milestone or feature.
+                </p>
+                <div>
+                  <label className="block text-sm font-semibold text-gray-700 mb-1">Project</label>
+                  <select
+                    value={linkProjectId}
+                    onChange={e => {
+                      setLinkProjectId(e.target.value);
+                      setLinkMilestoneId("");
+                      setLinkFeatureId("");
+                    }}
+                    className="w-full h-10 text-sm border border-gray-300 rounded-lg px-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                  >
+                    <option value="">— None —</option>
+                    {projectsList.map(p => (
+                      <option key={p.id} value={p.id}>{p.name}</option>
+                    ))}
+                  </select>
+                </div>
+                {linkProjectId && (
+                  <>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-1">
+                        Milestone
+                        <span className="ml-1 text-xs font-normal text-amber-600">(required to complete this task)</span>
+                      </label>
+                      <select
+                        value={linkMilestoneId}
+                        onChange={e => { setLinkMilestoneId(e.target.value); setLinkFeatureId(""); }}
+                        className="w-full h-10 text-sm border border-gray-300 rounded-lg px-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                        disabled={milestonesList.length === 0}
+                      >
+                        <option value="">— Select a milestone —</option>
+                        {milestonesList.map(m => (
+                          <option key={m.id} value={m.id}>{m.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-semibold text-gray-700 mb-1">
+                        Feature
+                        <span className="ml-1 text-xs font-normal text-gray-500">(optional)</span>
+                      </label>
+                      <select
+                        value={linkFeatureId}
+                        onChange={e => setLinkFeatureId(e.target.value)}
+                        className="w-full h-10 text-sm border border-gray-300 rounded-lg px-3 focus:ring-2 focus:ring-blue-500 focus:border-blue-500 bg-white"
+                        disabled={featuresList.length === 0}
+                      >
+                        <option value="">— Select a feature —</option>
+                        {featuresList.map(f => (
+                          <option key={f.id} value={f.id}>
+                            {f.tracking_number ? `[${f.tracking_number}] ` : ""}{f.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Footer ── */}
+          <SheetFooter className="pt-6 border-t border-gray-200">
+            <div className="flex gap-4 w-full">
+              <Button
+                type="submit"
+                disabled={loading || statusesLoading}
+                className="flex-1 h-12 text-base font-semibold bg-blue-600 hover:bg-blue-700 text-white"
+              >
+                {loading ? (
+                  <span className="flex items-center justify-center">
+                    <span className="animate-spin mr-2">⏳</span> Saving…
+                  </span>
+                ) : (
+                  <span className="flex items-center justify-center">
+                    <span className="mr-2">💾</span> Save Changes
+                  </span>
+                )}
+              </Button>
+              <SheetClose asChild>
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="h-12 px-6 text-base font-semibold"
+                  onClick={() => onOpenChange(false)}
+                >
+                  Cancel
+                </Button>
+              </SheetClose>
+            </div>
           </SheetFooter>
         </form>
-
-        <AlertDialog open={showTodoWarning} onOpenChange={setShowTodoWarning}>
-          <AlertDialogContent className="bg-white border-2 border-orange-200">
-            <AlertDialogHeader>
-              <div className="w-12 h-12 bg-orange-100 rounded-full flex items-center justify-center mb-4">
-                <span className="text-2xl">⚠️</span>
-              </div>
-              <AlertDialogTitle className="text-xl font-bold text-slate-900">
-                Incomplete Checklist
-              </AlertDialogTitle>
-              <AlertDialogDescription className="text-slate-600 text-base">
-                There are **{pendingCount} mandatory items** remaining in the checklist. 
-                You must complete all items before this task can be marked as "Completed".
-              </AlertDialogDescription>
-            </AlertDialogHeader>
-            <AlertDialogFooter>
-              <AlertDialogAction className="bg-slate-900 text-white hover:bg-slate-800">
-                I'll finish them now
-              </AlertDialogAction>
-            </AlertDialogFooter>
-          </AlertDialogContent>
-        </AlertDialog>
       </SheetContent>
     </Sheet>
   );

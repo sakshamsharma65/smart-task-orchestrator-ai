@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.37.0",
+    "@google/generative-ai": "^0.24.1",
     "@hookform/resolvers": "^3.10.0",
     "@jridgewell/trace-mapping": "^0.3.25",
     "@neondatabase/serverless": "^0.10.4",
@@ -67,6 +68,7 @@
     "express-session": "^1.18.1",
     "framer-motion": "^11.13.1",
     "google-auth-library": "^10.6.2",
+    "groq-sdk": "^1.1.2",
     "input-otp": "^1.4.2",
     "jsonwebtoken": "^9.0.2",
     "lucide-react": "^0.453.0",
@@ -75,6 +77,7 @@
     "next-themes": "^0.4.6",
     "node-cron": "^4.2.1",
     "nodemailer": "^7.0.13",
+    "openai": "^6.35.0",
     "papaparse": "^5.5.3",
     "passport": "^0.7.0",
     "passport-local": "^1.0.0",

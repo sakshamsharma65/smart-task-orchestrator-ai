@@ -35,6 +35,7 @@ import { z } from 'zod';
 import { toast } from '@/components/ui/use-toast';
 import { Plus, Edit, Trash2, Users } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { formatOrgDate } from '@/lib/dateUtils';
 
 const roleSchema = z.object({
   name: z.string().min(1, 'Role name is required'),
@@ -254,7 +255,7 @@ export default function AdminRoles() {
                   </div>
                 </TableCell>
                 <TableCell className="text-muted-foreground">
-                  {new Date(role.created_at).toLocaleDateString()}
+                  {formatOrgDate(role.created_at)}
                 </TableCell>
                 <TableCell className="text-right">
                {canEditRoles &&   <div className="flex justify-end gap-2">

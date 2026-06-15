@@ -1,17 +1,20 @@
-
 import React from "react";
 import { NavLink } from "react-router-dom";
-import { FolderKanban, Building2 } from "lucide-react";
+import { Bug, Kanban, ClipboardList } from "lucide-react";
 
-export default function ProjectManagementMenu({ collapsed }: { collapsed: boolean }) {
+export default function DefectManagementMenu({
+  collapsed,
+}: {
+  collapsed: boolean;
+}) {
   const links = [
-    { to: "/projects", label: "Projects", icon: FolderKanban },
-    { to: "/clients",  label: "Clients",  icon: Building2 },
+    { to: "/defects", label: "Defects", icon: Bug },
+    { to: "/defects/board", label: "Defect Board", icon: Kanban },
+    { to: "/defects/my", label: "My Defects", icon: ClipboardList },
   ];
 
   return (
     <div>
-    
       <div>
         <ul className="flex w-full min-w-0 flex-col gap-1">
           {links.map(({ to, label, icon: Icon }) => (
@@ -25,7 +28,9 @@ export default function ProjectManagementMenu({ collapsed }: { collapsed: boolea
                 }
               >
                 <Icon className="w-4 h-4 shrink-0" />
-                {!collapsed && <span className="truncate">{label}</span>}
+                {!collapsed && (
+                  <span className="truncate">{label}</span>
+                )}
               </NavLink>
             </li>
           ))}

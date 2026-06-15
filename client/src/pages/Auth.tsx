@@ -65,12 +65,14 @@ const AuthPage: React.FC = () => {
       // Navigation will happen automatically via useEffect when user state changes
     } 
     catch (error: any) {
+      
   if (error.status === 403 && error.message.toLowerCase().includes("deactivated")) {
     toast({
       title: "Account Deactivated",
       description: "Your account is deactivated. Please contact your admin.",
       variant: "destructive",
     }
+    
   );
     return;
   }
@@ -163,7 +165,7 @@ const onOtpSubmit = async (e: React.FormEvent) => {
         <div className="absolute top-1/2 left-1/2 transform -translate-x-1/2 -translate-y-1/2 w-96 h-96 bg-blue-400/5 rounded-full blur-3xl animate-ping"></div>
       </div>
       
-      <div className="relative z-10 min-h-screen flex items-center justify-center px-4 py-12">
+      <div className="relative z-10 min-h-screen flex items-center justify-center px-6 py-12">
         <div className="w-full max-w-6xl mx-auto grid lg:grid-cols-2 gap-8 items-center">
           
           {/* Left Side - Branding & Features */}
@@ -242,13 +244,13 @@ const onOtpSubmit = async (e: React.FormEvent) => {
 <div className="flex items-center justify-center">
   <div className="w-full max-w-md">
     {/* Glass morphism card */}
-    <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl p-8 shadow-2xl">
+    <div className="bg-white/10 backdrop-blur-xl border border-white/20 rounded-2xl p-4 shadow-2xl mb-4">
       
       {!mfaPending ? (
         /* --- LOGIN STATE --- */
         <>
           <div className="text-center mb-8">
-            <div className="lg:hidden flex justify-center mb-6">
+            <div className="lg:hidden flex justify-center mb-4">
               <Logo />
             </div>
             <h2 className="text-3xl font-bold text-white mb-2">Welcome Back</h2>
@@ -328,7 +330,7 @@ const onOtpSubmit = async (e: React.FormEvent) => {
             <div className="text-center">
               <button 
                 type="button" 
-                onClick={() => navigate("/forgot-password")} 
+                onClick={() => navigate("/forgot-passwordflow")} 
                 className="text-sm text-white hover:text-blue-300 transition-colors"
               >
                 Forgot Password?
@@ -398,16 +400,28 @@ const onOtpSubmit = async (e: React.FormEvent) => {
           </form>
         </>
       )}
-
+      
+     <div className="border-t text-center border-white/10 pt-6">
+                    <p className="text-slate-500 text-xs mb-1.5">External client access?</p>
+                    <a
+                      href="/portal/login"
+                      className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 transition-colors font-medium"
+                    >
+                      <ShieldCheck className="h-3.5 w-3.5" />
+                      Sign in to the Client Portal →
+                    </a>
+                  </div>
       {/* Shared Footer Info */}
       <div className="mt-8 text-center border-t border-white/10 pt-6">
+
         <p className="text-slate-400 text-sm">Secured by enterprise-grade encryption</p>
         <div className="flex items-center justify-center space-x-2 mt-2">
           <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse"></div>
           <span className="text-green-400 text-sm font-medium">System Online</span>
         </div>
+           
         <div className="mt-4 text-xs text-slate-500">
-          &copy; {new Date().getFullYear()} TaskRep. All rights reserved.
+          &copy; {new Date().getFullYear()} Tazq. All rights reserved.
         </div>
       </div>
 

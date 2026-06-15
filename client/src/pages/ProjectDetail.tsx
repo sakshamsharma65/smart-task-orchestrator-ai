@@ -15,34 +15,23 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import CreateTaskSheet from "@/components/CreateTaskSheet";
 import EditTaskSheet from "@/components/EditTaskSheet";
+import CreateDefectSheet from "@/components/CreateDefectSheet";
+import DefectDetailsSheet from "@/components/DefectDetailsSheet";
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
+import { formatOrgDate } from "@/lib/dateUtils";
 import {
   ArrowLeft, CheckCircle2, Users, Milestone, Layers, Plus, Pencil, Trash2,
   Calendar, Clock, DollarSign, History, UserCircle, Tag, Grip, ChevronDown, ChevronUp,
-  Search, ListTodo, ExternalLink, Flag,
+  Search, ListTodo, ExternalLink, Flag, Bug, Building2,
 } from "lucide-react";
 import { format } from "date-fns";
 import type {
   Project, ProjectTemplate, ProjectMember, ProjectMemberHistory,
   ProjectMilestone, MilestoneStage, ProjectTemplateStage,
-  ProjectFeatureGroup, ProjectFeature, User, TaskStatus,
+  ProjectFeatureGroup, ProjectFeature, User, Task, TaskStatus,
 } from "@shared/schema";
-import type { Task as ClientTask } from "@/integrations/supabase/tasks";
-
-type ProjectTask = ClientTask & {
-  task_number?: number | null;
-};
-
-type ProjectWithAccess = Project & {
-  _access?: {
-    canManageProject?: boolean;
-    canAddTasks?: boolean;
-    isDirectMember?: boolean;
-    isVisibleViaManagedUser?: boolean;
-  };
-};
-
+type ProjectMemberWithUser = ProjectMember & { user_name?: string | null; email?: string | null };
 const STATUS_COLORS: Record<string, string> = {
   planning: "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-200",
   active: "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200",
@@ -184,14 +173,14 @@ function MilestonePanel({ milestone, project, templateId }: {
           )}
           <div className="flex items-center gap-3 text-xs text-gray-400 mt-1">
             {milestone.start_date && (
-              <span>{format(new Date(milestone.start_date), "MMM d, yyyy")} →</span>
+              <span>{formatOrgDate(milestone.start_date)} →</span>
             )}
             {milestone.end_date && (
-              <span>{format(new Date(milestone.end_date), "MMM d, yyyy")}</span>
+              <span>{formatOrgDate(milestone.end_date)}</span>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 mt-10">
           <Select
             value={milestone.status}
             onValueChange={(v) => { updateMilestoneStatus.mutate(v); }}
@@ -222,7 +211,7 @@ function MilestonePanel({ milestone, project, templateId }: {
                   Inherit from Template
                 </Button>
               )}
-         <Button size="sm" className="h-7 text-xs gap-1"
+              <Button size="sm" className="h-7 text-xs gap-1"
                 onClick={() => { setEditStage(null); setStageForm({ name: "", description: "", color: "#6b7280", status: "pending" }); setStageDialog(true); }}>
                 <Plus className="h-3 w-3" /> Add Stage
               </Button>
@@ -312,32 +301,33 @@ export default function ProjectDetail() {
   const { id } = useParams<{ id: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  const { data: userRoles = [] } = useQuery({
-  queryKey: ["/api/users", user?.id, "roles"],
-  queryFn: () => apiClient.get(`/users/${user?.id}/roles`),
-  enabled: !!user?.id,
-});
-const isUser = userRoles.some(
-  (r: any) => r.role?.name?.toLowerCase() === "user"
-);
-const isAdmin = userRoles.some(
-  (r: any) => r.role?.name?.toLowerCase() === "admin"
-);
-console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
   const { toast } = useToast();
 
   // Project data
-  const { data: project, isLoading } = useQuery<ProjectWithAccess>({
+  const { data: project, isLoading } = useQuery<Project>({
     queryKey: ["/api/projects", id],
     queryFn: () => apiClient.get(`/projects/${id}`),
     enabled: !!id,
   });
-  const canManageProject = isAdmin || !!project?._access?.canManageProject;
-  const canAddProjectTasks = project?._access?.canAddTasks ?? !isUser;
 
   const { data: templates = [] } = useQuery<ProjectTemplate[]>({
     queryKey: ["/api/project-templates"],
     queryFn: () => apiClient.get("/project-templates"),
+  });
+
+  const { data: clients = [] } = useQuery<any[]>({
+    queryKey: ["/api/clients"],
+    queryFn: () => apiClient.get("/clients"),
+  });
+
+  const linkedClient = (project as any)?.client_id
+    ? (clients as any[]).find((c: any) => c.id === (project as any).client_id)
+    : null;
+
+  const { data: clientContacts = [] } = useQuery<any[]>({
+    queryKey: ["/api/clients", (project as any)?.client_id, "contacts"],
+    queryFn: () => apiClient.get(`/clients/${(project as any).client_id}/contacts`),
+    enabled: !!(project as any)?.client_id,
   });
 
   const { data: users = [] } = useQuery<User[]>({
@@ -345,7 +335,7 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
     queryFn: () => apiClient.get("/users"),
   });
 
-  const { data: members = [] } = useQuery<ProjectMember[]>({
+  const { data: members = [] } = useQuery<ProjectMemberWithUser[]>({
     queryKey: ["/api/projects", id, "members"],
     queryFn: () => apiClient.get(`/projects/${id}/members`),
     enabled: !!id,
@@ -375,7 +365,7 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
     enabled: !!id,
   });
 
-  const { data: projectTasks = [] } = useQuery<ProjectTask[]>({
+  const { data: projectTasks = [], refetch: refetchTasks } = useQuery<Task[]>({
     queryKey: ["/api/projects", id, "tasks"],
     queryFn: () => apiClient.get(`/projects/${id}/tasks`),
     enabled: !!id,
@@ -391,15 +381,36 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
   const [taskMilestoneFilter, setTaskMilestoneFilter] = useState("all");
   const [taskStatusFilter, setTaskStatusFilter]       = useState("all");
   const [taskAssigneeFilter, setTaskAssigneeFilter]   = useState("all");
-  const [editingTask, setEditingTask]       = useState<ProjectTask | null>(null);
+  const [editingTask, setEditingTask]       = useState<Task | null>(null);
   const [editTaskOpen, setEditTaskOpen]     = useState(false);
+
+  // Defects tab state
+  const [createDefectOpen, setCreateDefectOpen] = useState(false);
+  const [selectedDefect, setSelectedDefect]     = useState<any>(null);
+  const [defectSearch, setDefectSearch]         = useState("");
+  const [defectStatusFilter, setDefectStatusFilter] = useState("all");
+  const [defectSeverityFilter, setDefectSeverityFilter] = useState("all");
+
+  const { data: projectDefects = [], refetch: refetchDefects } = useQuery<any[]>({
+    queryKey: ["/api/projects", id, "defects"],
+    queryFn: () => apiClient.get(`/projects/${id}/defects`),
+    enabled: !!id,
+  });
+
+  const filteredDefects = projectDefects.filter((d: any) => {
+    const q = defectSearch.toLowerCase();
+    const matchesSearch = !q || d.title.toLowerCase().includes(q);
+    const matchesStatus   = defectStatusFilter   === "all" || d.status   === defectStatusFilter;
+    const matchesSeverity = defectSeverityFilter === "all" || d.severity === defectSeverityFilter;
+    return matchesSearch && matchesStatus && matchesSeverity;
+  });
 
   // State for dialogs
   const [confirmDialog, setConfirmDialog] = useState(false);
   const [deleteDialog, setDeleteDialog] = useState(false);
   const [memberDialog, setMemberDialog] = useState(false);
-  const [editMember, setEditMember] = useState<ProjectMember | null>(null);
-  const [memberForm, setMemberForm] = useState({ user_id: "", member_type: "member", project_role: "", allocation_percentage: 100 });
+  const [editMember, setEditMember] = useState<ProjectMemberWithUser  | null>(null);
+  const [memberForm, setMemberForm] = useState({ user_id: "", contact_id: "", member_user_type: "internal", member_type: "member", project_role: "", allocation_percentage: 100 });
   const [milestoneDialog, setMilestoneDialog] = useState(false);
   const [editMilestone, setEditMilestone] = useState<ProjectMilestone | null>(null);
   const [msForm, setMsForm] = useState({ name: "", description: "", start_date: "", end_date: "", status: "not_started", inherit_stages: true });
@@ -438,10 +449,11 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", id, "members"] });
       queryClient.invalidateQueries({ queryKey: ["/api/projects", id, "members", "history"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects-members-all"] });
       toast({ title: editMember ? "Member updated" : "Member added" });
       setMemberDialog(false);
       setEditMember(null);
-      setMemberForm({ user_id: "", member_type: "member", project_role: "", allocation_percentage: 100 });
+      setMemberForm({ user_id: "", contact_id: "", member_user_type: "internal", member_type: "member", project_role: "", allocation_percentage: 100 });
     },
     onError: () => toast({ title: "Failed to add member", variant: "destructive" }),
   });
@@ -452,6 +464,7 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", id, "members"] });
       queryClient.invalidateQueries({ queryKey: ["/api/projects", id, "members", "history"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects-members-all"] });
       toast({ title: "Member updated" });
       setMemberDialog(false);
       setEditMember(null);
@@ -464,6 +477,7 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/projects", id, "members"] });
       queryClient.invalidateQueries({ queryKey: ["/api/projects", id, "members", "history"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/projects-members-all"] });
       toast({ title: "Member removed" });
     },
   });
@@ -570,7 +584,7 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
   });
 
   // Group tasks by milestone for Tasks tab
-  const tasksByMilestone: { milestoneId: string | null; milestoneName: string; tasks: ProjectTask[] }[] = [];
+  const tasksByMilestone: { milestoneId: string | null; milestoneName: string; tasks: Task[] }[] = [];
   const milestonesWithTasks = milestones.filter((ms) => filteredProjectTasks.some((t) => t.milestone_id === ms.id));
   milestonesWithTasks.forEach((ms) => {
     tasksByMilestone.push({
@@ -593,19 +607,22 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
   };
 
   // Helpers
-  const getUserName = (userId: string | null, memberData?: ProjectMember) => {
+  const getUserName = (userId: string | null) => {
     if (!userId) return "Unknown";
-    
-    // First, check if user data is embedded in member object
-    if (memberData && ('user_name' in memberData || 'email' in memberData)) {
-      return (memberData as any).user_name ?? (memberData as any).email ?? "Unknown";
-    }
-    
-    // Fallback to looking up in users array
-    const u = users.find(u => u.id === userId );
-    
+    const u = users.find(u => u.id === userId);
     return u?.user_name ?? u?.email ?? "Unknown";
   };
+
+  const getMemberDisplayName = (m: any): string => {
+    if ((m.member_user_type === "client_contact" || m.contact_id) && !m.user_id) {
+      const contact = (clientContacts as any[]).find((c: any) => c.id === m.contact_id);
+      return contact?.name ?? "Client Contact";
+    }
+    return m.user_name ?? m.email ?? getUserName(m.user_id);
+  };
+
+  const getMemberTypeLabel = (m: any): "internal" | "client_contact" =>
+    m.member_user_type === "client_contact" || (m.contact_id && !m.user_id) ? "client_contact" : "internal";
 
   const getTemplateName = () => {
     if (!project?.template_id) return null;
@@ -618,7 +635,9 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
   const openEditMember = (m: ProjectMember) => {
     setEditMember(m);
     setMemberForm({
-      user_id: m.user_id,
+      user_id: m.user_id ?? "",
+      contact_id: (m as any).contact_id ?? "",
+      member_user_type: (m as any).member_user_type ?? "internal",
       member_type: m.member_type,
       project_role: m.project_role ?? "",
       allocation_percentage: m.allocation_percentage ?? 100,
@@ -631,8 +650,8 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
     setMsForm({
       name: ms.name,
       description: ms.description ?? "",
-      start_date: ms.start_date ? format(new Date(ms.start_date), "yyyy-MM-dd") : "",
-      end_date: ms.end_date ? format(new Date(ms.end_date), "yyyy-MM-dd") : "",
+      start_date: ms.start_date ? formatOrgDate(ms.start_date) : "",
+      end_date: ms.end_date ? formatOrgDate(ms.end_date) : "",
       status: ms.status,
       inherit_stages: false,
     });
@@ -660,7 +679,10 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
       </div>
     );
   }
-
+// 👇 YAHAN ACCESS EXTRACT KAREIN
+  const canManage = (project as any)?._access?.canManageProject ?? false;
+  const canAddTasks = (project as any)?._access?.canAddTasks ?? false;
+  console.log("Access rights:", (project as any)?._access);
   return (
     <div className="p-6 space-y-6">
       {/* Top bar */}
@@ -674,36 +696,57 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
             <Badge className={`text-sm border-0 ${STATUS_COLORS[project.status]}`}>
               {project.status.replace("_", " ")}
             </Badge>
-            {project.is_confirmed && (
+            {project.is_confirmed  && canManage && (
               <Badge className="text-sm border-0 bg-purple-100 text-purple-800 dark:bg-purple-900 dark:text-purple-200">
                 <CheckCircle2 className="h-3 w-3 mr-1" /> Confirmed
               </Badge>
             )}
           </div>
-          {project.client_name && (
-            <p className="text-sm text-gray-500 dark:text-gray-400 mt-1">{project.client_name}</p>
-          )}
+          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+            {(project as any).is_client_project && project.client_name ? (
+              linkedClient ? (
+                <Link
+                  to={`/clients/${linkedClient.id}`}
+                  className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-orange-50 text-orange-700 border border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800 hover:bg-orange-100 dark:hover:bg-orange-900/50 transition-colors"
+                >
+                  <Building2 className="h-3.5 w-3.5 shrink-0" />
+                  {project.client_name}
+                  <ExternalLink className="h-3 w-3 opacity-60" />
+                </Link>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-orange-50 text-orange-700 border border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800">
+                  <Building2 className="h-3.5 w-3.5 shrink-0" />
+                  {project.client_name}
+                </span>
+              )
+            ) : !(project as any).is_client_project ? (
+              <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-gray-100 text-gray-500 border border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700">
+                <Building2 className="h-3.5 w-3.5 shrink-0" />
+                Internal Project
+              </span>
+            ) : null}
+          </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          {!project.is_confirmed && canManageProject && (
+          {!project.is_confirmed && (
             <Button onClick={() => setConfirmDialog(true)} className="bg-green-600 hover:bg-green-700 text-white">
               <CheckCircle2 className="h-4 w-4 mr-1.5" /> Confirm Project
             </Button>
           )}
-    {canManageProject &&     <Button
+        {canManage && (  <Button
             variant="outline"
             size="sm"
             className="text-red-600 border-red-200 hover:bg-red-50 hover:border-red-400 dark:text-red-400 dark:border-red-800 dark:hover:bg-red-950"
             onClick={() => setDeleteDialog(true)}
           >
             <Trash2 className="h-4 w-4 mr-1.5" /> Delete Project
-          </Button>}
+          </Button>)}
         </div>
       </div>
 
       {/* Tabs */}
       <Tabs defaultValue="overview">
-        <TabsList className="grid w-full grid-cols-5">
+        <TabsList className="grid w-full grid-cols-6">
           <TabsTrigger value="overview">Overview</TabsTrigger>
           <TabsTrigger value="members">
             <Users className="h-3.5 w-3.5 mr-1" />Members ({members.length})
@@ -717,6 +760,15 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
           <TabsTrigger value="tasks">
             <ListTodo className="h-3.5 w-3.5 mr-1" />Tasks ({projectTasks.length})
           </TabsTrigger>
+          <TabsTrigger value="defects" className="gap-1">
+            <Bug className="h-3.5 w-3.5" />
+            Defects
+            {projectDefects.length > 0 && (
+              <span className="ml-1 bg-orange-100 text-orange-700 text-[10px] font-bold px-1.5 py-0.5 rounded-full">
+                {projectDefects.length}
+              </span>
+            )}
+          </TabsTrigger>
         </TabsList>
 
         {/* ===== OVERVIEW TAB ===== */}
@@ -728,6 +780,32 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
                 <CardTitle className="text-sm font-semibold">Project Information</CardTitle>
               </CardHeader>
               <CardContent className="space-y-3 text-sm">
+                {/* Client info row */}
+                <div className="flex justify-between items-center">
+                  <span className="text-gray-500">Scope</span>
+                  {(project as any).is_client_project && project.client_name ? (
+                    linkedClient ? (
+                      <Link
+                        to={`/clients/${linkedClient.id}`}
+                        className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-orange-50 text-orange-700 border border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800 hover:bg-orange-100 dark:hover:bg-orange-900/50 transition-colors"
+                      >
+                        <Building2 className="h-3.5 w-3.5 shrink-0" />
+                        {project.client_name}
+                        <ExternalLink className="h-3 w-3 opacity-60" />
+                      </Link>
+                    ) : (
+                      <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-orange-50 text-orange-700 border border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800">
+                        <Building2 className="h-3.5 w-3.5 shrink-0" />
+                        {project.client_name}
+                      </span>
+                    )
+                  ) : (
+                    <span className="inline-flex items-center gap-1.5 text-xs font-medium px-2.5 py-1 rounded-full bg-gray-100 text-gray-500 border border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700">
+                      <Building2 className="h-3.5 w-3.5 shrink-0" />
+                      Internal
+                    </span>
+                  )}
+                </div>
                 <div className="flex justify-between">
                   <span className="text-gray-500">Type</span>
                   <span>{PROJECT_TYPE_LABELS[project.project_type] ?? project.project_type}</span>
@@ -741,13 +819,13 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
                 {project.start_date && (
                   <div className="flex justify-between">
                     <span className="text-gray-500">Start Date</span>
-                    <span>{format(new Date(project.start_date), "MMM d, yyyy")}</span>
+                    <span>{formatOrgDate(project.start_date)}</span>
                   </div>
                 )}
                 {project.projected_end_date && (
                   <div className="flex justify-between">
                     <span className="text-gray-500">Projected End</span>
-                    <span>{format(new Date(project.projected_end_date), "MMM d, yyyy")}</span>
+                    <span>{formatOrgDate(project.projected_end_date)}</span>
                   </div>
                 )}
                 {project.total_effort_hours && (
@@ -781,9 +859,16 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
               <CardContent className="space-y-3">
                 {pm ? (
                   <div className="flex items-center gap-3 p-2 rounded-lg bg-blue-50 dark:bg-blue-900/20">
-                    <UserCircle className="h-8 w-8 text-blue-500 shrink-0" />
+                    {getMemberTypeLabel(pm) === "client_contact"
+                      ? <Building2 className="h-8 w-8 text-orange-400 shrink-0" />
+                      : <UserCircle className="h-8 w-8 text-blue-500 shrink-0" />}
                     <div>
-                      <p className="text-sm font-medium">{getUserName(pm.user_id, pm)}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm font-medium">{getMemberDisplayName(pm)}</p>
+                        {getMemberTypeLabel(pm) === "client_contact" && (
+                          <span className="text-[10px] font-semibold px-1 py-0.5 rounded bg-orange-100 text-orange-600 border border-orange-200">Client</span>
+                        )}
+                      </div>
                       <p className="text-xs text-blue-600 dark:text-blue-400">Project Manager {pm.allocation_percentage}%</p>
                     </div>
                   </div>
@@ -794,7 +879,13 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
                   <div className="space-y-2">
                     {teamMembers.slice(0, 4).map((m) => (
                       <div key={m.id} className="flex items-center justify-between text-sm">
-                        <span>{getUserName(m.user_id, m)}</span>
+                        <div className="flex items-center gap-1.5">
+                          {getMemberTypeLabel(m) === "client_contact" && <Building2 className="h-3 w-3 text-orange-400 shrink-0" />}
+                          <span>{getMemberDisplayName(m)}</span>
+                          {getMemberTypeLabel(m) === "client_contact" && (
+                            <span className="text-[10px] font-semibold px-1 py-0.5 rounded bg-orange-100 text-orange-600 border border-orange-200">Client</span>
+                          )}
+                        </div>
                         <div className="flex items-center gap-2">
                           {m.project_role && <Badge variant="outline" className="text-xs">{m.project_role}</Badge>}
                           <span className="text-xs text-gray-400">{m.allocation_percentage}%</span>
@@ -841,9 +932,11 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
               <Button variant="outline" size="sm" onClick={() => setShowHistory(!showHistory)}>
                 <History className="h-3.5 w-3.5 mr-1" /> {showHistory ? "Hide" : "Show"} History
               </Button>
-             {canManageProject &&  <Button size="sm" onClick={() => { setEditMember(null); setMemberForm({ user_id: "", member_type: "member", project_role: "", allocation_percentage: 100 }); setMemberDialog(true); }}>
-                <Plus className="h-3.5 w-3.5 mr-1" /> Add Member
-              </Button>}
+         {canAddTasks && (
+            <Button size="sm" onClick={() => { setEditMember(null); setMemberForm({ user_id: "", contact_id: "", member_user_type: "internal", member_type: "member", project_role: "", allocation_percentage: 100 }); setMemberDialog(true); }}>
+              <Plus className="h-3.5 w-3.5 mr-1" /> Add Member
+            </Button>
+          )}
             </div>
           </div>
 
@@ -853,13 +946,20 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
               <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Project Manager</p>
               <Card className="border-blue-200 dark:border-blue-800">
                 <CardContent className="flex items-center gap-3 p-4">
-                  <UserCircle className="h-10 w-10 text-blue-500" />
+                  {getMemberTypeLabel(pm) === "client_contact"
+                    ? <Building2 className="h-10 w-10 text-orange-400 shrink-0" />
+                    : <UserCircle className="h-10 w-10 text-blue-500 shrink-0" />}
                   <div className="flex-1">
-                    <p className="font-medium">{getUserName(pm.user_id, pm)}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium">{getMemberDisplayName(pm)}</p>
+                      {getMemberTypeLabel(pm) === "client_contact"
+                        ? <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800"><Building2 className="h-2.5 w-2.5" />Client</span>
+                        : <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600 border border-blue-200 dark:bg-blue-900/30 dark:text-blue-300 dark:border-blue-800">Internal</span>}
+                    </div>
                     <div className="flex items-center gap-2 mt-0.5">
                       {pm.project_role && <Badge variant="outline" className="text-xs">{pm.project_role}</Badge>}
                       <span className="text-xs text-gray-400">{pm.allocation_percentage}% allocation</span>
-                      {pm.joined_at && <span className="text-xs text-gray-400">Since {format(new Date(pm.joined_at), "MMM d, yyyy")}</span>}
+                      {pm.joined_at && <span className="text-xs text-gray-400">Since {formatOrgDate(pm.joined_at)}</span>}
                     </div>
                   </div>
                   <div className="flex gap-1">
@@ -883,23 +983,30 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
                 {teamMembers.map((m) => (
                   <Card key={m.id}>
                     <CardContent className="flex items-center gap-3 p-3">
-                      <UserCircle className="h-8 w-8 text-gray-400" />
+                      {getMemberTypeLabel(m) === "client_contact"
+                        ? <Building2 className="h-8 w-8 text-orange-400 shrink-0" />
+                        : <UserCircle className="h-8 w-8 text-gray-400 shrink-0" />}
                       <div className="flex-1">
-                        <p className="text-sm font-medium">{getUserName(m.user_id, m)}</p>
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium">{getMemberDisplayName(m)}</p>
+                          {getMemberTypeLabel(m) === "client_contact"
+                            ? <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700 border border-orange-200 dark:bg-orange-900/30 dark:text-orange-300 dark:border-orange-800"><Building2 className="h-2.5 w-2.5" />Client</span>
+                            : <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-gray-100 text-gray-500 border border-gray-200 dark:bg-gray-800 dark:text-gray-400 dark:border-gray-700">Internal</span>}
+                        </div>
                         <div className="flex items-center gap-2 mt-0.5">
                           {m.project_role && <Badge variant="outline" className="text-xs">{m.project_role}</Badge>}
                           <span className="text-xs text-gray-400">{m.allocation_percentage}% allocation</span>
-                          {m.joined_at && <span className="text-xs text-gray-400">Since {format(new Date(m.joined_at), "MMM d, yyyy")}</span>}
+                          {m.joined_at && <span className="text-xs text-gray-400">Since {formatOrgDate(m.joined_at)}</span>}
                         </div>
                       </div>
-                      <div className="flex gap-1">
-                       {canManageProject &&     <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEditMember(m)}>
+                    {canManage && ( <div className="flex gap-1">
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={() => openEditMember(m)}>
                           <Pencil className="h-3.5 w-3.5" />
-                        </Button>}
-                       {canManageProject &&  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500 hover:text-red-700" onClick={() => removeMemberMutation.mutate(m.id)}>
+                        </Button>
+                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500 hover:text-red-700" onClick={() => removeMemberMutation.mutate(m.id)}>
                           <Trash2 className="h-3.5 w-3.5" />
-                        </Button>}
-                      </div>
+                        </Button>
+                      </div>)} 
                     </CardContent>
                   </Card>
                 ))}
@@ -931,16 +1038,28 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
                     </tr>
                   </thead>
                   <tbody>
-                    {memberHistory.map((h) => (
-                      <tr key={h.id} className="border-t dark:border-gray-700">
-                        <td className="p-3">{getUserName(h.user_id)}</td>
-                        <td className="p-3"><Badge variant="outline" className="text-xs">{h.action.replace("_", " ")}</Badge></td>
-                        <td className="p-3">{h.project_role ?? "-"}</td>
-                        <td className="p-3">{h.allocation_percentage != null ? `${h.allocation_percentage}%` : "-"}</td>
-                        <td className="p-3">{h.action_date ? format(new Date(h.action_date), "MMM d, yyyy") : "-"}</td>
-                        <td className="p-3">{h.acted_by ? getUserName(h.acted_by) : "-"}</td>
-                      </tr>
-                    ))}
+                    {memberHistory.map((h: any) => {
+                      const isContact = h.member_user_type === "client_contact" || (h.contact_id && !h.user_id);
+                      const displayName = isContact
+                        ? ((clientContacts as any[]).find((c: any) => c.id === h.contact_id)?.name ?? "Client Contact")
+                        : getUserName(h.user_id);
+                      return (
+                        <tr key={h.id} className="border-t dark:border-gray-700">
+                          <td className="p-3">
+                            <div className="flex items-center gap-1.5">
+                              {isContact ? <Building2 className="h-3 w-3 text-orange-400 shrink-0" /> : null}
+                              <span>{displayName}</span>
+                              {isContact && <span className="text-[10px] px-1 py-0.5 rounded bg-orange-50 text-orange-600 border border-orange-200 dark:bg-orange-900/20 dark:text-orange-400">Client</span>}
+                            </div>
+                          </td>
+                          <td className="p-3"><Badge variant="outline" className="text-xs">{h.action.replace("_", " ")}</Badge></td>
+                          <td className="p-3">{h.project_role ?? "-"}</td>
+                          <td className="p-3">{h.allocation_percentage != null ? `${h.allocation_percentage}%` : "-"}</td>
+                          <td className="p-3">{h.action_date ? formatOrgDate(h.action_date) : "-"}</td>
+                          <td className="p-3">{h.acted_by ? getUserName(h.acted_by) : "-"}</td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -952,9 +1071,9 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
         <TabsContent value="milestones" className="mt-4 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="font-semibold">Milestones</h3>
-          {canManageProject &&  <Button size="sm" onClick={() => { setEditMilestone(null); setMsForm({ name: "", description: "", start_date: "", end_date: "", status: "not_started", inherit_stages: true }); setMilestoneDialog(true); }}>
+         {canManage && (  <Button size="sm" onClick={() => { setEditMilestone(null); setMsForm({ name: "", description: "", start_date: "", end_date: "", status: "not_started", inherit_stages: true }); setMilestoneDialog(true); }}>
               <Plus className="h-3.5 w-3.5 mr-1" /> Add Milestone
-            </Button>}
+            </Button>)}
           </div>
 
           {milestones.length === 0 ? (
@@ -967,14 +1086,14 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
               {milestones.map((ms) => (
                 <div key={ms.id} className="relative">
                   <div className="absolute top-4 right-4 flex gap-1 z-10">
-                    {canManageProject && <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-60 hover:opacity-100"
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-60 hover:opacity-100"
                       onClick={() => openEditMilestone(ms)}>
                       <Pencil className="h-3 w-3" />
-                    </Button>}
-                   {canManageProject &&  <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-60 hover:opacity-100 text-red-500"
+                    </Button>
+                    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 opacity-60 hover:opacity-100 text-red-500"
                       onClick={() => deleteMilestoneMutation.mutate(ms.id)}>
                       <Trash2 className="h-3 w-3" />
-                    </Button>}
+                    </Button>
                   </div>
                   <MilestonePanel
                     milestone={ms}
@@ -992,12 +1111,14 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
           <div className="flex items-center justify-between">
             <h3 className="font-semibold">Feature Groups & Features</h3>
             <div className="flex gap-2">
-              {canManageProject && <Button variant="outline" size="sm" onClick={() => { setEditFeatureGroup(null); setFgForm({ name: "", description: "" }); setFeatureGroupDialog(true); }}>
+            {canManage &&( <Button variant="outline" size="sm" onClick={() => { setEditFeatureGroup(null); setFgForm({ name: "", description: "" }); setFeatureGroupDialog(true); }}>
                 <Plus className="h-3.5 w-3.5 mr-1" /> Add Group
-              </Button>}
-              {canManageProject && <Button size="sm" onClick={() => { setEditFeature(null); setFeatureForm({ name: "", description: "", feature_group_id: "", status: "not_started" }); setFeatureDialog(true); }}>
+              </Button>)} 
+           {canManage && (
+              <Button size="sm" onClick={() => { setEditFeature(null); setFeatureForm({ name: "", description: "", feature_group_id: "", status: "not_started" }); setFeatureDialog(true); }}>
                 <Plus className="h-3.5 w-3.5 mr-1" /> Add Feature
-              </Button>}
+              </Button>
+            )}
             </div>
           </div>
 
@@ -1014,7 +1135,7 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
                   <p className="text-xs font-medium text-gray-500 uppercase tracking-wide mb-2">Ungrouped Features</p>
                   <div className="space-y-2">
                     {features.filter(f => !f.feature_group_id).map((f) => (
-                      <FeatureRow key={f.id} feature={f} canManageProject={canManageProject}
+                      <FeatureRow key={f.id} feature={f} projectId={id!}
                         onEdit={() => { setEditFeature(f); setFeatureForm({ name: f.name, description: f.description ?? "", feature_group_id: f.feature_group_id ?? "", status: f.status }); setFeatureDialog(true); }}
                         onDelete={() => deleteFeatureMutation.mutate(f.id)}
                         onStatusChange={(status) => updateFeatureMutation.mutate({ fId: f.id, data: { status } })} />
@@ -1036,26 +1157,24 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
                       {fg.description && <p className="text-xs text-gray-400">{fg.description}</p>}
                     </div>
                     <div className="flex gap-1">
-                      {canManageProject && (
-                        <Button variant="ghost" size="sm" className="h-7 w-7 p-0"
-                          onClick={() => { setEditFeatureGroup(fg); setFgForm({ name: fg.name, description: fg.description ?? "" }); setFeatureGroupDialog(true); }}>
-                          <Pencil className="h-3 w-3" />
-                        </Button>
-                      )}
-                   {canManageProject &&    <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500"
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0"
+                        onClick={() => { setEditFeatureGroup(fg); setFgForm({ name: fg.name, description: fg.description ?? "" }); setFeatureGroupDialog(true); }}>
+                        <Pencil className="h-3 w-3" />
+                      </Button>
+                      <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500"
                         onClick={() => deleteFGMutation.mutate(fg.id)}>
                         <Trash2 className="h-3 w-3" />
-                      </Button>}
-                      {canManageProject && <Button variant="ghost" size="sm" className="h-7 text-xs px-2"
+                      </Button>
+                      <Button variant="ghost" size="sm" className="h-7 text-xs px-2"
                         onClick={() => { setEditFeature(null); setFeatureForm({ name: "", description: "", feature_group_id: fg.id, status: "not_started" }); setFeatureDialog(true); }}>
                         <Plus className="h-3 w-3 mr-1" /> Feature
-                      </Button>}
+                      </Button>
                     </div>
                   </div>
                   {features.filter(f => f.feature_group_id === fg.id).length > 0 ? (
                     <div className="p-3 space-y-2">
                       {features.filter(f => f.feature_group_id === fg.id).map((f) => (
-                        <FeatureRow key={f.id} feature={f} canManageProject={canManageProject}
+                        <FeatureRow key={f.id} feature={f} projectId={id!}
                           onEdit={() => { setEditFeature(f); setFeatureForm({ name: f.name, description: f.description ?? "", feature_group_id: f.feature_group_id ?? "", status: f.status }); setFeatureDialog(true); }}
                           onDelete={() => deleteFeatureMutation.mutate(f.id)}
                           onStatusChange={(status) => updateFeatureMutation.mutate({ fId: f.id, data: { status } })} />
@@ -1110,7 +1229,7 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
               <SelectContent>
                 <SelectItem value="all">All Assignees</SelectItem>
                 {members.map((m) => (
-                  <SelectItem key={m.user_id} value={m.user_id}>{getUserName(m.user_id, m)}</SelectItem>
+                  <SelectItem key={m.user_id} value={m.user_id}>{getUserName(m.user_id)}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -1120,16 +1239,16 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
                 setTaskSearch(""); setTaskMilestoneFilter("all"); setTaskStatusFilter("all"); setTaskAssigneeFilter("all");
               }}>Clear filters</Button>
             )}
-          {project.is_confirmed && canAddProjectTasks && (    <CreateTaskSheet
+           {canAddTasks &&( <CreateTaskSheet
               defaultProjectId={id}
               onTaskCreated={() => {
                 queryClient.invalidateQueries({ queryKey: ["/api/projects", id, "tasks"] });
               }}
             >
-         {project.is_confirmed && canAddProjectTasks && (        <Button size="sm" className="h-9 text-xs ml-auto gap-1.5">
+           <Button size="sm" className="h-9 text-xs ml-auto gap-1.5">
                 <Plus className="h-3.5 w-3.5" /> New Task
-              </Button>)}
-            </CreateTaskSheet>)}
+              </Button>  
+            </CreateTaskSheet>)} 
           </div>
 
           {/* Tasks grouped by milestone */}
@@ -1238,7 +1357,7 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
                             {task.due_date && (
                               <span className="text-xs text-gray-400 shrink-0 hidden sm:flex items-center gap-1">
                                 <Calendar className="h-3 w-3" />
-                                {format(new Date(task.due_date), "d MMM")}
+                                {formatOrgDate(task.due_date)}
                               </span>
                             )}
 
@@ -1269,7 +1388,156 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
             </div>
           )}
         </TabsContent>
+
+        {/* ===== DEFECTS TAB ===== */}
+        <TabsContent value="defects" className="mt-4">
+          {/* Toolbar */}
+          <div className="flex flex-wrap items-center gap-2 mb-4">
+            <div className="relative flex-1 min-w-[180px]">
+              <Search className="absolute left-2.5 top-2.5 h-4 w-4 text-muted-foreground" />
+              <input
+                type="text"
+                placeholder="Search defects…"
+                value={defectSearch}
+                onChange={(e) => setDefectSearch(e.target.value)}
+                className="pl-8 pr-3 h-9 w-full rounded-md border border-input bg-background text-sm focus:outline-none focus:ring-2 focus:ring-ring"
+              />
+            </div>
+            <select
+              value={defectSeverityFilter}
+              onChange={(e) => setDefectSeverityFilter(e.target.value)}
+              className="h-9 text-sm border border-input bg-background rounded-md px-2"
+            >
+              <option value="all">All Severities</option>
+              <option value="critical">Critical</option>
+              <option value="high">High</option>
+              <option value="medium">Medium</option>
+              <option value="low">Low</option>
+            </select>
+            <select
+              value={defectStatusFilter}
+              onChange={(e) => setDefectStatusFilter(e.target.value)}
+              className="h-9 text-sm border border-input bg-background rounded-md px-2"
+            >
+              <option value="all">All Statuses</option>
+              <option value="draft">Draft</option>
+              <option value="submitted">Submitted</option>
+              <option value="approved">Approved</option>
+              <option value="rejected">Rejected</option>
+              <option value="in_progress">In Progress</option>
+              <option value="resolved">Resolved</option>
+              <option value="verified">Verified</option>
+              <option value="closed">Closed</option>
+              <option value="reopened">Reopened</option>
+            </select>
+         {canAddTasks &&(   <Button size="sm" className="ml-auto gap-1" onClick={() => setCreateDefectOpen(true)}>
+              <Plus className="h-4 w-4" /> Report Defect
+            </Button>)}
+          </div>
+
+          {/* Table */}
+          {filteredDefects.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-16 text-center text-muted-foreground gap-3">
+              <Bug className="h-10 w-10 opacity-30" />
+              <p className="font-medium">No defects found</p>
+              <p className="text-sm">Click "Report Defect" to log the first one for this project.</p>
+            </div>
+          ) : (
+            <div className="rounded-lg border overflow-hidden">
+              <table className="w-full text-sm">
+                <thead className="bg-muted/50 border-b">
+                  <tr>
+                    <th className="text-left px-4 py-2.5 font-semibold text-muted-foreground w-[110px]">#</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-muted-foreground">Title</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-muted-foreground w-[100px]">Severity</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-muted-foreground w-[110px]">Status</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-muted-foreground w-[130px]">Assignee</th>
+                    <th className="text-left px-4 py-2.5 font-semibold text-muted-foreground w-[80px]">Tasks</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y">
+                  {filteredDefects.map((defect: any) => {
+                    const sevColors: Record<string, string> = {
+                      critical: "bg-red-100 text-red-700 border-red-200",
+                      high:     "bg-orange-100 text-orange-700 border-orange-200",
+                      medium:   "bg-yellow-100 text-yellow-700 border-yellow-200",
+                      low:      "bg-blue-100 text-blue-700 border-blue-200",
+                      trivial:  "bg-gray-100 text-gray-600 border-gray-200",
+                    };
+                    const statusColors: Record<string, string> = {
+                      draft:       "bg-gray-100 text-gray-600",
+                      submitted:   "bg-blue-100 text-blue-700",
+                      approved:    "bg-emerald-100 text-emerald-700",
+                      rejected:    "bg-red-100 text-red-700",
+                      in_progress: "bg-purple-100 text-purple-700",
+                      resolved:    "bg-teal-100 text-teal-700",
+                      verified:    "bg-emerald-100 text-emerald-700",
+                      closed:      "bg-gray-200 text-gray-600",
+                      reopened:    "bg-red-100 text-red-700",
+                    };
+                    const assignee = (users as User[]).find((u) => u.id === defect.assigned_to);
+                    return (
+                      <tr
+                        key={defect.id}
+                        className="hover:bg-muted/30 cursor-pointer transition-colors"
+                        onClick={() => setSelectedDefect(defect)}
+                      >
+                        <td className="px-4 py-3 font-mono text-xs text-muted-foreground">
+                          {defect.defect_number ?? "—"}
+                        </td>
+                        <td className="px-4 py-3 font-medium max-w-[280px] truncate">{defect.title}</td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${sevColors[defect.severity] ?? "bg-gray-100 text-gray-600"}`}>
+                            {defect.severity}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium ${statusColors[defect.status] ?? "bg-gray-100 text-gray-600"}`}>
+                            {defect.status.replace(/_/g, " ")}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground">
+                          {assignee ? (assignee.user_name || assignee.email) : "—"}
+                        </td>
+                        <td className="px-4 py-3 text-sm text-muted-foreground">
+                          {defect.linked_task_count ?? 0}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </TabsContent>
       </Tabs>
+
+      {/* ===== CREATE DEFECT SHEET ===== */}
+      <CreateDefectSheet
+        open={createDefectOpen}
+        onOpenChange={(v) => {
+          setCreateDefectOpen(v);
+          if (!v) queryClient.invalidateQueries({ queryKey: ["/api/projects", id, "defects"] });
+        }}
+        defaultProjectId={id}
+        defaultProjectName={(project as any)?.name}
+        currentUserId={user?.id|| ""}
+      />
+
+      {/* ===== DEFECT DETAILS SHEET ===== */}
+      {selectedDefect && (
+        <DefectDetailsSheet
+          defect={selectedDefect}
+          open={!!selectedDefect}
+          onOpenChange={(v) => {
+            if (!v) {
+              setSelectedDefect(null);
+              queryClient.invalidateQueries({ queryKey: ["/api/projects", id, "defects"] });
+              queryClient.invalidateQueries({ queryKey: ["/api/defect-task-ids"] });
+            }
+          }}
+        />
+      )}
 
       {/* ===== EDIT TASK SHEET ===== */}
       <EditTaskSheet
@@ -1343,48 +1611,115 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
             <DialogTitle>{editMember ? "Edit Member" : "Add Member"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3 py-2">
+
+            {/* User type toggle — only when adding new */}
             {!editMember && (
+              <div className="space-y-1.5">
+                <Label className="text-xs font-semibold">Member Type</Label>
+                <div className="grid grid-cols-2 gap-2">
+                  {[
+                    { value: "internal", label: "Internal User", icon: UserCircle, desc: "Team staff member" },
+                    { value: "client_contact", label: "Client Contact", icon: Building2, desc: "External client stakeholder", disabled: (clientContacts as any[]).length === 0 },
+                  ].map(({ value, label, icon: Icon, desc, disabled }) => (
+                    <button
+                      key={value}
+                      type="button"
+                      disabled={disabled}
+                      onClick={() => setMemberForm(p => ({ ...p, member_user_type: value, user_id: "", contact_id: "", member_type: value === "client_contact" ? "member" : p.member_type }))}
+                      className={`p-3 rounded-lg border-2 text-left transition-all ${disabled ? "opacity-40 cursor-not-allowed border-gray-200 dark:border-gray-700" : memberForm.member_user_type === value ? "border-blue-500 bg-blue-50 dark:bg-blue-900/30" : "border-gray-200 dark:border-gray-700 hover:border-gray-300"}`}
+                    >
+                      <Icon className={`h-4 w-4 mb-1 ${memberForm.member_user_type === value ? "text-blue-600" : "text-gray-400"}`} />
+                      <p className="text-xs font-semibold">{label}</p>
+                      <p className="text-[10px] text-gray-400 mt-0.5">{disabled ? "No contacts on this client" : desc}</p>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Person selector */}
+            {!editMember && memberForm.member_user_type === "internal" && (
               <div className="space-y-1">
-                <Label>User *</Label>
+                <Label className="text-xs font-semibold">User *</Label>
                 <Select value={memberForm.user_id || "none"} onValueChange={(v) => setMemberForm(p => ({ ...p, user_id: v === "none" ? "" : v }))}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Select a user" />
-                  </SelectTrigger>
+                  <SelectTrigger><SelectValue placeholder="Select a user" /></SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="none">Select user...</SelectItem>
-                  {users?.filter(u => u.is_active).filter(u => !members.some(m => m.user_id === u.id)) // jo already member nahi hai
+                  <SelectItem value="none">Select user...</SelectItem>
+
+{users
+  .filter(
+    u => u.is_active &&
+      u.manager && !members.find(m => m.user_id === u.id)
+  )
   .map(u => (
     <SelectItem key={u.id} value={u.id}>
       {u.user_name ?? u.email}
     </SelectItem>
-))}
+  ))}
                   </SelectContent>
                 </Select>
               </div>
             )}
-            {editMember && (
-              <div className="p-2 bg-gray-50 dark:bg-gray-800 rounded text-sm">
-                <span className="text-gray-500">Member: </span>
-                <span className="font-medium">{getUserName(editMember.user_id, editMember)}</span>
+
+            {!editMember && memberForm.member_user_type === "client_contact" && (
+              <div className="space-y-1">
+                <Label className="text-xs font-semibold">Client Contact *</Label>
+                <Select value={memberForm.contact_id || "none"} onValueChange={(v) => setMemberForm(p => ({ ...p, contact_id: v === "none" ? "" : v }))}>
+                  <SelectTrigger><SelectValue placeholder="Select a contact" /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="none">Select contact...</SelectItem>
+                    {(clientContacts as any[])
+                      .filter((c: any) => !(members as any[]).find(m => m.contact_id === c.id))
+                      .map((c: any) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          <div className="flex items-center gap-2">
+                            <Building2 className="h-3.5 w-3.5 text-orange-400" />
+                            {c.name}
+                            {c.job_title && <span className="text-xs text-gray-400">({c.job_title})</span>}
+                          </div>
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
               </div>
             )}
+
+            {editMember && (
+              <div className="flex items-center gap-2 p-2.5 bg-gray-50 dark:bg-gray-800 rounded-lg text-sm">
+                {getMemberTypeLabel(editMember) === "client_contact"
+                  ? <Building2 className="h-4 w-4 text-orange-400 shrink-0" />
+                  : <UserCircle className="h-4 w-4 text-blue-500 shrink-0" />}
+                <span className="font-medium">{getMemberDisplayName(editMember)}</span>
+                {getMemberTypeLabel(editMember) === "client_contact"
+                  ? <span className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700">Client Contact</span>
+                  : <span className="ml-auto text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-600">Internal</span>}
+              </div>
+            )}
+
             <div className="space-y-1">
-              <Label>Role in Project *</Label>
-              <Select value={memberForm.member_type} onValueChange={(v) => setMemberForm(p => ({ ...p, member_type: v }))}>
+              <Label className="text-xs font-semibold">Role in Project *</Label>
+              <Select
+                value={memberForm.member_type}
+                onValueChange={(v) => setMemberForm(p => ({ ...p, member_type: v }))}
+                disabled={memberForm.member_user_type === "client_contact"}
+              >
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   <SelectItem value="project_manager">Project Manager</SelectItem>
                   <SelectItem value="member">Team Member</SelectItem>
                 </SelectContent>
               </Select>
+              {memberForm.member_user_type === "client_contact" && (
+                <p className="text-[10px] text-gray-400">Client contacts are added as Team Members only.</p>
+              )}
             </div>
             <div className="space-y-1">
-              <Label>Project-Specific Title</Label>
-              <Input placeholder="e.g. Lead Developer, UI Designer..." value={memberForm.project_role}
+              <Label className="text-xs font-semibold">Project-Specific Title</Label>
+              <Input placeholder="e.g. Project Sponsor, Reviewer..." value={memberForm.project_role}
                 onChange={(e) => setMemberForm(p => ({ ...p, project_role: e.target.value }))} />
             </div>
             <div className="space-y-1">
-              <Label>Allocation % (0–100)</Label>
+              <Label className="text-xs font-semibold">Allocation % (0–100)</Label>
               <Input type="number" min={0} max={100} value={memberForm.allocation_percentage}
                 onChange={(e) => setMemberForm(p => ({ ...p, allocation_percentage: parseInt(e.target.value) || 0 }))} />
             </div>
@@ -1392,11 +1727,19 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
           <DialogFooter>
             <Button variant="outline" onClick={() => { setMemberDialog(false); setEditMember(null); }}>Cancel</Button>
             <Button onClick={() => {
-              if (!memberForm.user_id && !editMember) { toast({ title: "Select a user", variant: "destructive" }); return; }
-              if (editMember) {
-                updateMemberMutation.mutate({ memberId: editMember.id, data: { member_type: memberForm.member_type, project_role: memberForm.project_role || null, allocation_percentage: memberForm.allocation_percentage } });
+              if (!editMember) {
+                if (memberForm.member_user_type === "internal" && !memberForm.user_id) { toast({ title: "Select a user", variant: "destructive" }); return; }
+                if (memberForm.member_user_type === "client_contact" && !memberForm.contact_id) { toast({ title: "Select a client contact", variant: "destructive" }); return; }
+                addMemberMutation.mutate({
+                  user_id: memberForm.member_user_type === "internal" ? memberForm.user_id : null,
+                  contact_id: memberForm.member_user_type === "client_contact" ? memberForm.contact_id : null,
+                  member_user_type: memberForm.member_user_type,
+                  member_type: memberForm.member_type,
+                  project_role: memberForm.project_role || null,
+                  allocation_percentage: memberForm.allocation_percentage,
+                } as any);
               } else {
-                addMemberMutation.mutate({ user_id: memberForm.user_id, member_type: memberForm.member_type, project_role: memberForm.project_role || null, allocation_percentage: memberForm.allocation_percentage });
+                updateMemberMutation.mutate({ memberId: editMember.id, data: { member_type: memberForm.member_type, project_role: memberForm.project_role || null, allocation_percentage: memberForm.allocation_percentage } });
               }
             }}>
               {editMember ? "Save Changes" : "Add Member"}
@@ -1430,7 +1773,7 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
                 <Input type="date" value={msForm.end_date} onChange={(e) => setMsForm(p => ({ ...p, end_date: e.target.value }))} />
               </div>
             </div>
-            <div className="space-y-1">
+            <div className="space-y-1 ">
               <Label>Status</Label>
               <Select value={msForm.status} onValueChange={(v) => setMsForm(p => ({ ...p, status: v }))}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
@@ -1443,7 +1786,7 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
               </Select>
             </div>
             {!editMilestone && project.template_id && (
-              <div className="flex items-center gap-2 text-sm">
+              <div className="flex items-center gap-2 text-sm ">
                 <input type="checkbox" id="inherit" checked={msForm.inherit_stages}
                   onChange={(e) => setMsForm(p => ({ ...p, inherit_stages: e.target.checked }))}
                   className="rounded" />
@@ -1478,7 +1821,7 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
       </Dialog>
 
       {/* ===== FEATURE GROUP DIALOG ===== */}
-     {canManageProject &&  <Dialog open={featureGroupDialog} onOpenChange={(v) => { setFeatureGroupDialog(v); if (!v) setEditFeatureGroup(null); }}>
+      <Dialog open={featureGroupDialog} onOpenChange={(v) => { setFeatureGroupDialog(v); if (!v) setEditFeatureGroup(null); }}>
         <DialogContent className="max-w-sm">
           <DialogHeader>
             <DialogTitle>{editFeatureGroup ? "Edit Feature Group" : "Add Feature Group"}</DialogTitle>
@@ -1507,7 +1850,7 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
             </Button>
           </DialogFooter>
         </DialogContent>
-      </Dialog>}
+      </Dialog>
 
       {/* ===== FEATURE DIALOG ===== */}
       <Dialog open={featureDialog} onOpenChange={(v) => { setFeatureDialog(v); if (!v) setEditFeature(null); }}>
@@ -1576,9 +1919,9 @@ console.log("SakshamUser roles:", userRoles, "Is user?", isUser);
 // =============================
 // FEATURE ROW COMPONENT
 // =============================
-function FeatureRow({ feature, canManageProject, onEdit, onDelete, onStatusChange }: {
+function FeatureRow({ feature, projectId, onEdit, onDelete, onStatusChange }: {
   feature: ProjectFeature;
-  canManageProject: boolean;
+  projectId: string;
   onEdit: () => void;
   onDelete: () => void;
   onStatusChange: (status: string) => void;
@@ -1599,16 +1942,12 @@ function FeatureRow({ feature, canManageProject, onEdit, onDelete, onStatusChang
         </SelectContent>
       </Select>
       <div className="flex gap-1">
-       {canManageProject && (
-         <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onEdit}>
-           <Pencil className="h-3 w-3" />
-         </Button>
-       )}
-       {canManageProject && (
-         <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500 hover:text-red-700" onClick={onDelete}>
-           <Trash2 className="h-3 w-3" />
-         </Button>
-       )} 
+        <Button variant="ghost" size="sm" className="h-7 w-7 p-0" onClick={onEdit}>
+          <Pencil className="h-3 w-3" />
+        </Button>
+        <Button variant="ghost" size="sm" className="h-7 w-7 p-0 text-red-500 hover:text-red-700" onClick={onDelete}>
+          <Trash2 className="h-3 w-3" />
+        </Button>
       </div>
     </div>
   );

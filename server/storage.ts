@@ -22,6 +22,20 @@ import {
   rolePermissions,
   deletedUsers,
   deletedTasks,
+  aiSettings,
+    defects,
+  defectComments,
+  defectActivity,
+   defectTasks,
+    Defect,
+  InsertDefect,
+  DefectComment,
+  InsertDefectComment,
+  DefectActivity,
+  InsertDefectActivity,
+    clients,
+  clientContacts,
+  clientProjectAccess,
     projectTemplates,
   projectTemplateStages,
     projects,
@@ -84,9 +98,17 @@ import {
   InsertProjectFeature,
   activityLog,
   globalTodoDefinitions,
-  taskTodos
-
-  
+  taskTodos,todoGroups,
+  AiSettings,
+  InsertAiSettings,
+   DefectTask,
+  InsertDefectTask,
+    Client,
+  InsertClient,
+  ClientContact,
+  InsertClientContact,
+  ClientProjectAccess,
+  InsertClientProjectAccess,
 } from "@shared/schema";
 
 export interface IStorage {
@@ -99,8 +121,11 @@ export interface IStorage {
   deactivateUser(id: string): Promise<User>;
   activateUser(id: string): Promise<User>;
   deleteUser(id: string, deletedBy: string): Promise<{ deletedUser: any; deletedTasksCount: number }>;
-
-  
+  getAllTodoGroups(): Promise<any[]>;
+  createTodoGroup(group: any): Promise<any>;
+  updateTodoGroup(id: string, updates: any): Promise<any>;
+  deleteTodoGroup(id: string): Promise<void>;
+  getGlobalTodosByGroup(groupId: string): Promise<any[]>;
   // Deleted user operations (admin only)
   getAllDeletedUsers(): Promise<any[]>;
   getDeletedUserTasks(userId: string): Promise<any[]>;
@@ -145,7 +170,33 @@ markEmailSettingsAsVerified(
   getUserRoles(userId: string): Promise<UserRole[]>;
   assignUserRole(userId: string, roleId: string): Promise<UserRole>;
   removeUserRole(userId: string, roleId: string): Promise<void>;
-  
+   getAiSettings(): Promise<AiSettings | null>;
+  upsertAiSettings(data: Partial<InsertAiSettings>): Promise<AiSettings>;
+
+  getDefectTasks(defectId: string): Promise<(DefectTask & { task: Task })[]>;
+  linkDefectTask(defectId: string, taskId: string, linkedBy: string): Promise<DefectTask>;
+  unlinkDefectTask(defectId: string, taskId: string): Promise<void>;
+  getDefectsByProject(projectId: string): Promise<Defect[]>;
+  getAllDefectTaskIds(): Promise<string[]>;
+   // Client management
+  getAllClients(): Promise<Client[]>;
+  getClient(id: string): Promise<Client | undefined>;
+  createClient(client: InsertClient): Promise<Client>;
+  updateClient(id: string, updates: Partial<Client>): Promise<Client>;
+  deleteClient(id: string): Promise<void>;
+  getClientContacts(clientId: string): Promise<ClientContact[]>;
+  getClientContact(id: string): Promise<ClientContact | undefined>;
+  getClientContactByEmail(email: string): Promise<ClientContact | undefined>;
+  createClientContact(contact: InsertClientContact): Promise<ClientContact>;
+  updateClientContact(id: string, updates: Partial<ClientContact>): Promise<ClientContact>;
+  deleteClientContact(id: string): Promise<void>;
+  setClientContactPassword(id: string, passwordHash: string): Promise<ClientContact | undefined>;
+  getClientProjectAccess(contactId: string): Promise<ClientProjectAccess[]>;
+  getProjectClientAccess(projectId: string): Promise<ClientProjectAccess[]>;
+  getClientContactProjectAccess(contactId: string, projectId: string): Promise<ClientProjectAccess | undefined>;
+  grantClientProjectAccess(access: InsertClientProjectAccess): Promise<ClientProjectAccess>;
+  updateClientProjectAccess(id: string, updates: Partial<ClientProjectAccess>): Promise<ClientProjectAccess>;
+  revokeClientProjectAccess(id: string): Promise<void>;
   // Team membership operations
   getTeamMembers(teamId: string): Promise<TeamMembership[]>;
   addTeamMember(teamId: string, userId: string, role?: string): Promise<TeamMembership>;
@@ -280,6 +331,24 @@ markEmailSettingsAsVerified(
   createFeatureGroup(group: InsertProjectFeatureGroup): Promise<ProjectFeatureGroup>;
   updateFeatureGroup(id: string, updates: Partial<ProjectFeatureGroup>): Promise<ProjectFeatureGroup>;
   deleteFeatureGroup(id: string): Promise<void>;
+
+  // Defect operations
+  getAllDefects(): Promise<Defect[]>;
+  getDefect(id: string): Promise<Defect | undefined>;
+  getDefectsByUser(userId: string): Promise<Defect[]>;
+  createDefect(defect: InsertDefect): Promise<Defect>;
+  updateDefect(id: string, updates: Partial<Defect>): Promise<Defect>;
+  deleteDefect(id: string): Promise<void>;
+
+  // Defect comment operations
+  getDefectComments(defectId: string): Promise<DefectComment[]>;
+  createDefectComment(comment: InsertDefectComment): Promise<DefectComment>;
+  updateDefectComment(id: string, content: string): Promise<DefectComment>;
+  deleteDefectComment(id: string): Promise<void>;
+
+  // Defect activity operations
+  getDefectActivity(defectId: string): Promise<DefectActivity[]>;
+  logDefectActivity(activity: InsertDefectActivity): Promise<DefectActivity>;
 
   // Feature operations
   getProjectFeatures(projectId: string): Promise<ProjectFeature[]>;
@@ -665,7 +734,8 @@ async getAllUsers(): Promise<any[]> { // Note: Return type is now 'any[]' or a c
     if (!user) {
       throw new Error('User not found');
     }
-
+    // Remove deleted user as manager from all users
+await db.update(users).set({ manager: null }).where(eq(users.manager, id));
     // Get user's tasks before deletion
     const userTasks = await db.select().from(tasks).where(eq(tasks.assigned_to, id));
 
@@ -730,6 +800,13 @@ async getAllUsers(): Promise<any[]> { // Note: Return type is now 'any[]' or a c
     // Remove user roles
     await db.delete(userRoles).where(eq(userRoles.user_id, id));
 
+    // Remove user from projects and clear project references
+    await db.delete(projectMembers).where(eq(projectMembers.user_id, id));
+    await db.delete(projectMemberHistory).where(eq(projectMemberHistory.user_id, id));
+    await db.update(projectMembers).set({ added_by: null }).where(eq(projectMembers.added_by, id));
+    await db.update(projectMemberHistory).set({ acted_by: null }).where(eq(projectMemberHistory.acted_by, id));
+    await db.update(projects).set({ created_by: null }).where(eq(projects.created_by, id));
+
     // Finally delete the user
     await db.delete(users).where(eq(users.id, id));
 
@@ -773,7 +850,18 @@ async getAllTasks(): Promise<Task[]> {
 }
 // --- Global Todo Methods ---
 async getAllGlobalTodoDefinitions(): Promise<any[]> {
-  return await db.select().from(globalTodoDefinitions).where(eq(globalTodoDefinitions.is_active, true));
+  // You might want to join with todoGroups here to show the group name in UI
+  return await db
+    .select({
+      id: globalTodoDefinitions.id,
+      title: globalTodoDefinitions.title,
+      is_active: globalTodoDefinitions.is_active,
+      group_id: globalTodoDefinitions.group_id,
+      group_name: todoGroups.name
+    })
+    .from(globalTodoDefinitions)
+    .leftJoin(todoGroups, eq(globalTodoDefinitions.group_id, todoGroups.id))
+    .where(eq(globalTodoDefinitions.is_active, true));
 }
 
 async createGlobalTodoDefinition(todo: any): Promise<any> {
@@ -842,27 +930,80 @@ async getTasksByUser(userId: string): Promise<Task[]> {
       .groupBy(tasks.id)
       .orderBy(desc(tasks.created_at)) as any;
   }
-  async createTask(task: InsertTask): Promise<Task> {
-    const result = await db.insert(tasks).values(task).returning();
-    // 2. Logic: If todos are enabled, snapshot the global list
-  // We check the 'type' because 'todos_enabled' is a custom field you'll add to InsertTask
-  if ((task as any).todos_enabled) {
-    const globals = await this.getAllGlobalTodoDefinitions();
-    
-    if (globals.length > 0) {
-      const todoSnapshots = globals.map(g => ({
-        task_id: result[0].id,
-        title: g.title,
+ async createTask(task: InsertTask): Promise<Task> {
+  // 1. Insert the Task
+  const [newTask] = await db.insert(tasks).values(task).returning();
+  let finalTask = newTask;
+
+  // 2. Group Snapshot Logic: Use the selected group ID to pick definitions
+  const groupId = (task as any).todo_group_id;
+  
+  if (groupId) {
+    // Fetch ONLY definitions belonging to the chosen group
+    const groupDefinitions = await db
+      .select()
+      .from(globalTodoDefinitions)
+      .where(
+        and(
+          eq(globalTodoDefinitions.group_id, groupId),
+          eq(globalTodoDefinitions.is_active, true)
+        )
+      );
+
+    if (groupDefinitions.length > 0) {
+      const todoSnapshots = groupDefinitions.map(def => ({
+        task_id: newTask.id,
+        title: def.title,
         is_completed: false
       }));
-      
+
       await db.insert(taskTodos).values(todoSnapshots);
+      
+      // Force todos_enabled to true if a group was chosen
+      const [updatedTask] = await db.update(tasks)
+        .set({ todos_enabled: true })
+        .where(eq(tasks.id, newTask.id))
+        .returning();
+
+      if (updatedTask) {
+        finalTask = updatedTask;
+      }
     }
   }
-    
-    return result[0];
-  }
+
+  return finalTask;
+}
   
+// --- TODO GROUP OPERATIONS ---
+
+async getAllTodoGroups(): Promise<any[]> {
+  return await db.select().from(todoGroups).orderBy(desc(todoGroups.created_at));
+}
+
+async createTodoGroup(group: any): Promise<any> {
+  const result = await db.insert(todoGroups).values(group).returning();
+  return result[0];
+}
+
+async updateTodoGroup(id: string, updates: any): Promise<any> {
+  const result = await db.update(todoGroups).set(updates).where(eq(todoGroups.id, id)).returning();
+  return result[0];
+}
+
+async deleteTodoGroup(id: string): Promise<void> {
+  // cascade delete handles definitions, but we log it here
+  await db.delete(todoGroups).where(eq(todoGroups.id, id));
+}
+
+// --- UPDATED DEFINITION FETCH ---
+
+async getGlobalTodosByGroup(groupId: string): Promise<any[]> {
+  return await db
+    .select()
+    .from(globalTodoDefinitions)
+    .where(eq(globalTodoDefinitions.group_id, groupId))
+    .orderBy(globalTodoDefinitions.created_at);
+}
 
   async updateTask(id: string, updates: Partial<Task>): Promise<Task> {
     const result = await db.update(tasks).set(updates).where(eq(tasks.id, id)).returning();
@@ -2022,12 +2163,15 @@ async isUserProjectMember(projectId: string, userId: string): Promise<boolean> {
     return result[0];
   }
 
+
   async addProjectMember(member: InsertProjectMember): Promise<ProjectMember> {
     const result = await db.insert(projectMembers).values(member).returning();
-    // Log history
+    // Log history — user_id may be null for client contacts
     await db.insert(projectMemberHistory).values({
       project_id: member.project_id,
-      user_id: member.user_id,
+      user_id: member.user_id ?? null,
+      contact_id: (member as any).contact_id ?? null,
+      member_user_type: (member as any).member_user_type ?? "internal",
       member_type: member.member_type,
       project_role: member.project_role,
       allocation_percentage: member.allocation_percentage,
@@ -2037,6 +2181,7 @@ async isUserProjectMember(projectId: string, userId: string): Promise<boolean> {
     });
     return result[0];
   }
+
 
   async updateProjectMember(id: string, updates: Partial<ProjectMember>): Promise<ProjectMember> {
     const existing = await db.select().from(projectMembers).where(eq(projectMembers.id, id)).limit(1);
@@ -2049,7 +2194,9 @@ async isUserProjectMember(projectId: string, userId: string): Promise<boolean> {
     else if (updates.member_type === "member" && existing[0].member_type === "project_manager") action = "demoted_pm";
     await db.insert(projectMemberHistory).values({
       project_id: existing[0].project_id,
-      user_id: existing[0].user_id,
+      user_id: existing[0].user_id ?? null,
+      contact_id: (existing[0] as any).contact_id ?? null,
+      member_user_type: (existing[0] as any).member_user_type ?? "internal",
       member_type: updates.member_type ?? existing[0].member_type,
       project_role: updates.project_role ?? existing[0].project_role,
       allocation_percentage: updates.allocation_percentage ?? existing[0].allocation_percentage,
@@ -2057,14 +2204,15 @@ async isUserProjectMember(projectId: string, userId: string): Promise<boolean> {
     });
     return result[0];
   }
-
   async removeProjectMember(id: string, actedBy: string, notes?: string): Promise<void> {
     const existing = await db.select().from(projectMembers).where(eq(projectMembers.id, id)).limit(1);
     if (!existing[0]) throw new Error("Member not found");
     await db.update(projectMembers).set({ is_active: false, left_at: new Date(), updated_at: new Date() }).where(eq(projectMembers.id, id));
     await db.insert(projectMemberHistory).values({
       project_id: existing[0].project_id,
-      user_id: existing[0].user_id,
+      user_id: existing[0].user_id ?? null,
+      contact_id: (existing[0] as any).contact_id ?? null,
+      member_user_type: (existing[0] as any).member_user_type ?? "internal",
       member_type: existing[0].member_type,
       project_role: existing[0].project_role,
       allocation_percentage: existing[0].allocation_percentage,
@@ -2210,6 +2358,241 @@ async isUserProjectMember(projectId: string, userId: string): Promise<boolean> {
 
   async deleteFeature(id: string): Promise<void> {
     await db.delete(projectFeatures).where(eq(projectFeatures.id, id));
+  }
+    // AI Settings operations
+  async getAiSettings(): Promise<AiSettings | null> {
+    const result = await db.select().from(aiSettings).limit(1);
+    return result[0] ?? null;
+  }
+
+  async upsertAiSettings(data: Partial<InsertAiSettings>): Promise<AiSettings> {
+    const existing = await this.getAiSettings();
+    if (existing) {
+      const result = await db
+        .update(aiSettings)
+        .set({ ...data, updated_at: new Date() })
+        .where(eq(aiSettings.id, existing.id))
+        .returning();
+      return result[0];
+    } else {
+      const result = await db
+        .insert(aiSettings)
+        .values({ ...(data as InsertAiSettings) })
+        .returning();
+      return result[0];
+    }
+  }
+   // ─── Defect operations ───────────────────────────────────────────────────────
+  async getAllDefects(): Promise<Defect[]> {
+    return db.select().from(defects).orderBy(desc(defects.created_at));
+  }
+
+  async getDefect(id: string): Promise<Defect | undefined> {
+    const result = await db.select().from(defects).where(eq(defects.id, id)).limit(1);
+    return result[0];
+  }
+
+  async getDefectsByUser(userId: string): Promise<Defect[]> {
+    return db
+      .select()
+      .from(defects)
+      .where(or(eq(defects.reported_by, userId), eq(defects.assigned_to, userId)))
+      .orderBy(desc(defects.created_at));
+  }
+
+  async createDefect(defect: InsertDefect): Promise<Defect> {
+    const result = await db.insert(defects).values(defect).returning();
+    return result[0];
+  }
+
+  async updateDefect(id: string, updates: Partial<Defect>): Promise<Defect> {
+    const result = await db
+      .update(defects)
+      .set({ ...updates, updated_at: new Date() })
+      .where(eq(defects.id, id))
+      .returning();
+    if (!result[0]) throw new Error("Defect not found");
+    return result[0];
+  }
+
+  async deleteDefect(id: string): Promise<void> {
+    await db.delete(defects).where(eq(defects.id, id));
+  }
+
+  // ─── Defect comment operations ───────────────────────────────────────────────
+  async getDefectComments(defectId: string): Promise<DefectComment[]> {
+    return db
+      .select()
+      .from(defectComments)
+      .where(eq(defectComments.defect_id, defectId))
+      .orderBy(defectComments.created_at);
+  }
+
+  async createDefectComment(comment: InsertDefectComment): Promise<DefectComment> {
+    const result = await db.insert(defectComments).values(comment).returning();
+    return result[0];
+  }
+
+  async updateDefectComment(id: string, content: string): Promise<DefectComment> {
+    const result = await db
+      .update(defectComments)
+      .set({ content, updated_at: new Date() })
+      .where(eq(defectComments.id, id))
+      .returning();
+    if (!result[0]) throw new Error("Comment not found");
+    return result[0];
+  }
+
+  async deleteDefectComment(id: string): Promise<void> {
+    await db.delete(defectComments).where(eq(defectComments.id, id));
+  }
+
+  // ─── Defect activity operations ──────────────────────────────────────────────
+  async getDefectActivity(defectId: string): Promise<DefectActivity[]> {
+    return db
+      .select()
+      .from(defectActivity)
+      .where(eq(defectActivity.defect_id, defectId))
+      .orderBy(desc(defectActivity.created_at));
+  }
+
+  async logDefectActivity(activity: InsertDefectActivity): Promise<DefectActivity> {
+    const result = await db.insert(defectActivity).values(activity).returning();
+    return result[0];
+  }
+  
+  // ─── Defect ↔ Task junction ────────────────────────────────────────────────
+  async getDefectTasks(defectId: string): Promise<(DefectTask & { task: Task })[]> {
+    const rows = await db
+      .select()
+      .from(defectTasks)
+      .innerJoin(tasks, eq(defectTasks.task_id, tasks.id))
+      .where(eq(defectTasks.defect_id, defectId))
+      .orderBy(defectTasks.linked_at);
+    return rows.map((r) => ({ ...r.defect_tasks, task: r.tasks }));
+  }
+
+  async linkDefectTask(defectId: string, taskId: string, linkedBy: string): Promise<DefectTask> {
+    const existing = await db
+      .select()
+      .from(defectTasks)
+      .where(and(eq(defectTasks.defect_id, defectId), eq(defectTasks.task_id, taskId)))
+      .limit(1);
+    if (existing[0]) return existing[0];
+    const result = await db
+      .insert(defectTasks)
+      .values({ defect_id: defectId, task_id: taskId, linked_by: linkedBy })
+      .returning();
+    return result[0];
+  }
+
+  async unlinkDefectTask(defectId: string, taskId: string): Promise<void> {
+    await db
+      .delete(defectTasks)
+      .where(and(eq(defectTasks.defect_id, defectId), eq(defectTasks.task_id, taskId)));
+  }
+   async getDefectsByProject(projectId: string): Promise<Defect[]> {
+    return db
+      .select()
+      .from(defects)
+      .where(eq(defects.project_id, projectId))
+      .orderBy(desc(defects.created_at));
+  }
+
+  async getAllDefectTaskIds(): Promise<string[]> {
+    const rows = await db.select({ task_id: defectTasks.task_id }).from(defectTasks);
+    return rows.map((r) => r.task_id);
+  }
+  // ============================
+  // CLIENT MANAGEMENT
+  // ============================
+
+  async getAllClients(): Promise<Client[]> {
+    return db.select().from(clients).orderBy(clients.name);
+  }
+
+  async getClient(id: string): Promise<Client | undefined> {
+    const rows = await db.select().from(clients).where(eq(clients.id, id)).limit(1);
+    return rows[0];
+  }
+
+  async createClient(client: InsertClient): Promise<Client> {
+    const rows = await db.insert(clients).values(client).returning();
+    return rows[0];
+  }
+
+  async updateClient(id: string, updates: Partial<Client>): Promise<Client> {
+    const rows = await db.update(clients).set({ ...updates, updated_at: new Date() }).where(eq(clients.id, id)).returning();
+    return rows[0];
+  }
+
+  async deleteClient(id: string): Promise<void> {
+    await db.delete(clients).where(eq(clients.id, id));
+  }
+
+  async getClientContacts(clientId: string): Promise<ClientContact[]> {
+    return db.select().from(clientContacts).where(eq(clientContacts.client_id, clientId)).orderBy(clientContacts.name);
+  }
+
+  async getClientContact(id: string): Promise<ClientContact | undefined> {
+    const rows = await db.select().from(clientContacts).where(eq(clientContacts.id, id)).limit(1);
+    return rows[0];
+  }
+
+  async getClientContactByEmail(email: string): Promise<ClientContact | undefined> {
+    const rows = await db.select().from(clientContacts).where(eq(clientContacts.email, email.toLowerCase())).limit(1);
+    return rows[0];
+  }
+
+  async createClientContact(contact: InsertClientContact): Promise<ClientContact> {
+    const rows = await db.insert(clientContacts).values(contact).returning();
+    return rows[0];
+  }
+
+  async updateClientContact(id: string, updates: Partial<ClientContact>): Promise<ClientContact> {
+    const rows = await db.update(clientContacts).set({ ...updates, updated_at: new Date() }).where(eq(clientContacts.id, id)).returning();
+    return rows[0];
+  }
+
+  async deleteClientContact(id: string): Promise<void> {
+    await db.delete(clientContacts).where(eq(clientContacts.id, id));
+  }
+
+  async setClientContactPassword(id: string, passwordHash: string): Promise<ClientContact | undefined> {
+    const rows = await db.update(clientContacts)
+      .set({ password_hash: passwordHash, updated_at: new Date() })
+      .where(eq(clientContacts.id, id))
+      .returning();
+    return rows[0];
+  }
+
+  async getClientProjectAccess(contactId: string): Promise<ClientProjectAccess[]> {
+    return db.select().from(clientProjectAccess).where(eq(clientProjectAccess.contact_id, contactId));
+  }
+
+  async getProjectClientAccess(projectId: string): Promise<ClientProjectAccess[]> {
+    return db.select().from(clientProjectAccess).where(eq(clientProjectAccess.project_id, projectId));
+  }
+
+  async getClientContactProjectAccess(contactId: string, projectId: string): Promise<ClientProjectAccess | undefined> {
+    const rows = await db.select().from(clientProjectAccess)
+      .where(and(eq(clientProjectAccess.contact_id, contactId), eq(clientProjectAccess.project_id, projectId)))
+      .limit(1);
+    return rows[0];
+  }
+
+  async grantClientProjectAccess(access: InsertClientProjectAccess): Promise<ClientProjectAccess> {
+    const rows = await db.insert(clientProjectAccess).values(access).returning();
+    return rows[0];
+  }
+
+  async updateClientProjectAccess(id: string, updates: Partial<ClientProjectAccess>): Promise<ClientProjectAccess> {
+    const rows = await db.update(clientProjectAccess).set(updates).where(eq(clientProjectAccess.id, id)).returning();
+    return rows[0];
+  }
+
+  async revokeClientProjectAccess(id: string): Promise<void> {
+    await db.delete(clientProjectAccess).where(eq(clientProjectAccess.id, id));
   }
 }
 

@@ -10,6 +10,7 @@ import { toast } from "@/hooks/use-toast";
 import { apiClient } from "@/lib/api";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
+import { setOrgDateSettings } from "@/lib/dateUtils";
 
 type OrganizationSettings = {
   id: string;
@@ -28,6 +29,7 @@ type OrganizationSettings = {
   allow_user_level_override: boolean;
   project_management_enabled: boolean;
   user_2fa_required: boolean;
+  defect_management_enabled: boolean;
   created_at: string;
   updated_at: string;
 };
@@ -78,6 +80,7 @@ const GeneralSettings: React.FC = () => {
     allow_user_level_override: false,
     user_2fa_required: false,
     project_management_enabled: false,
+    defect_management_enabled: false,
   
   });
 
@@ -100,6 +103,7 @@ const GeneralSettings: React.FC = () => {
         allow_user_level_override: settings.allow_user_level_override || false,
         user_2fa_required: settings.user_2fa_required || false,
         project_management_enabled: settings.project_management_enabled || false,
+        defect_management_enabled: settings.defect_management_enabled || false,
 
       });
     }
@@ -121,6 +125,8 @@ const GeneralSettings: React.FC = () => {
     },
     onSuccess: (response) => {
       console.log("Settings saved successfully:", response);
+      setOrgDateSettings(response);
+      queryClient.setQueryData(['/api/organization-settings'], response);
       queryClient.invalidateQueries({ queryKey: ['/api/organization-settings'] });
       toast({ title: "Success", description: "Organization settings saved successfully" });
     },
@@ -211,19 +217,24 @@ const handleSave = () => {
     }
   };
 
-  const handleFormChange = (field: string, value: any) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
-  };
+const handleFormChange = (field: string, value: any) => {
+  setFormData(prev => {
+    // If Project Management is disabled,
+    // automatically disable Defect Management
+    if (field === "project_management_enabled" && value === false) {
+      return {
+        ...prev,
+        project_management_enabled: false,
+        defect_management_enabled: false,
+      };
+    }
 
-  if (isLoading) {
-    return (
-      <Card>
-        <CardContent className="p-6">
-          <div className="text-center">Loading...</div>
-        </CardContent>
-      </Card>
-    );
-  }
+    return {
+      ...prev,
+      [field]: value,
+    };
+  });
+};
   
 
   return (
@@ -499,6 +510,32 @@ const handleSave = () => {
           )}
         </CardContent>
       </Card>
+     {/* Defect Management Settings */}
+   {formData.project_management_enabled  &&  ( <Card>
+        <CardHeader>
+          <CardTitle>Defect Management</CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="flex items-center space-x-2">
+            <Switch
+              id="defect-management-enabled"
+              checked={formData.defect_management_enabled}
+              onCheckedChange={(checked) => handleFormChange('defect_management_enabled', checked)}
+            />
+            <Label htmlFor="defect-management-enabled">Enable Defect Management Feature</Label>
+          </div>
+          <p className="text-sm text-muted-foreground">
+            When enabled, the Defect Management section will appear in the navigation, allowing all team members to report and track bugs, regressions, and other quality issues across environments.
+          </p>
+          {formData.defect_management_enabled && (
+            <div className="rounded-md border border-orange-200 bg-orange-50 dark:bg-orange-950 dark:border-orange-800 p-3">
+              <p className="text-sm text-orange-700 dark:text-orange-300">
+                Defect Management is enabled. All users can report defects; managers and admins can assign and resolve them.
+              </p>
+            </div>
+          )}
+        </CardContent>
+      </Card>)}
 
       {/* Save Button */}
       <div className="flex justify-end">

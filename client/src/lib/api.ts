@@ -303,7 +303,17 @@ private async request(endpoint: string, options: RequestInit = {}) {
     });
   }
 
+  // Project management
+  async getProjectMembers(projectId: string) {
+    return this.request(`/projects/${projectId}/members`);
+  }
 
+  async addProjectMember(projectId: string, userId: string, projectRole: string | null = null, memberType: string = 'member') {
+    return this.request(`/projects/${projectId}/members`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId, project_role: projectRole, member_type: memberType }),
+    });
+  }
 
   // Task statuses
   async getTaskStatuses() {

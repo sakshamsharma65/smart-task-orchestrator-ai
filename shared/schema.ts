@@ -26,6 +26,8 @@ export const organizationSettings = pgTable("organization_settings", {
   allow_user_level_override: boolean("allow_user_level_override").default(false),
  project_management_enabled: boolean("project_management_enabled").default(false),
   created_at: timestamp("created_at").defaultNow(),
+  // Defect Management feature toggle
+  defect_management_enabled: boolean("defect_management_enabled").default(false),
   updated_at: timestamp("updated_at").defaultNow(),
 user_2fa_required: boolean("user_2fa_required").default(false).notNull(),
 
@@ -44,12 +46,14 @@ export const projects = pgTable("projects", {
   projected_end_date: timestamp("projected_end_date"),
   actual_end_date: timestamp("actual_end_date"),
   total_effort_hours: integer("total_effort_hours"),
-  budget_amount: integer("budget_amount"), // stored as string for flexibility
+  budget_amount: text("budget_amount"), // stored as string for flexibility
   currency: text("currency").default("USD"),
   is_confirmed: boolean("is_confirmed").default(false), // locks template_id when true
+  is_client_project: boolean("is_client_project").default(false),
+  client_id: uuid("client_id").references(() => clients.id, { onDelete: "set null" }),
+  color: text("color").default("#6366f1"), // project card accent color
   custom_fields: text("custom_fields"), // JSON string for template-specific fields
   created_by: uuid("created_by").references(() => users.id),
-   color: text("color").default("#6366f1"), // project card accent color
   created_at: timestamp("created_at").defaultNow(),
   updated_at: timestamp("updated_at").defaultNow(),
 });
@@ -58,10 +62,12 @@ export const projects = pgTable("projects", {
 export const projectMembers = pgTable("project_members", {
   id: uuid("id").primaryKey().defaultRandom(),
   project_id: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
-  user_id: uuid("user_id").notNull().references(() => users.id),
-  member_type: text("member_type").notNull().default("member"), // project_manager, member
-  project_role: text("project_role"), // project-specific role title
-  allocation_percentage: integer("allocation_percentage").default(100), // 0-100
+  user_id: uuid("user_id").references(() => users.id),            // nullable — internal users only
+  contact_id: uuid("contact_id"),                                  // nullable — client contacts (FK added via migration)
+  member_user_type: text("member_user_type").notNull().default("internal"), // 'internal' | 'client_contact'
+  member_type: text("member_type").notNull().default("member"),    // project_manager | member
+  project_role: text("project_role"),
+  allocation_percentage: integer("allocation_percentage").default(100),
   is_active: boolean("is_active").default(true),
   joined_at: timestamp("joined_at").defaultNow(),
   left_at: timestamp("left_at"),
@@ -70,11 +76,14 @@ export const projectMembers = pgTable("project_members", {
   updated_at: timestamp("updated_at").defaultNow(),
 });
 
+
 // Project Member History table
 export const projectMemberHistory = pgTable("project_member_history", {
   id: uuid("id").primaryKey().defaultRandom(),
   project_id: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
-  user_id: uuid("user_id").notNull().references(() => users.id),
+  user_id: uuid("user_id").references(() => users.id),            // nullable
+  contact_id: uuid("contact_id"),                                  // nullable — for client contact history rows
+  member_user_type: text("member_user_type"),
   member_type: text("member_type"),
   project_role: text("project_role"),
   allocation_percentage: integer("allocation_percentage"),
@@ -525,7 +534,9 @@ export const tasks = pgTable("tasks", {
   actual_completion_date: timestamp("actual_completion_date"),
   milestone_id: uuid("milestone_id"),
   feature_id: uuid("feature_id"),
+  defect_id: uuid("defect_id"), 
   project_id: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+  todo_group_id: uuid("todo_group_id").references(() => todoGroups.id, { onDelete: "set null" }),
   // Timer-related fields
   is_time_managed: boolean("is_time_managed").default(false),
   timer_state: text("timer_state").default("stopped"), // stopped, running, paused
@@ -722,16 +733,28 @@ export const tasksRelations = relations(tasks, ({ one, many }) => ({
 todos: many(taskTodos),
 }));
 // 1. Global Todo Definitions (The "Templates" in Settings)
-export const globalTodoDefinitions = pgTable("global_todo_definitions", {
+// 1. NEW: The Todo Groups (Templates)
+export const todoGroups = pgTable("todo_groups", {
   id: uuid("id").primaryKey().defaultRandom(),
-  title: text("title").notNull(), // e.g., "Code Review Done", "Documentation Updated"
+  name: text("name").notNull(), // e.g., "Frontend Launch Checklist"
   description: text("description"),
   is_active: boolean("is_active").default(true),
-  // Kept optional for future Team-level enhancement
-  team_id: uuid("team_id").references(() => teams.id, { onDelete: "cascade" }), 
   created_at: timestamp("created_at").defaultNow(),
   updated_at: timestamp("updated_at").defaultNow(),
 });
+
+// 2. MODIFIED: Global Definitions now belong to a Group
+export const globalTodoDefinitions = pgTable("global_todo_definitions", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  group_id: uuid("group_id").notNull().references(() => todoGroups.id, { onDelete: "cascade" }), // NEW FK
+  title: text("title").notNull(),
+  is_active: boolean("is_active").default(true),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
+// 3. UPDATE: Tasks table now references a Group
+// Add this column to your existing 'tasks' table definition:
+// todo_group_id: uuid("todo_group_id").references(() => todoGroups.id, { onDelete: "set null" }),
 
 // 2. Task-specific Todos (The "Snapshotted" instances)
 export const taskTodos = pgTable("task_todos", {
@@ -789,6 +812,22 @@ export const insertUserSchema = createInsertSchema(users).omit({
 }).extend({
   id: z.string().uuid().optional(),
 });
+// AI Settings — singleton row for LLM provider configuration
+export const aiSettings = pgTable("ai_settings", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  provider: text("provider").notNull().default("openai"), // openai|anthropic|google|azure|mistral|ollama
+  api_key: text("api_key"),           // stored encrypted
+  model: text("model"),               // e.g. gpt-4o, claude-3-5-sonnet-20241022
+  base_url: text("base_url"),         // custom endpoint for Azure / Ollama
+  system_prompt_header: text("system_prompt_header"), // admin-editable portion of the prompt
+  is_enabled: boolean("is_enabled").notNull().default(false),
+  allow_admin: boolean("allow_admin").notNull().default(true),
+  allow_manager: boolean("allow_manager").notNull().default(false),
+  allow_user: boolean("allow_user").notNull().default(false),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
 
 export const insertTaskSchema = createInsertSchema(tasks).omit({
   id: true,
@@ -800,6 +839,13 @@ export const insertTaskSchema = createInsertSchema(tasks).omit({
   actual_completion_date: z.union([z.date(), z.string().transform((str) => str === "" ? null : new Date(str))]).nullable().optional(),
   priority: z.union([z.number(), z.string().transform((str) => parseInt(str, 10))]).optional(),
   estimated_hours: z.union([z.number(),z.string().transform((str) => str === "" ? null : parseFloat(str))]).nullable().optional(),
+assigned_to: z.union([z.string().uuid(), z.literal(""), z.null()]).transform((val) => val || null).optional(),
+team_id: z.union([z.string().uuid(), z.literal(""), z.null()]).transform((val) => val || null).optional(),
+dependencyTaskId: z.union([z.string().uuid(), z.literal(""), z.null()]).transform((val) => val || null).optional(),
+milestone_id: z.union([z.string().uuid(), z.literal(""), z.null()]).transform((val) => val || null).optional(),
+feature_id: z.union([z.string().uuid(), z.literal(""), z.null()]).transform((val) => val || null).optional(),
+project_id: z.union([z.string().uuid(), z.literal(""), z.null()]).transform((val) => val || null).optional(),
+todo_group_id: z.union([z.string().uuid(), z.literal(""), z.null()]).transform((val) => val || null).optional(),
 todos_enabled: z.boolean().default(false).optional(),
 });
 
@@ -1026,3 +1072,240 @@ export type InsertProjectFeatureGroup = z.infer<typeof insertProjectFeatureGroup
 export type ProjectFeatureGroup = typeof projectFeatureGroups.$inferSelect;
 export type InsertProjectFeature = z.infer<typeof insertProjectFeatureSchema>;
 export type ProjectFeature = typeof projectFeatures.$inferSelect;
+export type teamMembership = typeof teamMemberships.$inferSelect;
+export type TaskTodo = typeof taskTodos.$inferSelect;
+export const insertAiSettingsSchema = createInsertSchema(aiSettings).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+export type InsertAiSettings = z.infer<typeof insertAiSettingsSchema>;
+export type AiSettings = typeof aiSettings.$inferSelect;
+// ─── Defect Management ────────────────────────────────────────────────────────
+
+// Defects table — primary quality-tracking record
+export const defects = pgTable("defects", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  defect_number: serial("defect_number").unique(), // displayed as DEF-00001
+  title: text("title").notNull(),
+  description: text("description"),
+  steps_to_reproduce: text("steps_to_reproduce"),
+  expected_behavior: text("expected_behavior"),
+  actual_behavior: text("actual_behavior"),
+  approved_by: uuid("approved_by").references(() => users.id),
+  // Classification
+  severity: text("severity").notNull().default("medium"), // critical, high, medium, low
+  priority: integer("priority").default(3),               // 1=Critical…5=Minimal
+  status: text("status").notNull().default("open"),       // open, in_progress, resolved, verified, closed, reopened
+  type: text("type").notNull().default("bug"),            // bug, regression, performance, ui, security, data
+  environment: text("environment").default("production"),  // production, staging, qa, development
+  // People
+  reported_by: uuid("reported_by").notNull().references(() => users.id),
+  assigned_to: uuid("assigned_to").references(() => users.id),
+  assigned_by: uuid("assigned_by").references(() => users.id),
+  team_id: uuid("team_id").references(() => teams.id),
+  // Optional cross-module references (not containment)
+  project_id: uuid("project_id").references(() => projects.id, { onDelete: "set null" }),
+  milestone_id: uuid("milestone_id"),   // → project_milestones.id
+  feature_group_id: uuid("feature_group_id"), // → project_feature_groups.id
+  feature_id: uuid("feature_id"),
+  rejection_reason: text("rejection_reason"),
+  task_id: uuid("task_id"),          
+    // Attachments — stored as JSON array of { name, type, size, data } (base64 encoded files)
+  attachments: jsonb("attachments").default([]),   // → tasks.id
+  // Resolution
+  resolution: text("resolution"),
+  due_date: timestamp("due_date"),
+  resolved_at: timestamp("resolved_at"),
+  verified_at: timestamp("verified_at"),
+  created_at: timestamp("created_at").defaultNow(),
+    approved_at: timestamp("approved_at"),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+// Defect ↔ Task junction — one defect can spawn multiple tasks
+export const defectTasks = pgTable("defect_tasks", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  defect_id: uuid("defect_id").notNull().references(() => defects.id, { onDelete: "cascade" }),
+  task_id: uuid("task_id").notNull().references(() => tasks.id, { onDelete: "cascade" }),
+  linked_at: timestamp("linked_at").defaultNow(),
+  linked_by: uuid("linked_by").references(() => users.id),
+});
+// Defect comments — threaded discussion on a defect
+export const defectComments = pgTable("defect_comments", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  defect_id: uuid("defect_id").notNull().references(() => defects.id, { onDelete: "cascade" }),
+  content: text("content").notNull(),
+  commented_by: uuid("commented_by").notNull().references(() => users.id),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
+// Defect activity — audit log (status changes, assignments, etc.)
+export const defectActivity = pgTable("defect_activity", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  defect_id: uuid("defect_id").notNull().references(() => defects.id, { onDelete: "cascade" }),
+  action_type: text("action_type").notNull(), // created, status_changed, assigned, severity_changed, …
+  old_value: text("old_value"),
+  new_value: text("new_value"),
+  acted_by: uuid("acted_by").references(() => users.id),
+  created_at: timestamp("created_at").defaultNow(),
+});
+
+// Relations
+export const defectsRelations = relations(defects, ({ one, many }) => ({
+  reportedBy: one(users, { fields: [defects.reported_by], references: [users.id], relationName: "defectReportedBy" }),
+  assignedTo:  one(users, { fields: [defects.assigned_to],  references: [users.id], relationName: "defectAssignedTo"  }),
+  assignedBy:  one(users, { fields: [defects.assigned_by],  references: [users.id], relationName: "defectAssignedBy"  }),
+  approvedBy:  one(users, { fields: [defects.approved_by],  references: [users.id], relationName: "defectApprovedBy"  }),
+  team:        one(teams,  { fields: [defects.team_id],      references: [teams.id]                                    }),
+  project:     one(projects, { fields: [defects.project_id], references: [projects.id]                                 }),
+  comments:    many(defectComments),
+  activity:    many(defectActivity),
+  defectTasks: many(defectTasks),
+}));
+
+export const defectTasksRelations = relations(defectTasks, ({ one }) => ({
+  defect:   one(defects, { fields: [defectTasks.defect_id], references: [defects.id] }),
+  task:     one(tasks,   { fields: [defectTasks.task_id],   references: [tasks.id]   }),
+  linkedBy: one(users,   { fields: [defectTasks.linked_by], references: [users.id]   }),
+}));
+
+export const defectCommentsRelations = relations(defectComments, ({ one }) => ({
+  defect:      one(defects, { fields: [defectComments.defect_id],     references: [defects.id]   }),
+  commentedBy: one(users,   { fields: [defectComments.commented_by],  references: [users.id]     }),
+}));
+
+export const defectActivityRelations = relations(defectActivity, ({ one }) => ({
+  defect:   one(defects, { fields: [defectActivity.defect_id], references: [defects.id] }),
+  actedBy:  one(users,   { fields: [defectActivity.acted_by],  references: [users.id]  }),
+}));
+
+// Insert schemas
+export const insertDefectSchema = createInsertSchema(defects).omit({
+  id: true,
+  defect_number: true,
+  created_at: true,
+  updated_at: true,
+}).extend({
+  severity:    z.enum(["critical", "high", "medium", "low"]).default("medium"),
+  priority:    z.number().min(1).max(5).default(3).optional(),
+  status:      z.enum(["draft", "submitted", "approved", "rejected", "in_progress", "resolved", "verified", "closed", "reopened"]).default("draft"),
+  type:        z.enum(["bug", "regression", "performance", "ui", "security", "data"]).default("bug"),
+  environment: z.enum(["production", "staging", "qa", "development"]).default("production").optional(),
+  due_date:    z.union([z.date(), z.string().transform((s) => s ? new Date(s) : null)]).nullable().optional(),
+  resolved_at: z.union([z.date(), z.string().transform((s) => s ? new Date(s) : null)]).nullable().optional(),
+  verified_at: z.union([z.date(), z.string().transform((s) => s ? new Date(s) : null)]).nullable().optional(),
+  approved_at: z.union([z.date(), z.string().transform((s) => s ? new Date(s) : null)]).nullable().optional(),
+  attachments: z.array(z.object({
+    name: z.string(),
+    type: z.string(),
+    size: z.number(),
+    data: z.string(), // base64
+  })).optional().default([]),
+});
+
+export const insertDefectTaskSchema = createInsertSchema(defectTasks).omit({
+  id: true,
+  linked_at: true,
+});
+
+export const insertDefectCommentSchema = createInsertSchema(defectComments).omit({
+  id: true,
+  created_at: true,
+  updated_at: true,
+});
+
+export const insertDefectActivitySchema = createInsertSchema(defectActivity).omit({
+  id: true,
+  created_at: true,
+});
+
+// Types
+export type InsertDefect = z.infer<typeof insertDefectSchema>;
+export type Defect = typeof defects.$inferSelect;
+export type InsertDefectComment = z.infer<typeof insertDefectCommentSchema>;
+export type DefectComment = typeof defectComments.$inferSelect;
+export type InsertDefectActivity = z.infer<typeof insertDefectActivitySchema>;
+export type DefectActivity = typeof defectActivity.$inferSelect;
+export type InsertDefectTask = z.infer<typeof insertDefectTaskSchema>;
+export type DefectTask = typeof defectTasks.$inferSelect;
+// ============================
+// CLIENT MANAGEMENT
+// ============================
+
+export const clients = pgTable("clients", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  name: text("name").notNull(),
+  organization_type: text("organization_type"), // Enterprise, SMB, Startup, Government, NGO
+  industry: text("industry"),                   // Technology, Finance, Healthcare, etc.
+  primary_contact_name: text("primary_contact_name"),
+  email: text("email"),
+  phone: text("phone"),
+  status: text("status").notNull().default("active"), // active, inactive, prospect
+  notes: text("notes"),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
+export const clientContacts = pgTable("client_contacts", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  client_id: uuid("client_id").notNull().references(() => clients.id, { onDelete: "cascade" }),
+  name: text("name").notNull(),
+  email: text("email").notNull(),
+  phone: text("phone"),
+  job_title: text("job_title"),
+  access_level: text("access_level").notNull().default("observer"), // observer, collaborator, approver
+  is_active: boolean("is_active").default(true),
+  password_hash: text("password_hash"),
+  last_login_at: timestamp("last_login_at"),
+  created_at: timestamp("created_at").defaultNow(),
+  updated_at: timestamp("updated_at").defaultNow(),
+});
+
+export const clientProjectAccess = pgTable("client_project_access", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  contact_id: uuid("contact_id").notNull().references(() => clientContacts.id, { onDelete: "cascade" }),
+  project_id: uuid("project_id").notNull().references(() => projects.id, { onDelete: "cascade" }),
+  access_level: text("access_level").notNull().default("observer"), // observer, collaborator, approver
+  can_view_defects: boolean("can_view_defects").default(true),
+  can_create_defects: boolean("can_create_defects").default(false),
+  can_edit_defects: boolean("can_edit_defects").default(false),
+  can_approve_defects: boolean("can_approve_defects").default(false),
+  can_approve_milestones: boolean("can_approve_milestones").default(false),
+  can_view_tasks: boolean("can_view_tasks").default(true),
+  can_view_timesheets: boolean("can_view_timesheets").default(false),
+  granted_at: timestamp("granted_at").defaultNow(),
+  granted_by: uuid("granted_by"),
+});
+
+// Relations
+export const clientsRelations = relations(clients, ({ many }) => ({
+  contacts: many(clientContacts),
+}));
+
+export const clientContactsRelations = relations(clientContacts, ({ one, many }) => ({
+  client: one(clients, { fields: [clientContacts.client_id], references: [clients.id] }),
+  projectAccess: many(clientProjectAccess),
+}));
+
+export const clientProjectAccessRelations = relations(clientProjectAccess, ({ one }) => ({
+  contact: one(clientContacts, { fields: [clientProjectAccess.contact_id], references: [clientContacts.id] }),
+  project: one(projects, { fields: [clientProjectAccess.project_id], references: [projects.id] }),
+}));
+
+// Insert schemas
+export const insertClientSchema = createInsertSchema(clients).omit({ id: true, created_at: true, updated_at: true });
+export const insertClientContactSchema = createInsertSchema(clientContacts).omit({ id: true, password_hash: true, last_login_at: true, created_at: true, updated_at: true });
+export const insertClientProjectAccessSchema = createInsertSchema(clientProjectAccess).omit({ id: true, granted_at: true });
+export const clientApiPayloadSchema = insertClientSchema.extend({
+  access_level: z.enum(["observer", "collaborator", "approver"]).optional(),
+  // Allow a valid password or an empty string (if they choose to set it later)
+  password: z.string().min(6, "Password must be at least 6 characters").optional().or(z.literal("")), 
+});
+// Types
+export type InsertClient = z.infer<typeof insertClientSchema>;
+export type Client = typeof clients.$inferSelect;
+export type InsertClientContact = z.infer<typeof insertClientContactSchema>;
+export type ClientContact = typeof clientContacts.$inferSelect;
+export type InsertClientProjectAccess = z.infer<typeof insertClientProjectAccessSchema>;
+export type ClientProjectAccess = typeof clientProjectAccess.$inferSelect;

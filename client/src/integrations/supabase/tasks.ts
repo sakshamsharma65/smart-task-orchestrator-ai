@@ -161,6 +161,7 @@ export type FetchTasksInput = {
   priority?: number;
   offset?: number;
   limit?: number;
+  overdue?: boolean;
   // Add more filters as needed
 };
 

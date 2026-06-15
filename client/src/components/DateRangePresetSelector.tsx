@@ -30,6 +30,7 @@ type DateRange = { from: Date | null; to: Date | null };
 
 type DateRangePresetSelectorProps = {
   dateRange: DateRange;
+ onResetFilters?: () => void;
   preset: string;
   onChange: (range: DateRange, preset: string) => void;
 };
@@ -99,6 +100,7 @@ export default function DateRangePresetSelector({
   dateRange,
   preset,
   onChange,
+  onResetFilters,
 }: DateRangePresetSelectorProps) {
   // helper to convert Date -> yyyy-MM-dd for input value
   const toInputValue = (d: Date | null) => (d ? format(d, "yyyy-MM-dd") : "");
@@ -201,6 +203,9 @@ React.useEffect(() => {
                 type="button"
                 onClick={() => {
                   onChange({ from: null, to: null }, "custom");
+                  if (onResetFilters) {
+      onResetFilters(); 
+    }
                 }}
                 className="px-3 py-1 rounded border text-sm"
               >

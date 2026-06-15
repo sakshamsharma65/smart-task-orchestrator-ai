@@ -1,4 +1,5 @@
 import express, { type Request, Response, NextFunction } from "express";
+import session from "express-session";
 import { registerRoutes } from "./routes";
 import { setupVite, serveStatic, log } from "./vite";
 import dotenv from "dotenv";
@@ -6,8 +7,34 @@ import { initCronJobs } from "./services/cronService";
 
 dotenv.config();
 const app = express();
+app.set("etag", false);
+      app.use((req, res, next) => {
+  if (req.path.startsWith("/api")) {
+ res.setHeader(
+  "Cache-Control",
+  "no-store, no-cache, must-revalidate, proxy-revalidate"
+);
+res.setHeader("Pragma", "no-cache");
+res.setHeader("Expires", "0");
+res.setHeader("Surrogate-Control", "no-store");
+  }
+  next();
+});
 app.use(express.json());
 app.use(express.urlencoded({ extended: false }));
+app.use(
+  session({
+    secret: process.env.SESSION_SECRET || "smart-task-orchestrator-session-secret",
+    resave: false,
+    saveUninitialized: false,
+    cookie: {
+      httpOnly: true,
+      sameSite: "lax",
+      secure: app.get("env") === "production",
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+    },
+  })
+);
 
 app.use((req, res, next) => {
   const start = Date.now();
@@ -41,6 +68,7 @@ app.use((req, res, next) => {
 
 (async () => {
   try {
+
   const server = await registerRoutes(app);
 
   app.use((err: any, _req: Request, res: Response, _next: NextFunction) => {
@@ -50,6 +78,7 @@ app.use((req, res, next) => {
     res.status(status).json({ message });
     throw err;
   });
+
 
   // importantly only setup vite in development and after
   // setting up all the other routes so the catch-all route
@@ -90,3 +119,4 @@ app.use((req, res, next) => {
     process.exit(1);
   }
 })();
+

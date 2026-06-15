@@ -3,11 +3,16 @@ import { toast } from "@/components/ui/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import axios from "axios";
-
+import { X } from "lucide-react";
+import { Navigate, useNavigate } from "react-router-dom";
 const ForgotPassword = ({ onOtpSent }: { onOtpSent: (email: string) => void }) => {
   const [email, setEmail] = useState("");
   const [loading, setLoading] = useState(false);
-
+  const navigate = useNavigate();
+  
+ const handleClose = () => {  
+  navigate("/auth");
+ }
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
@@ -23,10 +28,12 @@ const ForgotPassword = ({ onOtpSent }: { onOtpSent: (email: string) => void }) =
 
   return (
     <div className="flex items-center justify-center min-h-screen w-full bg-[#EFF3FF] fixed top-0 left-0">
-      <div className="w-full max-w-md bg-white shadow-lg rounded-2xl p-8 border border-gray-100">
+      <div className="w-full max-w-md bg-white shadow-lg rounded-2xl p-8 border border-gray-100 relative">
         <h2 className="text-2xl font-semibold text-center mb-2 text-gray-800">
           Forgot Password
-        </h2>
+        </h2><button onClick={handleClose} className="absolute top-2 right-2 text-gray-400 hover:text-gray-600 transition-colors">
+  <X size={20} />
+</button>
         <p className="text-sm text-gray-500 text-center mb-6">
           Enter your registered email address. We’ll send you an OTP to reset your password.
         </p>

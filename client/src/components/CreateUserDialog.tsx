@@ -127,8 +127,21 @@ const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
     setLoading(false);
     return;
   }
+const passwordRegex =
+  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*])[A-Za-z\d!@#$%^&*]{6,}$/;
 
-    try {
+if (!passwordRegex.test(values.password)) {
+  toast({
+    title: "Validation Error",
+    description:
+      "Password must be minimum 6 characters and include uppercase, lowercase, number, and special character.",
+    variant: "destructive",
+  });
+
+  setLoading(false);
+  return;
+}
+  try {
       const { email, password, user_name, department, phone, manager,role, 
               benchmarking_excluded, custom_min_hours_per_day, custom_max_hours_per_day,
               custom_min_hours_per_week, custom_max_hours_per_week, 

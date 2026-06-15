@@ -12,6 +12,7 @@ import * as crypto from 'crypto';
 import { AlertCircle, CheckCircle, Clock, Users, Calendar, Server } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import { useCurrentUserRoleAndTeams } from "@/hooks/useCurrentUserRoleAndTeams";
+import { formatOrgDate } from "@/lib/dateUtils";
 
 interface LicenseStatus {
   hasLicense: boolean;
@@ -208,7 +209,7 @@ export const LicenseManager = () => {
                     Expires:
                   </span>
                   <span className="text-sm">
-                    {new Date(licenseStatus.expiresAt).toLocaleDateString()}
+                    {formatOrgDate(licenseStatus.expiresAt)}
                   </span>
                 </div>
               )}

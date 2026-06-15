@@ -13,6 +13,8 @@ import { useStatusTransitionValidation } from "@/hooks/useStatusTransitionValida
 import TaskTimer from "./TaskTimer";
 import { useRolePermissions } from "@/hooks/useRolePermissions";
 import { useUserDisplayNames } from "@/hooks/useUserDisplayNames";
+import { useDefectTaskIds } from "@/hooks/useDefectTaskIds";
+import { Bug } from "lucide-react";
 import DOMPurify from 'dompurify'
 // Utility to convert hex to RGB for lighter colors
 const hexToRgb = (hex: string) => {
@@ -130,6 +132,8 @@ function handleDeleteTask(id: string) {
       : "bg-green-100 text-green-700";
 
   // New: Determine inTime/overdue
+  const defectTaskIds = useDefectTaskIds();
+  const isDefectTask = defectTaskIds.has(task.id);
   const timeStatus = getTimeIndicator(task);
 
   // BADGE LOGIC: Now actually available on Task
@@ -212,13 +216,19 @@ function handleDeleteTask(id: string) {
             {/* In Time/Overdue badge */}
             {timeStatus === "in_time" && (
               <span className="text-xs px-2 py-1 rounded-full bg-green-100 text-green-900 font-medium">
-                In Time
+                On Time
               </span>
             )}
             {timeStatus === "overdue" && (
               <span className="text-xs px-2 py-1 rounded-full bg-red-100 text-red-900 font-medium">
                 Overdue
               </span>
+            )}
+                     {/* Defect Fix badge */}
+            {isDefectTask && (
+              <Badge className="bg-orange-100 text-orange-700 flex items-center gap-1 text-xs border border-orange-200" variant="secondary" title="This task was created to fix a defect">
+                <Bug size={12} /> <span className="hidden sm:inline">Defect Fix</span>
+              </Badge>
             )}
             {/* Subtask and Dependency Badges */}
             {isSubTask && (

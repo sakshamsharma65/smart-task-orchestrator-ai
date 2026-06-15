@@ -196,8 +196,19 @@ router.post("/api/auth/reset-password", async (req, res) => {
       return res.status(403).json({ error: "Invalid or expired reset token" });
     }
 
-    // Hash new password
-    const hashedPassword = await bcrypt.hash(newPassword, 10);
+ // Password Validation Regex
+const passwordRegex =
+/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*])[A-Za-z\d!@#$%^&*]{6,}$/;
+
+if (!passwordRegex.test(newPassword.trim())) {
+  return res.status(400).json({
+    error:
+      "Password must be at least 6 characters and include uppercase, lowercase, number, and special character",
+  });
+}
+
+// Hash new password
+const hashedPassword = await bcrypt.hash(newPassword, 10);
 
     // Update user password
     await pool.query(

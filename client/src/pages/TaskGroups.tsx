@@ -171,6 +171,15 @@ async function refetchDetails() {
     return true;
   });
 
+  // ... aapke baaki states (searchQuery, dateRange etc) ...
+
+// Filters reset karne ka function
+const handleResetAllFilters = () => {
+  setVisibilityFilter("all");
+  setCreatedByFilter("all");
+  // Agar aap chaho toh search query bhi clear kar sakte ho
+  // setSearchQuery(""); 
+};
   return (
     <div className="w-full p-4 mx-0">
       <div className="flex justify-between items-center mb-6">
@@ -219,6 +228,7 @@ async function refetchDetails() {
                   dateRange={dateRange}
                   preset={preset}
                   onChange={handlePresetChange}
+                  onResetFilters={handleResetAllFilters}
                 />
               </div>
 
