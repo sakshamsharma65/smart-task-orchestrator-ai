@@ -60,6 +60,7 @@ type Props = {
   currentUser: any;
   onUpdated: () => void;
   onEdit?: (task: Task) => void;
+  readOnly?: boolean;
 };
 const TaskDetailsSheet: React.FC<Props> = ({
   task,
@@ -67,7 +68,8 @@ const TaskDetailsSheet: React.FC<Props> = ({
   onOpenChange,
   currentUser,
   onUpdated,
-  onEdit
+  onEdit,
+  readOnly = false
 }) => {
  
   // Always run hooks regardless of task
@@ -104,7 +106,7 @@ const [pendingCount, setPendingCount] = useState(0);
     return obj;
   }, [usersName]);
 
-  const showAssign = hasManagerPermissions(currentUser);
+  const showAssign = hasManagerPermissions(currentUser) && !readOnly;
 
   // Status change logic: ensure dropdown is always populated
   // In UI where you present status <select>, update this:
@@ -492,7 +494,7 @@ async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
                   View and manage all task information, status, and activity.
                 </SheetDescription>
               </div>
-              {onEdit && (
+              {onEdit && !readOnly && (
                 <Button onClick={() => onEdit(task!)} variant="outline" className="sm:ml-4 w-full sm:w-auto" disabled={task?.status === "Completed"}>
                   Edit Task
                 </Button>
@@ -553,7 +555,7 @@ async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
                       <label className="block text-sm font-semibold text-gray-700 mb-2">Current Status</label>
-                      {(hasManagerPermissions(currentUser) || task.assigned_to === currentUser?.id || task.created_by === currentUser?.id) ? (
+                      {(hasManagerPermissions(currentUser) || task.assigned_to === currentUser?.id || task.created_by === currentUser?.id) && !readOnly ? (
                         <EditTaskStatusSelect
                           currentStatus={status}
                           onStatusChange={(newStatus) => {
@@ -624,7 +626,7 @@ async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
                       <span className="bg-teal-100 text-teal-800 rounded-full w-6 h-6 flex items-center justify-center text-xs font-bold mr-2">P</span>
                       Project Linkage
                     </h3>
-                    {showAssign && !editingLinkage && (
+                    {showAssign && !editingLinkage && !readOnly && (
                       <button
                         type="button"
                       onClick={() => setEditingLinkage(true)}
@@ -780,12 +782,14 @@ async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
                     Add Comment
                   </h3>
                   <div className="space-y-3">
-                    <textarea
-                      placeholder="Add a comment about this task..."
-                      value={comment}
-                      onChange={(e) => setComment(e.target.value)}
-                      className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[80px]"
-                    />
+                    {!readOnly && (
+                      <textarea
+                        placeholder="Add a comment about this task..."
+                        value={comment}
+                        onChange={(e) => setComment(e.target.value)}
+                        className="w-full p-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 min-h-[80px]"
+                      />
+                    )}
          {activity && activity.length > 0 && (
   <p className="text-sm text-gray-600 mt-2">
     <TaskActivityTimeline
@@ -794,13 +798,15 @@ async function handleStatusChange(e: React.ChangeEvent<HTMLSelectElement>) {
     />
   </p>
 )}
-                    <Button
-                      onClick={handleComment}
-                      disabled={!comment.trim()}
-                      size="sm"
-                    >
-                      Add Comment
-                    </Button>
+                    {!readOnly && (
+                      <Button
+                        onClick={handleComment}
+                        disabled={!comment.trim()}
+                        size="sm"
+                      >
+                        Add Comment
+                      </Button>
+                    )}
                   </div>
                 </div>
               </div>

@@ -28,6 +28,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
+import TaskDetailsSheet from "@/components/TaskDetailsSheet";
+import DefectDetailsSheet from "@/components/DefectDetailsSheet";
 
 const MILESTONE_STATUS: Record<string, { label: string; icon: React.ElementType; color: string }> = {
   not_started: { label: "Not Started", icon: Circle, color: "text-gray-400" },
@@ -80,6 +82,8 @@ export default function PortalProjectView() {
   const [editingDefect, setEditingDefect] = useState<any>(null);
   const [defectForm, setDefectForm] = useState(EMPTY_DEFECT_FORM);
   const [submittingDefect, setSubmittingDefect] = useState(false);
+  const [selectedTask, setSelectedTask] = useState<any>(null);
+  const [viewDefect, setViewDefect] = useState<any>(null);
 
   useEffect(() => {
     (async () => {
@@ -410,7 +414,7 @@ export default function PortalProjectView() {
               ) : (
                 <div className="space-y-2">
                   {defects.map((defect: any) => (
-                    <Card key={defect.id}>
+                    <Card key={defect.id} className="cursor-pointer hover:shadow-md hover:border-orange-300 transition-all" onClick={() => setViewDefect(defect)}>
                       <CardContent className="p-4 flex items-start gap-3">
                         <AlertTriangle
                           className={`h-4 w-4 mt-0.5 shrink-0 ${
@@ -434,7 +438,7 @@ export default function PortalProjectView() {
                           </p>
                         </div>
                         {canManageDefects && (
-                          <Button variant="outline" size="sm" className="shrink-0" onClick={() => openManageDefect(defect)}>
+                          <Button variant="outline" size="sm" className="shrink-0" onClick={(e) => { e.stopPropagation(); openManageDefect(defect); }}>
                             <Pencil className="h-3.5 w-3.5 mr-1" />
                             {access.can_approve_defects ? "Edit" : "Edit"}
                           </Button>
@@ -459,7 +463,7 @@ export default function PortalProjectView() {
                   {tasks.map((task: any) => {
                     const priority = PRIORITY_MAP[task.priority as number] || { label: "-", color: "text-gray-400" };
                     return (
-                      <Card key={task.id}>
+                      <Card key={task.id} className="cursor-pointer hover:shadow-md hover:border-blue-300 transition-all" onClick={() => setSelectedTask(task)}>
                         <CardContent className="p-4 flex items-start gap-3">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
@@ -488,6 +492,26 @@ export default function PortalProjectView() {
           )}
         </Tabs>
       </main>
+
+      {/* Detail Modals in View-Only mode */}
+      {selectedTask && (
+        <TaskDetailsSheet
+          task={selectedTask}
+          open={!!selectedTask}
+          onOpenChange={(isOpen: boolean) => !isOpen && setSelectedTask(null)}
+          currentUser={me?.contact}
+          onUpdated={() => {}}
+          readOnly={true}
+        />
+      )}
+      {viewDefect && (
+        <DefectDetailsSheet
+          defect={viewDefect}
+          open={!!viewDefect}
+          onOpenChange={(isOpen: boolean) => !isOpen && setViewDefect(null)}
+          readOnly={true}
+        />
+      )}
 
       <Dialog open={defectDialog} onOpenChange={(open) => (!open ? closeDefectDialog() : setDefectDialog(true))}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
