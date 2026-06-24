@@ -41,7 +41,7 @@ import PortalLogin from "@/pages/PortalLogin";
 import PortalDashboard from "@/pages/PortalDashboard";
 import PortalChangePassword from "@/pages/PortalChangePassword";
 import PortalProjectView from "@/pages/PortalProjectView";
-
+import DefectAnalysisReport from "@/pages/DefectAnalysisReport";
 import Clients from "@/pages/Clients";
 import ClientDetail from "@/pages/ClientDetail";
 import DefectBoardPage from "@/pages/DefectBoard";
@@ -50,6 +50,7 @@ import VerifyOtp from "./pages/VerifyOtp";
 import { GoogleOAuthProvider } from '@react-oauth/google';
 import { apiClient } from "@/lib/api";
 import { setOrgDateSettings } from "@/lib/dateUtils";
+import { report } from "process";
 const GOOGLE_CLIENT_ID = "145033670665-8jufo1s5bfujldjm9uik95l5kgdkrqli.apps.googleusercontent.com";
 
 const OrganizationSettingsSync = () => {
@@ -155,6 +156,8 @@ const App = () => (
                 </AdminLayout>
               }
             />
+            <Route path="/reports/defect-analysis" element={   <AdminLayout><DefectAnalysisReport /></AdminLayout>} />
+
             <Route
               path="/role-permissions"
               element={

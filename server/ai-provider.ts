@@ -200,34 +200,11 @@ Your role:
 
 Once you have all required information, immediately output the task using the TASK_JSON marker.`;
 
-export const PROVIDER_MODELS: Record<string, { label: string; models: string[] }> = {
-  openai: {
-    label: "OpenAI",
-    models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"],
-  },
-  anthropic: {
-    label: "Anthropic",
-    models: [
-      "claude-3-5-sonnet-20241022",
-      "claude-3-5-haiku-20241022",
-      "claude-3-opus-20240229",
-      "claude-3-sonnet-20240229",
-    ],
-  },
-  google: {
-    label: "Google Gemini",
-    models: ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash", "gemini-pro"],
-  },
-  azure: {
-    label: "Azure OpenAI",
-    models: ["gpt-4o", "gpt-4", "gpt-35-turbo"],
-  },
-  mistral: {
-    label: "Mistral AI",
-    models: ["mistral-large-latest", "mistral-medium-latest", "mistral-small-latest", "open-mixtral-8x22b"],
-  },
-  ollama: {
-    label: "Ollama (Local)",
-    models: ["llama3.2", "llama3.1", "mistral", "codellama", "phi3", "gemma2"],
-  },
-};
+/*
+ * Hardcoded PROVIDER_MODELS has been commented out.
+ * Providers and Models are now fetched dynamically from the database.
+ *
+ * export const PROVIDER_MODELS: Record<string, { label: string; models: string[] }> = {
+ *   // ... original models ...
+ * };
+ */

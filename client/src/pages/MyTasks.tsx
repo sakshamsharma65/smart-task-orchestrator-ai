@@ -412,36 +412,28 @@ export default function MyTasksPage() {
 
   const CARD_TYPE = "TASK_CARD";
   
-  // Sort statuses based on transition workflow order
+  // Sort statuses using the intended workflow order first, then sequence order
   const sortedStatusKeys = useMemo(() => {
-    const transitionSequence = getStatusSequence();
-    const statusMap = new Map(statuses.map(s => [s.name, s]));
-    
-    // Start with default status first
-    const defaultStatus = statuses.find(s => s.is_default);
-    const orderedStatuses: string[] = [];
-    
-    if (defaultStatus) {
-      orderedStatuses.push(defaultStatus.name);
-    }
-    
-    // Add statuses following the transition sequence
-    transitionSequence.forEach(statusName => {
-      if (statusMap.has(statusName) && !orderedStatuses.includes(statusName)) {
-        orderedStatuses.push(statusName);
-      }
-    });
-    
-    // Add any remaining statuses alphabetically (for merging cases)
-    const remainingStatuses = statuses
-      .filter(s => !orderedStatuses.includes(s.name))
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .map(s => s.name);
-    
-    orderedStatuses.push(...remainingStatuses);
-    
-    return orderedStatuses.map(name => getStatusKey(name));
-  }, [statuses, getStatusSequence]);
+    return [...statuses]
+      .map((status) => ({
+        name: status.name,
+        key: getStatusKey(status.name),
+        order: status.sequence_order ?? Number.MAX_SAFE_INTEGER,
+      }))
+      .sort((a, b) => {
+        const preferredOrder = ["New", "In Progress", "Approval",  "Completed"];
+        const aRank = preferredOrder.indexOf(a.key);
+        const bRank = preferredOrder.indexOf(b.key);
+        const rankDiff =
+          (aRank === -1 ? Number.MAX_SAFE_INTEGER : aRank) -
+          (bRank === -1 ? Number.MAX_SAFE_INTEGER : bRank);
+
+        if (rankDiff !== 0) return rankDiff;
+        if (a.order !== b.order) return a.order - b.order;
+        return a.name.localeCompare(b.name);
+      })
+      .map((status) => status.key);
+  }, [statuses]);
 
   const handleTaskDrop = async (taskId: string, newStatusKey: string) => {
     const statusObj = statuses.find(

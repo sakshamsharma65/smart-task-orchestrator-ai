@@ -45,6 +45,7 @@ const defaultForm = {
   feature_group_id: "",
   feature_id: "",
   due_date: "",
+  root_cause_analysis: "",
 };
 
 export default function CreateDefectSheet({ open, onOpenChange, currentUserId, defaultProjectId, defaultProjectName }: Props) {
@@ -165,6 +166,7 @@ export default function CreateDefectSheet({ open, onOpenChange, currentUserId, d
       feature_group_id: form.feature_group_id || null,
       feature_id: form.feature_id || null,
       due_date: form.due_date || null,
+      root_cause_analysis: form.root_cause_analysis || null,
     };
     createMutation.mutate(payload);
   };
@@ -284,6 +286,22 @@ export default function CreateDefectSheet({ open, onOpenChange, currentUserId, d
                   <option value="staging">Staging</option>
                   <option value="qa">QA</option>
                   <option value="development">Development</option>
+                </select>
+              </div>
+              <div className="col-span-1 sm:col-span-2">
+                <label className="block text-sm font-semibold text-gray-700 dark:text-gray-300 mb-1">Root Cause Category</label>
+                <select
+                  value={form.root_cause_analysis}
+                  onChange={(e) => set("root_cause_analysis", e.target.value)}
+                  className="w-full h-12 text-sm border border-gray-300 dark:border-gray-600 rounded-lg px-3 bg-white dark:bg-gray-800 focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="">— Unassigned —</option>
+                  <option value="Lack of Knowledge">Lack of Knowledge</option>
+                  <option value="Lack of Training">Lack of Training</option>
+                  <option value="Requirement Changes">Requirement Changes</option>
+                  <option value="Coding Error">Coding Error</option>
+                  <option value="Design Issue">Design Issue</option>
+                  <option value="Environment Issue">Environment Issue</option>
                 </select>
               </div>
             </div>

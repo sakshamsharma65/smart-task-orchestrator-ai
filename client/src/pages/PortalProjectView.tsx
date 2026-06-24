@@ -28,8 +28,8 @@ import { Label } from "@/components/ui/label";
 import { Textarea } from "@/components/ui/textarea";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import TaskDetailsSheet from "@/components/TaskDetailsSheet";
-import DefectDetailsSheet from "@/components/DefectDetailsSheet";
+import PortalTaskDetailsSheet from "@/components/PortalTaskDetailsSheet";
+import PortalDefectDetailsSheet from "@/components/PortalDefectDetailsSheet";
 
 const MILESTONE_STATUS: Record<string, { label: string; icon: React.ElementType; color: string }> = {
   not_started: { label: "Not Started", icon: Circle, color: "text-gray-400" },
@@ -65,6 +65,37 @@ const EMPTY_DEFECT_FORM = {
   status: "submitted",
   rejection_reason: "",
 };
+
+async function readPortalJson(response: Response, fallbackMessage: string) {
+  const contentType = response.headers.get("content-type") || "";
+  const text = await response.text();
+
+  if (!response.ok) {
+    if (contentType.includes("application/json")) {
+      try {
+        const parsed = JSON.parse(text);
+        throw new Error(parsed?.error || parsed?.message || fallbackMessage);
+      } catch {
+        throw new Error(fallbackMessage);
+      }
+    }
+    throw new Error(text?.slice(0, 120) || fallbackMessage);
+  }
+
+  if (contentType.includes("application/json")) {
+    return text ? JSON.parse(text) : null;
+  }
+
+  if (text.trim().startsWith("<!DOCTYPE") || text.trim().startsWith("<html")) {
+    throw new Error("Server returned HTML instead of JSON. The portal detail API route may be missing or the backend may need a restart.");
+  }
+
+  try {
+    return text ? JSON.parse(text) : null;
+  } catch {
+    throw new Error("Server returned a non-JSON response.");
+  }
+}
 
 export default function PortalProjectView() {
   const { id } = useParams<{ id: string }>();
@@ -127,6 +158,24 @@ export default function PortalProjectView() {
   const handleLogout = async () => {
     await fetch("/api/portal/logout", { method: "POST", credentials: "include" });
     navigate("/portal/login");
+  };
+
+  const openTaskDetails = async (task: any) => {
+    try {
+      const res = await fetch(`/api/portal/projects/${id}/tasks/${task.id}`, { credentials: "include" });
+      setSelectedTask(await readPortalJson(res, "Failed to load task details"));
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
+  };
+
+  const openDefectDetails = async (defect: any) => {
+    try {
+      const res = await fetch(`/api/portal/projects/${id}/defects/${defect.id}`, { credentials: "include" });
+      setViewDefect(await readPortalJson(res, "Failed to load defect details"));
+    } catch (error: any) {
+      toast({ title: "Error", description: error.message, variant: "destructive" });
+    }
   };
 
   const openCreateDefect = () => {
@@ -414,7 +463,7 @@ export default function PortalProjectView() {
               ) : (
                 <div className="space-y-2">
                   {defects.map((defect: any) => (
-                    <Card key={defect.id} className="cursor-pointer hover:shadow-md hover:border-orange-300 transition-all" onClick={() => setViewDefect(defect)}>
+                    <Card key={defect.id} className="cursor-pointer hover:shadow-md hover:border-orange-300 transition-all" onClick={() => openDefectDetails(defect)}>
                       <CardContent className="p-4 flex items-start gap-3">
                         <AlertTriangle
                           className={`h-4 w-4 mt-0.5 shrink-0 ${
@@ -463,7 +512,7 @@ export default function PortalProjectView() {
                   {tasks.map((task: any) => {
                     const priority = PRIORITY_MAP[task.priority as number] || { label: "-", color: "text-gray-400" };
                     return (
-                      <Card key={task.id} className="cursor-pointer hover:shadow-md hover:border-blue-300 transition-all" onClick={() => setSelectedTask(task)}>
+                      <Card key={task.id} className="cursor-pointer hover:shadow-md hover:border-blue-300 transition-all" onClick={() => openTaskDetails(task)}>
                         <CardContent className="p-4 flex items-start gap-3">
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2 flex-wrap">
@@ -495,21 +544,17 @@ export default function PortalProjectView() {
 
       {/* Detail Modals in View-Only mode */}
       {selectedTask && (
-        <TaskDetailsSheet
+        <PortalTaskDetailsSheet
           task={selectedTask}
           open={!!selectedTask}
           onOpenChange={(isOpen: boolean) => !isOpen && setSelectedTask(null)}
-          currentUser={me?.contact}
-          onUpdated={() => {}}
-          readOnly={true}
         />
       )}
       {viewDefect && (
-        <DefectDetailsSheet
+        <PortalDefectDetailsSheet
           defect={viewDefect}
           open={!!viewDefect}
           onOpenChange={(isOpen: boolean) => !isOpen && setViewDefect(null)}
-          readOnly={true}
         />
       )}
 

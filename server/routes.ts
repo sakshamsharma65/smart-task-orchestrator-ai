@@ -1,17 +1,17 @@
-import type { Express } from "express";
+import type { Express, Request, Response } from "express";
 import express from "express";
 import { createServer, type Server } from "http";
 import { storage } from "./storage";
 import passwordResetRouter from "./passwordResetRoutes";
 import { licenseManager, APP_ID } from "./license-manager";
 
-import { insertUserSchema, insertTaskSchema, insertTeamSchema, insertTaskGroupSchema, insertRoleSchema, insertOfficeLocationSchema, insertProjectMilestoneSchema, insertProjectSchema, userRoles, insertDefectSchema, insertClientSchema, insertClientContactSchema, insertClientProjectAccessSchema,clientApiPayloadSchema} from "@shared/schema";
-import { db } from "./db";
+import { insertUserSchema, insertTaskSchema, insertTeamSchema, insertTaskGroupSchema, insertRoleSchema, insertOfficeLocationSchema, insertProjectMilestoneSchema, insertProjectSchema, userRoles, insertDefectSchema, insertClientSchema, insertClientContactSchema, insertClientProjectAccessSchema,clientApiPayloadSchema,llmModels,llmProviders, defectTasks} from "@shared/schema";
+import { db, pool } from "./db";
 import bcrypt from "bcrypt";
 import { toast } from "@/hooks/use-toast";
 import { error, log } from "console";
 import { activityLog } from "@shared/schema";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc,and} from "drizzle-orm";
 import rateLimit from "express-rate-limit";
 import { callAiProvider, encryptApiKey, decryptApiKey, DEFAULT_SYSTEM_PROMPT_HEADER } from "./ai-provider";
 import {
@@ -27,6 +27,88 @@ import { taskAttachments, teamMemberships } from "@shared/schema";
 import fs from "fs";
 import { OAuth2Client } from "google-auth-library";
 import e from "express";
+// --- 1. Expected TypeScript Interfaces ---
+interface DefectAging {
+  zeroToThree: number;
+  fourToSeven: number;
+  greaterThanSeven: number;
+}
+
+interface HighLevelMetrics {
+  total: number;
+  open: number;
+  closed: number;
+  reopened: number;
+  severities: {
+    critical: number;
+    high: number;
+    medium: number;
+    low: number;
+  };
+  aging: DefectAging;
+}
+
+interface RootCauseAggregation {
+  category: string;
+  count: number;
+  remarks: string;
+}
+
+interface ReporterAggregation {
+  resourceName: string;
+  count: number;
+}
+
+interface DeveloperConfidence {
+  developerName: string;
+  totalDefects: number;
+  critical: number;
+  high: number;
+  medium: number;
+  low: number;
+}
+
+interface DetailedDefectAnalysisRow {
+  id: string;
+  defectNumber: number | null;
+  title: string;
+  description: string | null;
+  stepsToReproduce: string | null;
+  expectedBehavior: string | null;
+  actualBehavior: string | null;
+  severity: string;
+  priority: number | null;
+  status: string;
+  type: string;
+  environment: string | null;
+  projectName: string;
+  teamName: string;
+  reporterName: string;
+  assignedToName: string;
+  assignedByName: string;
+  approvedByName: string;
+  rootCauseAnalysis: string;
+  resolution: string | null;
+  rejectionReason: string | null;
+  dueDate: string | null;
+  createdAt: string | null;
+  updatedAt: string | null;
+  approvedAt: string | null;
+  resolvedAt: string | null;
+  verifiedAt: string | null;
+  ageDays: number;
+  resolutionDays: number | null;
+  attachmentCount: number;
+  linkedTaskCount: number;
+}
+
+interface DefectAnalysisReportResponse {
+  metrics: HighLevelMetrics;
+  rootCauses: RootCauseAggregation[];
+  reporters: ReporterAggregation[];
+  developerMatrix: DeveloperConfidence[];
+  defects: DetailedDefectAnalysisRow[];
+}
 const googleClient = new OAuth2Client(process.env.GOOGLE_CLIENT_ID);
 
 // Multer configuration for file uploads
@@ -252,6 +334,86 @@ function sanitizePortalDefectUpdates(payload: any) {
   }
 
   return updates;
+}
+
+async function buildPortalDefectDetails(defectId: string) {
+  const defect = await storage.getDefect(defectId);
+  if (!defect) return null;
+
+  const [project, reporter, assignee, approver, comments, linkedTasks] = await Promise.all([
+    defect.project_id ? storage.getProject(defect.project_id) : Promise.resolve(null),
+    defect.reported_by ? storage.getUser(defect.reported_by) : Promise.resolve(null),
+    defect.assigned_to ? storage.getUser(defect.assigned_to) : Promise.resolve(null),
+    defect.approved_by ? storage.getUser(defect.approved_by) : Promise.resolve(null),
+    storage.getDefectComments(defectId),
+    storage.getDefectTasks(defectId),
+  ]);
+
+  const commentDetails = await Promise.all(
+    comments.map(async (comment) => {
+      const author = comment.commented_by ? await storage.getUser(comment.commented_by) : null;
+      return {
+        ...comment,
+        commented_by_name: author?.user_name || author?.email || "Unknown",
+      };
+    }),
+  );
+
+  return {
+    ...defect,
+    project_name: project?.name || null,
+    reported_by_name: reporter?.user_name || reporter?.email || null,
+    assigned_to_name: assignee?.user_name || assignee?.email || null,
+    approved_by_name: approver?.user_name || approver?.email || null,
+    comments: commentDetails,
+    linked_tasks: linkedTasks.map((item) => ({
+      id: item.id,
+      task_id: item.task_id,
+      linked_at: item.linked_at,
+      task: item.task,
+    })),
+  };
+}
+
+async function buildPortalTaskDetails(taskId: string) {
+  const task = await storage.getTask(taskId);
+  if (!task) return null;
+
+  const [project, assignee, creator, milestones, features, activity, attachments] = await Promise.all([
+    task.project_id ? storage.getProject(task.project_id) : Promise.resolve(null),
+    task.assigned_to ? storage.getUser(task.assigned_to) : Promise.resolve(null),
+    task.created_by ? storage.getUser(task.created_by) : Promise.resolve(null),
+    task.project_id ? storage.getProjectMilestones(task.project_id) : Promise.resolve([]),
+    task.project_id ? storage.getProjectFeatures(task.project_id) : Promise.resolve([]),
+    storage.getTaskActivity(taskId),
+    storage.getTaskAttachments(taskId),
+  ]);
+
+  const milestone = milestones.find((item: any) => item.id === task.milestone_id);
+  const feature = features.find((item: any) => item.id === task.feature_id);
+
+  const commentActivity = await Promise.all(
+    activity
+      .filter((entry) => entry.action_type === "comment")
+      .map(async (entry) => {
+        const actor = entry.acted_by ? await storage.getUser(entry.acted_by) : null;
+        return {
+          ...entry,
+          acted_by_name: actor?.user_name || actor?.email || "Unknown",
+        };
+      }),
+  );
+
+  return {
+    ...task,
+    project_name: project?.name || null,
+    milestone_name: milestone?.name || null,
+    feature_name: feature?.name || null,
+    assigned_to_name: assignee?.user_name || assignee?.email || null,
+    created_by_name: creator?.user_name || creator?.email || null,
+    comments: commentActivity,
+    attachments,
+  };
 }
 // Get user's visibility scope for data filtering
 async function getUserVisibilityScope(userId: string): Promise<{ scope: string; roleNames: string[] }> {
@@ -529,6 +691,54 @@ app.post("/api/tasks/ai-generate", requireAnyAuthenticated, async (req, res) => 
     res.status(500).json({ error: "Could not understand prompt" });
   }
 });
+// Route 1: Get all active providers
+app.get("/api/ai-providers", async (req, res) => {
+  try {
+    const providers = await db
+      .select()
+      .from(llmProviders)
+      .where(eq(llmProviders.isActive, true));
+      
+    res.json(providers);
+  } catch (error) {
+    console.error("Error fetching AI providers:", error);
+    res.status(500).json({ error: "Failed to fetch AI providers" });
+  }
+});
+
+// Route 2: Get all active models for a specific provider
+app.get("/api/ai-providers/:providerKey/models", async (req, res) => {
+  try {
+    const { providerKey } = req.params;
+
+    // First find the provider by its key
+    const providerRecord = await db
+      .select({ id: llmProviders.id })
+      .from(llmProviders)
+      .where(eq(llmProviders.providerKey, providerKey))
+      .limit(1);
+
+    if (!providerRecord.length) {
+      return res.status(404).json({ error: "Provider not found" });
+    }
+
+    // Fetch the linked models
+    const models = await db
+      .select()
+      .from(llmModels)
+      .where(
+        and(
+          eq(llmModels.providerId, providerRecord[0].id),
+          eq(llmModels.isActive, true)
+        )
+      );
+
+    res.json(models);
+  } catch (error) {
+    console.error(`Error fetching models for provider ${req.params.providerKey}:`, error);
+    res.status(500).json({ error: "Failed to fetch AI models" });
+  }
+});
   // First-time super admin registration
   app.post("/api/auth/register-super-admin", async (req, res) => {
     try {
@@ -586,6 +796,225 @@ app.post("/api/tasks/ai-generate", requireAnyAuthenticated, async (req, res) => 
       res.status(500).json({ error: "Registration failed" });
     }
   });
+  app.get('/api/reports/defect-analysis', async (req: Request, res: Response) => {
+  try {
+    // Extract query parameters
+    const projectId = req.query.projectId ? String(req.query.projectId) : null;
+    const rootCause = req.query.rootCause ? String(req.query.rootCause) : null;
+    const startDate = req.query.startDate ? String(req.query.startDate) : null;
+    const endDate = req.query.endDate ? String(req.query.endDate) : null;
+
+    // The shared WHERE clause for all queries
+    // $1 = projectId, $2 = rootCause, $3 = startDate, $4 = endDate
+    const baseWhereClause = `
+      WHERE ($1::uuid IS NULL OR d.project_id = $1)
+        AND ($2::text IS NULL OR d.root_cause_analysis = $2)
+        AND ($3::timestamp IS NULL OR d.created_at >= $3::timestamp)
+        AND ($4::timestamp IS NULL OR d.created_at <= $4::timestamp)
+    `;
+
+    const queryParams = [projectId, rootCause, startDate, endDate];
+
+    // --- Query A: High-Level Metrics & Aging ---
+    const queryA = `
+      SELECT 
+        COUNT(d.id) AS total,
+        COUNT(d.id) FILTER (WHERE d.status NOT IN ('closed', 'resolved', 'verified')) AS open_count,
+        COUNT(d.id) FILTER (WHERE d.status IN ('closed', 'resolved', 'verified')) AS closed_count,
+        COUNT(d.id) FILTER (WHERE d.status = 'reopened') AS reopened_count,
+        COUNT(d.id) FILTER (WHERE d.severity = 'critical') AS critical_count,
+        COUNT(d.id) FILTER (WHERE d.severity = 'high') AS high_count,
+        COUNT(d.id) FILTER (WHERE d.severity = 'medium') AS medium_count,
+        COUNT(d.id) FILTER (WHERE d.severity = 'low') AS low_count,
+        COUNT(d.id) FILTER (WHERE EXTRACT(EPOCH FROM (COALESCE(d.resolved_at, CURRENT_TIMESTAMP) - d.created_at)) / 86400 <= 3) AS age_0_3,
+        COUNT(d.id) FILTER (WHERE EXTRACT(EPOCH FROM (COALESCE(d.resolved_at, CURRENT_TIMESTAMP) - d.created_at)) / 86400 > 3 
+                              AND EXTRACT(EPOCH FROM (COALESCE(d.resolved_at, CURRENT_TIMESTAMP) - d.created_at)) / 86400 <= 7) AS age_4_7,
+        COUNT(d.id) FILTER (WHERE EXTRACT(EPOCH FROM (COALESCE(d.resolved_at, CURRENT_TIMESTAMP) - d.created_at)) / 86400 > 7) AS age_gt_7
+      FROM defects d
+      ${baseWhereClause}
+    `;
+
+    // --- Query B: Root Cause Breakdown ---
+const queryB = `
+  SELECT
+    d.root_cause_analysis AS category,
+    COUNT(d.id) AS count
+  FROM defects d
+  ${baseWhereClause}
+    AND d.root_cause_analysis IS NOT NULL
+    AND TRIM(d.root_cause_analysis) <> ''
+  GROUP BY d.root_cause_analysis
+  ORDER BY count DESC
+`;
+
+    // --- Query C: Reporter Breakdown ---
+    const queryC = `
+      SELECT 
+        COALESCE(u.user_name, u.email, 'Unknown') as resource_name,
+        COUNT(d.id) as count
+      FROM defects d
+      LEFT JOIN users u ON d.reported_by = u.id
+      ${baseWhereClause}
+      GROUP BY u.user_name, u.email
+      ORDER BY count DESC
+    `;
+
+    // --- Query D: Developer Confidence Matrix ---
+    const queryD = `
+      SELECT 
+        COALESCE(u.user_name, u.email, 'Unassigned') as developer_name,
+        COUNT(d.id) as total_defects,
+        COUNT(d.id) FILTER (WHERE d.severity = 'critical') as critical,
+        COUNT(d.id) FILTER (WHERE d.severity = 'high') as high,
+        COUNT(d.id) FILTER (WHERE d.severity = 'medium') as medium,
+        COUNT(d.id) FILTER (WHERE d.severity = 'low') as low
+      FROM defects d
+      LEFT JOIN users u ON d.assigned_to = u.id
+      ${baseWhereClause}
+      GROUP BY u.user_name, u.email
+      ORDER BY total_defects DESC
+    `;
+
+    // --- Query E: Detailed Defect Rows for Excel Export ---
+    const queryE = `
+      SELECT
+        d.id,
+        d.defect_number,
+        d.title,
+        d.description,
+        d.steps_to_reproduce,
+        d.expected_behavior,
+        d.actual_behavior,
+        d.severity,
+        d.priority,
+        d.status,
+        d.type,
+        d.environment,
+        COALESCE(p.name, 'Unassigned') AS project_name,
+        COALESCE(t.name, 'Unassigned') AS team_name,
+        COALESCE(reporter.user_name, reporter.email, 'Unknown') AS reporter_name,
+        COALESCE(assignee.user_name, assignee.email, 'Unassigned') AS assigned_to_name,
+        COALESCE(assigner.user_name, assigner.email, 'Unassigned') AS assigned_by_name,
+        COALESCE(approver.user_name, approver.email, 'Unassigned') AS approved_by_name,
+        COALESCE(NULLIF(d.root_cause_analysis, ''), 'Root Cause Not Mentioned') AS root_cause_analysis,
+        d.resolution,
+        d.rejection_reason,
+        d.due_date,
+        d.created_at,
+        d.updated_at,
+        d.approved_at,
+        d.resolved_at,
+        d.verified_at,
+        FLOOR(EXTRACT(EPOCH FROM (COALESCE(d.resolved_at, CURRENT_TIMESTAMP) - d.created_at)) / 86400)::int AS age_days,
+        CASE
+          WHEN d.resolved_at IS NULL THEN NULL
+          ELSE FLOOR(EXTRACT(EPOCH FROM (d.resolved_at - d.created_at)) / 86400)::int
+        END AS resolution_days,
+        jsonb_array_length(COALESCE(d.attachments, '[]'::jsonb)) AS attachment_count,
+        (
+          SELECT COUNT(*)
+          FROM defect_tasks dt
+          WHERE dt.defect_id = d.id
+        ) AS linked_task_count
+      FROM defects d
+      LEFT JOIN projects p ON d.project_id = p.id
+      LEFT JOIN teams t ON d.team_id = t.id
+      LEFT JOIN users reporter ON d.reported_by = reporter.id
+      LEFT JOIN users assignee ON d.assigned_to = assignee.id
+      LEFT JOIN users assigner ON d.assigned_by = assigner.id
+      LEFT JOIN users approver ON d.approved_by = approver.id
+      ${baseWhereClause}
+      ORDER BY d.created_at DESC, d.defect_number DESC
+    `;
+
+    // Execute all queries concurrently to ensure ultra-low response times
+    const [resultA, resultB, resultC, resultD, resultE] = await Promise.all([
+      pool.query(queryA, queryParams),
+      pool.query(queryB, queryParams),
+      pool.query(queryC, queryParams),
+      pool.query(queryD, queryParams),
+      pool.query(queryE, queryParams)
+    ]);
+
+    const rowA = resultA.rows[0] || {};
+
+    // Map database results to the TypeScript interfaces
+    const responsePayload: DefectAnalysisReportResponse = {
+      metrics: {
+        total: Number(rowA.total) || 0,
+        open: Number(rowA.open_count) || 0,
+        closed: Number(rowA.closed_count) || 0,
+        reopened: Number(rowA.reopened_count) || 0,
+        severities: {
+          critical: Number(rowA.critical_count) || 0,
+          high: Number(rowA.high_count) || 0,
+          medium: Number(rowA.medium_count) || 0,
+          low: Number(rowA.low_count) || 0,
+        },
+        aging: {
+          zeroToThree: Number(rowA.age_0_3) || 0,
+          fourToSeven: Number(rowA.age_4_7) || 0,
+          greaterThanSeven: Number(rowA.age_gt_7) || 0,
+        }
+      },
+      rootCauses: resultB.rows.map(row => ({
+        category: row.category,
+        count: Number(row.count),
+        remarks: '' // You can map custom remarks logic here if needed later
+      })),
+      reporters: resultC.rows.map(row => ({
+        resourceName: row.resource_name,
+        count: Number(row.count)
+      })),
+      developerMatrix: resultD.rows.map(row => ({
+        developerName: row.developer_name,
+        totalDefects: Number(row.total_defects),
+        critical: Number(row.critical),
+        high: Number(row.high),
+        medium: Number(row.medium),
+        low: Number(row.low)
+      })),
+      defects: resultE.rows.map(row => ({
+        id: row.id,
+        defectNumber: row.defect_number === null ? null : Number(row.defect_number),
+        title: row.title,
+        description: row.description,
+        stepsToReproduce: row.steps_to_reproduce,
+        expectedBehavior: row.expected_behavior,
+        actualBehavior: row.actual_behavior,
+        severity: row.severity,
+        priority: row.priority === null ? null : Number(row.priority),
+        status: row.status,
+        type: row.type,
+        environment: row.environment,
+        projectName: row.project_name,
+        teamName: row.team_name,
+        reporterName: row.reporter_name,
+        assignedToName: row.assigned_to_name,
+        assignedByName: row.assigned_by_name,
+        approvedByName: row.approved_by_name,
+        rootCauseAnalysis: row.root_cause_analysis,
+        resolution: row.resolution,
+        rejectionReason: row.rejection_reason,
+        dueDate: row.due_date,
+        createdAt: row.created_at,
+        updatedAt: row.updated_at,
+        approvedAt: row.approved_at,
+        resolvedAt: row.resolved_at,
+        verifiedAt: row.verified_at,
+        ageDays: Number(row.age_days) || 0,
+        resolutionDays: row.resolution_days === null ? null : Number(row.resolution_days),
+        attachmentCount: Number(row.attachment_count) || 0,
+        linkedTaskCount: Number(row.linked_task_count) || 0,
+      }))
+    };
+
+    return res.status(200).json(responsePayload);
+  } catch (error) {
+    console.error('[DefectAnalysis] Error generating report:', error);
+    return res.status(500).json({ error: 'Failed to generate defect analysis report.',details: error.message || 'Internal server error' });
+  }
+});
   app.post("/api/auth/login", async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -1943,6 +2372,7 @@ const assignedUser = task.assigned_to
   ? await storage.getUser(task.assigned_to)
   : null;
       const userId = req.headers['x-user-id'] as string || task.assigned_to || task.created_by;
+      const taskTitle = task?.title || oldTask?.title || req.body.title || "Untitled task";
       
       // Log various activity changes
       if (oldTask) {
@@ -1963,7 +2393,7 @@ const assignedUser = task.assigned_to
   event_type: "STATUS_CHANGED",
   record_id: task.id,
   summary: {
-    title: task.title,
+    title: taskTitle,
      old_value: oldTask.status,
             new_value: req.body.status,
     assigned_to: task.assigned_to,
@@ -2017,7 +2447,7 @@ const assignedUser = task.assigned_to
   event_type: "ASSIGNMENT_CHANGED",
   record_id: task.id,
   summary: {
-            title:task.title,
+            title: taskTitle,
             task_id: task.id,
             action_type: "assignment_changed",
             old_value: oldUser?.user_name || "Unassigned",
@@ -2032,7 +2462,7 @@ const assignedUser = task.assigned_to
         
         // Priority change
         if (req.body.priority !== undefined && oldTask.priority !== req.body.priority) {
-          const priorityNames = { 1: "Low", 2: "Medium", 3: "High", 4: "Critical" };
+          const priorityNames = { 1: "High", 2: "Medium", 3: "Low" };
           await storage.logTaskActivity({
             task_id: task.id,
             action_type: "priority_changed",
@@ -2043,16 +2473,16 @@ const assignedUser = task.assigned_to
             await storage.logActivity({
         source_table: "tasks",
         event_type: "PRIORITY_CHANGED",
-  record_id: task.id,
-  summary: {
-     task_id: task.id,  
-     
-            action_type: "priority_changed",
+        record_id: task.id,
+        performed_by: userId,
+        summary: {
+            task_id: task.id,  
+            title: taskTitle, 
+            action_type: "PRIORITY_CHANGED",
             old_value: priorityNames[oldTask.priority as keyof typeof priorityNames] || `${oldTask.priority}`,
             new_value: priorityNames[req.body.priority as keyof typeof priorityNames] || `${req.body.priority}`,
             acted_by: userId}});
-
-        }
+          }
         
         // Due date change
       // 🔹 Due date change (normalized and accurate)
@@ -2106,7 +2536,7 @@ const assignedUser = task.assigned_to
   event_type: "TITLE_CHANGED",
   record_id: task.id,
   summary: {
-    title: task.title,
+    title: taskTitle,
     old_value: oldTask.title,
     new_value: req.body.title,
     assigned_to: task.assigned_to,
@@ -4829,7 +5259,7 @@ Rules:
       const defects = await storage.getAllDefects();
       return res.json(defects);
     } catch (err: any) {
-      return res.status(500).json({ error: "Failed to fetch defects" });
+      return res.status(500).json({ error: "Failed to fetch defects" ,details: err.message });
     }
   });
 
@@ -5568,6 +5998,21 @@ app.patch("/api/clients/:id", requireManagerOrAdmin, handleClientUpdate);
     } catch (err: any) { res.status(500).json({ error: "Failed" }); }
   });
 
+  app.get("/api/portal/projects/:projectId/defects/:defectId", requirePortalAuth, async (req: any, res) => {
+    try {
+      const access = await storage.getClientContactProjectAccess(req.session.clientContactId, req.params.projectId);
+      if (!access || !access.can_view_defects) return res.status(403).json({ error: "Access denied" });
+
+      const defect = await storage.getDefect(req.params.defectId);
+      if (!defect || defect.project_id !== req.params.projectId) {
+        return res.status(404).json({ error: "Defect not found" });
+      }
+
+      const details = await buildPortalDefectDetails(req.params.defectId);
+      res.json(details);
+    } catch (err: any) { res.status(500).json({ error: "Failed to fetch defect details" }); }
+  });
+
   app.post("/api/portal/projects/:id/defects", requirePortalAuth, async (req: any, res) => {
     try {
       const access = await storage.getClientContactProjectAccess(req.session.clientContactId, req.params.id);
@@ -5649,7 +6094,21 @@ app.patch("/api/clients/:id", requireManagerOrAdmin, handleClientUpdate);
     } catch (err: any) { res.status(500).json({ error: "Failed" }); }
   });
 
+  app.get("/api/portal/projects/:projectId/tasks/:taskId", requirePortalAuth, async (req: any, res) => {
+    try {
+      const access = await storage.getClientContactProjectAccess(req.session.clientContactId, req.params.projectId);
+      if (!access || !access.can_view_tasks) return res.status(403).json({ error: "Access denied" });
+
+      const task = await storage.getTask(req.params.taskId);
+      if (!task || task.project_id !== req.params.projectId) {
+        return res.status(404).json({ error: "Task not found" });
+      }
+
+      const details = await buildPortalTaskDetails(req.params.taskId);
+      res.json(details);
+    } catch (err: any) { res.status(500).json({ error: "Failed to fetch task details" }); }
+  });
+
   const httpServer = createServer(app);
   return httpServer;
 }
-

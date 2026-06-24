@@ -96,6 +96,7 @@ const [selectedDate, setSelectedDate] = useState("");
 }, []);
 function renderSummary(log: any) {
   const s = log.summary || {};
+  const taskTitle = s.title || s.task_title || s.name || "Unknown task";
 
   // ===== USERS =====
   if (log.source_table === "users") {
@@ -122,7 +123,9 @@ function renderSummary(log: any) {
     if (log.event_type === "ROLE_CHANGED") {
       return <>Role of {s.user_name} changed from {s.roles_before?.join(", ") || "None"} to {s.roles_after?.join(", ")} by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
     }
-
+    if (log.event_type === "ROLE_ADDED") {
+      return <>Role {s.role_id} was assigned to {s.user_name} by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
+    }
     if (log.event_type === "ROLE_REMOVED") {
       return <>Role {s.role_removed} was removed by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
     }
@@ -142,17 +145,18 @@ function renderSummary(log: any) {
   if (log.source_table === "tasks") {
     switch (log.event_type) {
       case "CREATED_TASK":
-        return <>Task “{s.title || "Unknown task"}” was created and assigned to {usersMap?.[s.assigned_to] || "Unassigned"} by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
+        return <>Task “{taskTitle}” was created and assigned to {usersMap?.[s.assigned_to] || "Unassigned"} by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
 
       case "DELETED_TASK":
-        return <>Task “{s.title || "Unknown task"}” was deleted by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
+        return <>Task “{taskTitle}” was deleted by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
 
       case "STATUS_CHANGED":
-        return <>Status of task “{s.title || "Unknown task"}” was changed from "{s.old_value}" to "{s.new_value}" by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
+        return <>Status of task “{taskTitle}” was changed from "{s.old_value}" to "{s.new_value}" by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
 
       case "ASSIGNMENT_CHANGED":
-        return <>Task “{s.title || "Unknown task"}” was reassigned from {s.old_value || "Unassigned"} to {s.new_value || "Unassigned"} by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
-
+        return <>Task “{taskTitle}” was reassigned from {s.old_value || "Unassigned"} to {s.new_value || "Unassigned"} by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
+      case "PRIORITY_CHANGED":
+        return <>Priority of task “{taskTitle}” was changed from "{s.old_value}" to "{s.new_value}" by {usersMap?.[log.performed_by] || usersMap?.[s.acted_by] || "Unknown User"}.</>;
       // default:
       //   return <>Task “{s.title || "Unknown task"}” had action {log.event_type} performed by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
     }

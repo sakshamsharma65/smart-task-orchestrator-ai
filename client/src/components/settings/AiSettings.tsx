@@ -15,39 +15,10 @@ import { Eye, EyeOff, Wifi, WifiOff, Save, RefreshCw, Info } from "lucide-react"
 import { toast } from "@/hooks/use-toast";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 
-const PROVIDER_MODELS: Record<string, { label: string; models: string[]; needsBaseUrl?: boolean }> = {
-  openai: {
-    label: "OpenAI",
-    models: ["gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-4", "gpt-3.5-turbo"],
-  },
-  anthropic: {
-    label: "Anthropic",
-    models: [
-      "claude-3-5-sonnet-20241022",
-      "claude-3-5-haiku-20241022",
-      "claude-3-opus-20240229",
-      "claude-3-sonnet-20240229",
-    ],
-  },
-  google: {
-    label: "Google Gemini",
-    models: ["gemini-1.5-pro", "gemini-1.5-flash", "gemini-2.0-flash", "gemini-pro"],
-  },
-  azure: {
-    label: "Azure OpenAI",
-    models: ["gpt-4o", "gpt-4", "gpt-35-turbo"],
-    needsBaseUrl: true,
-  },
-  mistral: {
-    label: "Mistral AI",
-    models: ["mistral-large-latest", "mistral-medium-latest", "mistral-small-latest", "open-mixtral-8x22b"],
-  },
-  ollama: {
-    label: "Ollama (Local)",
-    models: ["llama3.2", "llama3.1", "mistral", "codellama", "phi3", "gemma2"],
-    needsBaseUrl: true,
-  },
-};
+/* 
+ * We now fetch Providers and Models dynamically from the database.
+ * const PROVIDER_MODELS: Record<...> = { ... }; 
+ */
 
 interface AiSettingsData {
   provider: string;
@@ -80,6 +51,7 @@ const AiSettings: React.FC = () => {
   const qc = useQueryClient();
   const [showKey, setShowKey] = useState(false);
   const [testStatus, setTestStatus] = useState<"idle" | "testing" | "ok" | "fail">("idle");
+  const [justChangedProvider, setJustChangedProvider] = useState(false);
   const [form, setForm] = useState<AiSettingsData>({
     provider: "openai",
     api_key: "",
@@ -90,6 +62,19 @@ const AiSettings: React.FC = () => {
     allow_admin: true,
     allow_manager: false,
     allow_user: false,
+  });
+
+  // Fetch dynamic providers
+  const { data: providers = [], isLoading: isLoadingProviders } = useQuery({
+    queryKey: ["/api/ai-providers"],
+    queryFn: () => apiClient.get("/ai-providers"),
+  });
+
+  // Fetch dynamic models based on selected provider
+  const { data: models = [], isLoading: isLoadingModels } = useQuery({
+    queryKey: ["/api/ai-providers", form.provider, "models"],
+    queryFn: () => apiClient.get(`/ai-providers/${form.provider}/models`),
+    enabled: !!form.provider,
   });
 
   const { data, isLoading } = useQuery({
@@ -112,6 +97,14 @@ const AiSettings: React.FC = () => {
       });
     }
   }, [data]);
+
+  // Auto-select the first available model when the provider is manually changed
+  useEffect(() => {
+    if (justChangedProvider && models.length > 0) {
+      setForm((f) => ({ ...f, model: models[0].modelName }));
+      setJustChangedProvider(false);
+    }
+  }, [models, justChangedProvider]);
 
   const saveMutation = useMutation({
     mutationFn: (payload: AiSettingsData) => apiClient.put("/ai/settings", payload),
@@ -162,15 +155,16 @@ const handleTest = async () => {
   }
 };
   const handleProviderChange = (p: string) => {
-    const models = PROVIDER_MODELS[p]?.models ?? [];
-    setForm((f) => ({ ...f, provider: p, model: models[0] ?? "" }));
+    setForm((f) => ({ ...f, provider: p }));
+    setJustChangedProvider(true);
     setTestStatus("idle");
   };
 
-  const providerInfo = PROVIDER_MODELS[form.provider];
-  const needsBaseUrl = providerInfo?.needsBaseUrl ?? false;
+  const activeProvider = providers.find((p: any) => p.providerKey === form.provider);
+  const needsBaseUrl = activeProvider?.needsBaseUrl ?? false;
+  const modelNames = models.map((m: any) => m.modelName);
 
-  if (isLoading) {
+  if (isLoading || isLoadingProviders) {
     return <div className="p-6 text-muted-foreground">Loading AI settings…</div>;
   }
 
@@ -218,9 +212,9 @@ const handleTest = async () => {
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                {Object.entries(PROVIDER_MODELS).map(([key, val]) => (
-                  <SelectItem key={key} value={key}>
-                    {val.label}
+                {providers.map((p: any) => (
+                  <SelectItem key={p.providerKey} value={p.providerKey}>
+                    {p.label}
                   </SelectItem>
                 ))}
               </SelectContent>
@@ -280,24 +274,23 @@ const handleTest = async () => {
             <div className="flex gap-2">
               <Select
                 value={
-                  providerInfo?.models.includes(form.model) ? form.model : "__custom__"
+                  modelNames.includes(form.model) ? form.model : "__custom__"
                 }
                 onValueChange={(v) => {
                   if (v !== "__custom__") setForm((f) => ({ ...f, model: v }));
                 }}
               >
                 <SelectTrigger className="w-56">
-                  <SelectValue />
+                  <SelectValue placeholder="Select Model" />
                 </SelectTrigger>
                 <SelectContent>
-                  {providerInfo?.models.map((m) => (
-                    <SelectItem key={m} value={m}>
-                      {m}
+                  {models.map((m: any) => (
+                    <SelectItem key={m.modelName} value={m.modelName}>
+                      {m.displayName || m.modelName}
                     </SelectItem>
                   ))}
-                  {!providerInfo?.models.includes(form.model) && (
-                    <SelectItem value="__custom__">Custom…</SelectItem>
-                  )}
+                  {/* We always keep the custom option available so users can manually type a model */}
+                  <SelectItem value="__custom__">Custom…</SelectItem>
                 </SelectContent>
               </Select>
               <Input

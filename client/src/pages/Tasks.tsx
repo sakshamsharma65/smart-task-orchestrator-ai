@@ -23,7 +23,6 @@ import TasksList from "@/components/TasksList";
 import TasksNoResults from "@/components/TasksNoResults";
 import TasksPagination from "@/components/TasksPagination";
 import { useCurrentUserRoleAndTeams } from "@/hooks/useCurrentUserRoleAndTeams";
-import { useStatusTransitionValidation } from "@/hooks/useStatusTransitionValidation";
 import KanbanColumn from "./MyTasks/KanbanColumn";
 import KanbanTaskCard from "./MyTasks/KanbanTaskCard";
 import { format, startOfMonth, endOfMonth } from "date-fns";
@@ -61,24 +60,118 @@ const fallbackImage =
   "https://images.unsplash.com/photo-1582562124811-c09040d0a901?auto=format&fit=crop&w=400&q=80";
 
 const pageSizeOptions = [25, 50, 75, 100];
+const preferredStatusFlow = ["new", "in progress", "approval", "approved", "completed"];
 
 const getStatusKey = (status: string) => {
   return status.trim().toLowerCase().replace(/_/g, " ");
 };
 
-const getStatusStyle = () => ({
-  bg: "bg-neutral-50/30",
-  header: "text-neutral-700 bg-neutral-100/60 border-neutral-200",
-  count: "bg-neutral-200 text-neutral-700",
-  customStyles: {},
-});
+const hexToRgb = (hex: string) => {
+  const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+  return result ? {
+    r: parseInt(result[1], 16),
+    g: parseInt(result[2], 16),
+    b: parseInt(result[3], 16),
+  } : null;
+};
+
+const getStatusStyleFromColor = (statusColor?: string) => {
+  const color = statusColor || "#6b7280";
+  const rgb = hexToRgb(color);
+
+  if (!rgb) {
+    return {
+      bg: "bg-neutral-50/30",
+      header: "text-neutral-700 bg-neutral-100/60 border-neutral-200",
+      count: "bg-neutral-200 text-neutral-700",
+      customStyles: {},
+    };
+  }
+
+  return {
+    bg: "bg-transparent",
+    header: "text-white border-transparent",
+    count: "text-white",
+    customStyles: {
+      bg: { backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.1)` },
+      header: {
+        backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.15)`,
+        color,
+        borderColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.3)`,
+      },
+      count: {
+        backgroundColor: `rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, 0.25)`,
+        color,
+      },
+    },
+  };
+};
+
+const getStatusStyle = (statusKey: string, statusColor?: string) => {
+  if (statusColor) {
+    return getStatusStyleFromColor(statusColor);
+  }
+
+  const KANBAN_STYLES: Record<string, { bg: string; header: string; count: string }> = {
+    backlog: {
+      bg: "bg-gray-50/50",
+      header: "text-gray-700 bg-gray-100/80 border-gray-200",
+      count: "bg-gray-200 text-gray-700",
+    },
+    "in progress": {
+      bg: "bg-blue-50/30",
+      header: "text-blue-700 bg-blue-100/60 border-blue-200",
+      count: "bg-blue-200 text-blue-700",
+    },
+    in_progress: {
+      bg: "bg-blue-50/30",
+      header: "text-blue-700 bg-blue-100/60 border-blue-200",
+      count: "bg-blue-200 text-blue-700",
+    },
+    review: {
+      bg: "bg-orange-50/30",
+      header: "text-orange-700 bg-orange-100/60 border-orange-200",
+      count: "bg-orange-200 text-orange-700",
+    },
+    completed: {
+      bg: "bg-green-50/30",
+      header: "text-green-700 bg-green-100/60 border-green-200",
+      count: "bg-green-200 text-green-700",
+    },
+    new: {
+      bg: "bg-purple-50/30",
+      header: "text-purple-700 bg-purple-100/60 border-purple-200",
+      count: "bg-purple-200 text-purple-700",
+    },
+    approved: {
+      bg: "bg-emerald-50/30",
+      header: "text-emerald-700 bg-emerald-100/60 border-emerald-200",
+      count: "bg-emerald-200 text-emerald-700",
+    },
+    approval: {
+      bg: "bg-amber-50/30",
+      header: "text-amber-700 bg-amber-100/60 border-amber-200",
+      count: "bg-amber-200 text-amber-700",
+    },
+  };
+
+  return (
+    KANBAN_STYLES[statusKey] ||
+    KANBAN_STYLES[statusKey.replace(/\s+/g, "_")] ||
+    {
+      bg: "bg-neutral-50/30",
+      header: "text-neutral-700 bg-neutral-100/60 border-neutral-200",
+      count: "bg-neutral-200 text-neutral-700",
+      customStyles: {},
+    }
+  );
+};
 
 const TasksPage: React.FC = () => {
   const { session, user, loading: sessionLoading } = useSupabaseSession();
   const { users, teams } = useUsersAndTeams();
   const { roles, loading: rolesLoading } = useCurrentUserRoleAndTeams();
   const { statuses, loading: statusesLoading } = useTaskStatuses();
-  const { getStatusSequence } = useStatusTransitionValidation();
   const [page, setPage] = useState(1);
   const [view, setView] = useState<"list" | "kanban">("list");
   const [pageSize, setPageSize] = useState(25);
@@ -236,26 +329,25 @@ const TasksPage: React.FC = () => {
   }, [filteredTasks, statuses]);
 
   const sortedStatusKeys = useMemo(() => {
-    const transitionSequence = getStatusSequence();
-    const statusMap = new Map(statuses.map((status) => [status.name, status]));
-    const defaultStatus = statuses.find((status) => status.is_default);
-    const orderedStatuses: string[] = [];
+    return [...statuses]
+      .map((status) => ({
+        name: status.name,
+        key: getStatusKey(status.name),
+        order: status.sequence_order ?? Number.MAX_SAFE_INTEGER,
+      }))
+      .sort((a, b) => {
+        const aRank = preferredStatusFlow.indexOf(a.key);
+        const bRank = preferredStatusFlow.indexOf(b.key);
+        const rankDiff =
+          (aRank === -1 ? Number.MAX_SAFE_INTEGER : aRank) -
+          (bRank === -1 ? Number.MAX_SAFE_INTEGER : bRank);
 
-    if (defaultStatus) orderedStatuses.push(defaultStatus.name);
-
-    transitionSequence.forEach((statusName) => {
-      if (statusMap.has(statusName) && !orderedStatuses.includes(statusName)) {
-        orderedStatuses.push(statusName);
-      }
-    });
-
-    statuses
-      .filter((status) => !orderedStatuses.includes(status.name))
-      .sort((a, b) => a.name.localeCompare(b.name))
-      .forEach((status) => orderedStatuses.push(status.name));
-
-    return orderedStatuses.map((name) => getStatusKey(name));
-  }, [statuses, getStatusSequence]);
+        if (rankDiff !== 0) return rankDiff;
+        if (a.order !== b.order) return a.order - b.order;
+        return a.name.localeCompare(b.name);
+      })
+      .map((status) => status.key);
+  }, [statuses]);
 
   const CARD_TYPE = "TASK_CARD";
 
@@ -519,7 +611,7 @@ const TasksPage: React.FC = () => {
                       statusLabel={statusObj ? statusObj.name : statusKey}
                       onDrop={onDropTask}
                       CARD_TYPE={CARD_TYPE}
-                      statusStyle={getStatusStyle()}
+                      statusStyle={getStatusStyle(statusKey, statusObj?.color)}
                       taskCount={tasksByStatus[statusKey]?.length || 0}
                     >
                       {tasksByStatus[statusKey] && tasksByStatus[statusKey].length > 0 ? (

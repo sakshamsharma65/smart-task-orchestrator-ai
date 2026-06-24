@@ -53,6 +53,15 @@ const SEVERITY_COLORS: Record<string, string> = {
   low:      "bg-green-100 text-green-800 border-green-200 dark:bg-green-900/40 dark:text-green-300",
 };
 
+const ROOT_CAUSE_OPTIONS = [
+  "Lack of Knowledge",
+  "Lack of Training",
+  "Requirement Changes",
+  "Coding Error",
+  "Design Issue",
+  "Environment Issue"
+];
+
 const STATUS_COLORS: Record<string, string> = {
   draft:       "bg-gray-100 text-gray-700 border-gray-200 dark:bg-gray-800 dark:text-gray-300",
   submitted:   "bg-blue-100 text-blue-800 border-blue-200 dark:bg-blue-900/40 dark:text-blue-300",
@@ -220,6 +229,18 @@ const getProjectName = (projectId: string | null) => {
     onError: (e: any) => toast({ title: "Error", description: e?.message || "Failed to submit.", variant: "destructive" }),
   });
 
+  const handleApprove = () => {
+    if (!defect.root_cause_analysis) {
+      toast({
+        title: "Root Cause Required",
+        description: "You must select a Root Cause category before approving this defect. Please click Edit to assign one.",
+        variant: "destructive"
+      });
+      return;
+    }
+    approveMutation.mutate();
+  };
+
   const approveMutation = useMutation({
     mutationFn: () => apiClient.post(`/defects/${defect.id}/approve`, {}),
     onSuccess: (updated) => {
@@ -304,6 +325,7 @@ const getProjectName = (projectId: string | null) => {
       type:               defect.type,
       environment:        defect.environment,
       assigned_to:        defect.assigned_to || "none",
+      root_cause_analysis: defect.root_cause_analysis || "",
       resolution:         defect.resolution || "",
       due_date:           defect.due_date ? defect.due_date.split("T")[0] : "",
     });
@@ -314,6 +336,7 @@ const getProjectName = (projectId: string | null) => {
     updateMutation.mutate({
       ...editForm,
       assigned_to: editForm.assigned_to === "none" ? null : editForm.assigned_to,
+      root_cause_analysis: editForm.root_cause_analysis || null,
       due_date: editForm.due_date || null,
     });
   };
@@ -439,7 +462,7 @@ const canManage = (project as any)?._access?.canManageProject ?? false;
                   <Button
                     size="sm"
                     className="bg-emerald-600 hover:bg-emerald-700 text-white"
-                    onClick={() => approveMutation.mutate()}
+                    onClick={handleApprove}
                     disabled={approveMutation.isPending}
                   >
                     <ThumbsUp className="w-3 h-3 mr-1" /> Approve
@@ -585,7 +608,23 @@ const canManage = (project as any)?._access?.canManageProject ?? false;
                       </SelectContent>
                     </Select>
                   </div>
+                  <div className="col-span-2">
+                    <p className="text-xs text-muted-foreground mb-0.5">Root Cause</p>
+                    <Select value={editForm.root_cause_analysis || "none"} onValueChange={(v) => setEditForm((p: any) => ({ ...p, root_cause_analysis: v === "none" ? "" : v }))}>
+                      <SelectTrigger className="h-8 text-sm"><SelectValue placeholder="Unassigned" /></SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Unassigned</SelectItem>
+                        {ROOT_CAUSE_OPTIONS.map((rc) => <SelectItem key={rc} value={rc}>{rc}</SelectItem>)}
+                      </SelectContent>
+                    </Select>
+                  </div>
                 </>
+              )}
+              {!isEditing && defect.root_cause_analysis && (
+                <div className="col-span-2">
+                  <p className="text-xs text-muted-foreground mb-0.5">Root Cause</p>
+                  <p className="font-medium text-purple-700 dark:text-purple-400">{defect.root_cause_analysis}</p>
+                </div>
               )}
               <div>
                 <p className="text-xs text-muted-foreground mb-0.5">Created</p>

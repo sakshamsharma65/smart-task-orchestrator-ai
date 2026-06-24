@@ -828,7 +828,28 @@ export const aiSettings = pgTable("ai_settings", {
   updated_at: timestamp("updated_at").defaultNow(),
 });
 
+export const llmProviders = pgTable("llm_providers", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  providerKey: text("provider_key").notNull().unique(), // e.g., 'openai'
+  label: text("label").notNull(),                       // e.g., 'OpenAI'
+  needsBaseUrl: boolean("needs_base_url").default(false).notNull(),
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
 
+// --- LLM Models Table ---
+export const llmModels = pgTable("llm_models", {
+  id: uuid("id").primaryKey().defaultRandom(),
+  providerId: uuid("provider_id")
+    .notNull()
+    .references(() => llmProviders.id, { onDelete: "cascade" }),
+  modelName: text("model_name").notNull(),              // e.g., 'gpt-4o'
+  displayName: text("display_name"),                    // Optional: prettier name for UI
+  isActive: boolean("is_active").default(true).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
+});
 export const insertTaskSchema = createInsertSchema(tasks).omit({
   id: true,
   created_at: true,
@@ -1119,6 +1140,7 @@ export const defects = pgTable("defects", {
   resolved_at: timestamp("resolved_at"),
   verified_at: timestamp("verified_at"),
   created_at: timestamp("created_at").defaultNow(),
+  root_cause_analysis: text("root_cause_analysis").default(""),
     approved_at: timestamp("approved_at"),
   updated_at: timestamp("updated_at").defaultNow(),
 });
