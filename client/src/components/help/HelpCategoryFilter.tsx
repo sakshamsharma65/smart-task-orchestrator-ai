@@ -10,7 +10,11 @@ import {
   BarChart3, 
   Settings, 
   TrendingUp, 
-  AlertCircle 
+  AlertCircle,
+  Bug,
+  FolderKanban,
+  Building2,
+  ShieldCheck
 } from 'lucide-react';
 
 interface HelpCategoryFilterProps {
@@ -33,7 +37,11 @@ const HelpCategoryFilter: React.FC<HelpCategoryFilterProps> = ({
       'BarChart3': BarChart3,
       'Settings': Settings,
       'TrendingUp': TrendingUp,
-      'AlertCircle': AlertCircle
+      'AlertCircle': AlertCircle,
+      'Bug': Bug,
+      'FolderKanban': FolderKanban,
+      'Building2': Building2,
+      'ShieldCheck': ShieldCheck
     };
     
     const IconComponent = icons[iconName as keyof typeof icons] || CheckSquare;

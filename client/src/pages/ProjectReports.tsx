@@ -457,7 +457,7 @@ export default function ProjectReports() {
 
       {/* ═══ TABS ═══ */}
       <Tabs value={activeTab} onValueChange={setActiveTab}>
-        <TabsList className="flex flex-wrap gap-1 h-auto">
+        <TabsList className="flex flex-wrap gap-1 h-auto justify-start   ">
           <TabsTrigger value="status"      className="gap-1.5 text-xs"><BarChart3    className="h-3.5 w-3.5" />Status Report</TabsTrigger>
           <TabsTrigger value="resource"    className="gap-1.5 text-xs"><Users        className="h-3.5 w-3.5" />Resource Utilization</TabsTrigger>
           <TabsTrigger value="milestones"  className="gap-1.5 text-xs"><Milestone    className="h-3.5 w-3.5" />Milestone Status</TabsTrigger>

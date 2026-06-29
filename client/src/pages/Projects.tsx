@@ -20,7 +20,7 @@ import {
 import type { Project, ProjectTemplate } from "@shared/schema";
 import { format, differenceInDays } from "date-fns";
 import { useCurrentUserRoleAndTeams } from "@/hooks/useCurrentUserRoleAndTeams";
-import { formatOrgDate } from "@/lib/dateUtils";
+
 
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -156,8 +156,8 @@ export default function Projects() {
       template_id: p.template_id ?? "",
       project_type: p.project_type,
       description: p.description ?? "",
-      start_date:          p.start_date          ? formatOrgDate(new Date(p.start_date), "yyyy-MM-dd")          : "",
-      projected_end_date:  p.projected_end_date  ? formatOrgDate(new Date(p.projected_end_date), "yyyy-MM-dd")  : "",
+      start_date:          p.start_date          ? format(new Date(p.start_date), "yyyy-MM-dd")          : "",
+      projected_end_date:  p.projected_end_date  ? format(new Date(p.projected_end_date), "yyyy-MM-dd")  : "",
       total_effort_hours:  p.total_effort_hours?.toString() ?? "",
       budget_amount:       p.budget_amount ?? "",
       currency:            p.currency ?? "USD",
@@ -363,9 +363,9 @@ const isAdmin = roles.includes("admin");
                       <div className="flex items-center gap-1.5 text-xs text-gray-600 dark:text-gray-400">
                         <Calendar className="h-3.5 w-3.5 shrink-0 text-gray-400" />
                         <span>
-                          {project.start_date ? formatOrgDate(new Date(project.start_date), "d MMM yy") : "?"}
+                          {project.start_date ? format(new Date(project.start_date), "d MMM yy") : "?"}
                           <span className="mx-1 text-gray-300">→</span>
-                          {project.projected_end_date ? formatOrgDate(new Date(project.projected_end_date), "d MMM yy") : "?"}
+                          {project.projected_end_date ? format(new Date(project.projected_end_date), "d MMM yy") : "?"}
                         </span>
                       </div>
                     )}

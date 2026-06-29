@@ -28,6 +28,7 @@ export interface HelpScenario {
   id: string;
   name: string;
   description: string;
+  category: string;
   steps: HelpStep[];
   roles: string[];
   estimatedTime: string;

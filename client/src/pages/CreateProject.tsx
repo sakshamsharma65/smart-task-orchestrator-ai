@@ -102,6 +102,11 @@ export default function CreateProject() {
   const selectedClient = (clients as any[]).find((c: any) => c.id === form.client_id);
 
   const handleSubmit = async () => {
+    if(   form.start_date &&
+  form.projected_end_date && form.projected_end_date < form.start_date) {
+      toast({ title: "Projected end date cannot be before start date", variant: "destructive" });
+      return;
+    }
     if (!form.name.trim()) {
       toast({ title: "Project name is required", variant: "destructive" });
       return;
@@ -109,7 +114,9 @@ export default function CreateProject() {
     if (form.is_client_project && !form.client_id) {
       toast({ title: "Please select a client for this project", variant: "destructive" });
       return;
-    }
+    } 
+
+    
     setSaving(true);
     try {
       const payload = {
@@ -443,21 +450,33 @@ export default function CreateProject() {
               onChange={(e) => setForm((p) => ({ ...p, projected_end_date: e.target.value }))}
             />
           </div>
-          <div className="space-y-1.5">
+          <div className="space-y-1.5 mt-2">
             <Label htmlFor="effort-hours">
               <div className="flex items-center gap-1.5">
-                <Clock className="h-3.5 w-3.5" />
+                <Clock className="h-3.5 w-3.5 " />
                 Total Effort (hrs)
               </div>
             </Label>
             <Input
-              id="effort-hours"
-              type="number"
-              min={0}
-              placeholder="e.g. 500"
-              value={form.total_effort_hours}
-              onChange={(e) => setForm((p) => ({ ...p, total_effort_hours: e.target.value }))}
-            />
+  id="effort-hours"
+  type="number"
+  min={0}
+  value={form.total_effort_hours}
+  onKeyDown={(e) => {
+    if (e.key === "-" || e.key === "e" || e.key === "+") {
+      e.preventDefault();
+    }
+  }}
+  onChange={(e) => {
+    const value = e.target.value;
+    if (value === "" || Number(value) >= 0) {
+      setForm((p) => ({
+        ...p,
+        total_effort_hours: value,
+      }));
+    }
+  }}
+/>
           </div>
         </CardContent>
       </Card>
@@ -488,12 +507,22 @@ export default function CreateProject() {
             </div>
             <div className="space-y-1.5 flex-1">
               <Label htmlFor="budget">Budget Amount</Label>
-              <Input
-                id="budget"
-                placeholder="e.g. 50000"
-                value={form.budget_amount}
-                onChange={(e) => setForm((p) => ({ ...p, budget_amount: e.target.value }))}
-              />
+         <Input
+  id="budget"
+  placeholder="e.g. 50000"
+  value={form.budget_amount}
+  onChange={(e) => {
+    const value = e.target.value;
+
+    // Allow only digits and an optional decimal point
+    if (/^\d*\.?\d*$/.test(value)) {
+      setForm((p) => ({
+        ...p,
+        budget_amount: value,
+      }));
+    }
+  }}
+/>
             </div>
           </div>
         </CardContent>

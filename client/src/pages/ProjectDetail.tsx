@@ -90,6 +90,24 @@ function MilestonePanel({ milestone, project, templateId }: {
     queryKey: ["/api/project-templates", templateId, "stages"],
     enabled: !!templateId && expanded,
   });
+  const handleMilestoneStatusChange = (status: string) => {
+  if (status === "completed") {
+    const hasIncompleteStage = stages.some(
+      (stage) => stage.status !== "completed"
+    );
+
+    if (hasIncompleteStage) {
+      toast({
+        title: "Cannot complete milestone",
+        description: "All stages must be in Completed status before completing the milestone.",
+        variant: "destructive",
+      });
+      return;
+    }
+  }
+
+  updateMilestoneStatus.mutate(status);
+};
 
   const createStage = useMutation({
     mutationFn: (data: Record<string, unknown>) =>
@@ -183,7 +201,7 @@ function MilestonePanel({ milestone, project, templateId }: {
         <div className="flex items-center gap-2 mt-10">
           <Select
             value={milestone.status}
-            onValueChange={(v) => { updateMilestoneStatus.mutate(v); }}
+             onValueChange={handleMilestoneStatusChange}
           >
             <SelectTrigger className="w-32 h-7 text-xs" onClick={(e) => e.stopPropagation()}>
               <SelectValue />
@@ -1720,8 +1738,32 @@ export default function ProjectDetail() {
             </div>
             <div className="space-y-1">
               <Label className="text-xs font-semibold">Allocation % (0–100)</Label>
-              <Input type="number" min={0} max={100} value={memberForm.allocation_percentage}
-                onChange={(e) => setMemberForm(p => ({ ...p, allocation_percentage: parseInt(e.target.value) || 0 }))} />
+              <Input
+  type="number"
+  min={0}
+  max={100}
+  value={memberForm.allocation_percentage}
+  onChange={(e) => {
+    const value = e.target.value;
+
+    if (value === "") {
+      setMemberForm((p) => ({
+        ...p,
+        allocation_percentage: 0,
+      }));
+      return;
+    }
+
+    const num = Number(value);
+
+    if (num >= 0 && num <= 100) {
+      setMemberForm((p) => ({
+        ...p,
+        allocation_percentage: num,
+      }));
+    }
+  }}
+/>
             </div>
           </div>
           <DialogFooter>

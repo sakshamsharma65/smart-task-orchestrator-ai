@@ -144,41 +144,53 @@ const appendWorksheet = (
 
 export default function DefectAnalysisReport() {
   const [projectId, setProjectId] = useState<string>("all");
+  const [milestoneId, setMilestoneId] = useState<string>("all");
   const [rootCause, setRootCause] = useState<string>("all");
   const [startDate, setStartDate] = useState<string>("");
   const [endDate, setEndDate] = useState<string>("");
 
-  // Fetch Projects for the filter
   const { data: projects = [] } = useQuery({
     queryKey: ["/api/projects"],
-      queryFn: () => apiClient.get("/projects"),
+    queryFn: () => apiClient.get("/projects"),
   });
 
-  // Construct Query String for the Report
+  const { data: milestones = [], isLoading: isMilestonesLoading } = useQuery({
+    queryKey: ["/api/projects", projectId, "milestones"],
+    queryFn: () => apiClient.get(`/projects/${projectId}/milestones`),
+    enabled: projectId !== "all",
+  });
+
   const queryParams = new URLSearchParams();
   if (projectId !== "all") queryParams.append("projectId", projectId);
+  if (milestoneId !== "all") queryParams.append("milestoneId", milestoneId);
   if (rootCause !== "all") queryParams.append("rootCause", rootCause);
   if (startDate) queryParams.append("startDate", startDate);
   if (endDate) queryParams.append("endDate", endDate);
 
-  // Fetch Report Data
-  const { data: reportData, isLoading, refetch } = useQuery<DefectAnalysisReportResponse>({
+  const { data: reportData, isLoading } = useQuery<DefectAnalysisReportResponse>({
     queryKey: ["/api/reports/defect-analysis", queryParams.toString()],
-        queryFn: () => apiClient.get(`/reports/defect-analysis?${queryParams.toString()}`),
+    queryFn: () => apiClient.get(`/reports/defect-analysis?${queryParams.toString()}`),
   });
+
+  const handleProjectChange = (nextProjectId: string) => {
+    setProjectId(nextProjectId);
+    setMilestoneId("all");
+  };
 
   // --- Excel Export Logic ---
   const exportToExcel = () => {
     if (!reportData) return;
-    
+
     const wb = XLSX.utils.book_new();
     const selectedProject = projects.find((p: any) => p.id === projectId);
+    const selectedMilestone = milestones.find((m: any) => m.id === milestoneId);
     const detailedDefects = reportData.defects ?? [];
 
     appendWorksheet(wb, "Report Filters", [
       ["Field", "Value"],
       ["Generated On", new Date().toLocaleString()],
       ["Project", projectId === "all" ? "All Projects" : selectedProject?.name ?? projectId],
+      ["Milestone", milestoneId === "all" ? "All Milestones" : selectedMilestone?.name ?? milestoneId],
       ["Root Cause", rootCause === "all" ? "All Categories" : rootCause],
       ["Start Date", startDate || "Not Applied"],
       ["End Date", endDate || "Not Applied"],
@@ -317,7 +329,7 @@ export default function DefectAnalysisReport() {
         <CardContent className="p-4 flex flex-col md:flex-row gap-4 items-end">
           <div className="space-y-1.5 flex-1 w-full">
             <Label>Project</Label>
-            <Select value={projectId} onValueChange={setProjectId}>
+            <Select value={projectId} onValueChange={handleProjectChange}>
               <SelectTrigger className="w-full bg-background">
                 <SelectValue placeholder="All Projects" />
               </SelectTrigger>
@@ -325,6 +337,20 @@ export default function DefectAnalysisReport() {
                 <SelectItem value="all">All Projects</SelectItem>
                 {projects.map((p: any) => (
                   <SelectItem key={p.id} value={p.id}>{p.name}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="space-y-1.5 flex-1 w-full">
+            <Label>Milestone</Label>
+            <Select value={milestoneId} onValueChange={setMilestoneId} disabled={projectId === "all" || isMilestonesLoading || milestones.length === 0}>
+              <SelectTrigger className="w-full bg-background">
+                <SelectValue placeholder={projectId === "all" ? "Select a project first" : "All Milestones"} />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">All Milestones</SelectItem>
+                {milestones.map((milestone: any) => (
+                  <SelectItem key={milestone.id} value={milestone.id}>{milestone.name}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
@@ -366,7 +392,7 @@ export default function DefectAnalysisReport() {
           {/* Top KPI Cards */}
           <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
             <Card>
-              <CardContent className="p-6 flex flex-row items-center justify-between">
+              <CardContent className="p-4 flex flex-row items-center justify-between">
                 <div className="space-y-1">
                   <p className="text-sm font-medium text-muted-foreground">Total Defects</p>
                   <h3 className="text-3xl font-bold">{reportData.metrics.total}</h3>
@@ -375,7 +401,7 @@ export default function DefectAnalysisReport() {
               </CardContent>
             </Card>
             <Card>
-              <CardContent className="p-6 flex flex-row items-center justify-between">
+              <CardContent className="p-4 flex flex-row items-center justify-between">
                 <div className="space-y-1">
                   <p className="text-sm font-medium text-muted-foreground">Open</p>
                   <h3 className="text-3xl font-bold text-orange-600">{reportData.metrics.open}</h3>
@@ -384,7 +410,7 @@ export default function DefectAnalysisReport() {
               </CardContent>
             </Card>
             <Card>
-              <CardContent className="p-6 flex flex-row items-center justify-between">
+              <CardContent className="p-4  flex flex-row items-center justify-between">
                 <div className="space-y-1">
                   <p className="text-sm font-medium text-muted-foreground">Critical Severity</p>
                   <h3 className="text-3xl font-bold text-red-600">{reportData.metrics.severities.critical}</h3>
@@ -393,7 +419,7 @@ export default function DefectAnalysisReport() {
               </CardContent>
             </Card>
             <Card>
-              <CardContent className="p-6 flex flex-row items-center justify-between">
+              <CardContent className="p-4  flex flex-row items-center justify-between">
                 <div className="space-y-1">
                   <p className="text-sm font-medium text-muted-foreground">Reopened</p>
                   <h3 className="text-3xl font-bold text-blue-600">{reportData.metrics.reopened}</h3>

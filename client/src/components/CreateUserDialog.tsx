@@ -1,4 +1,3 @@
-
 import React, { useState } from "react";
 import {
   Dialog, DialogTrigger, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter, DialogClose,
@@ -29,7 +28,7 @@ const initialValues = {
   department: "",
   phone: "",
   manager: "",
-  role:"",
+  role: "",
   // Benchmarking override fields
   benchmarking_excluded: false,
   custom_min_hours_per_day: "",
@@ -75,78 +74,120 @@ const CreateUserDialog: React.FC<CreateUserDialogProps> = ({
     // Add any other fields as needed
     [key: string]: any;
   }
-  
+
 
   // Organization settings for benchmarking overrides
- const { data: orgSettings } = useQuery({
+  const { data: orgSettings } = useQuery({
     queryKey: ['/api/organization-settings'],
     enabled: isOpen,
   });
 
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>
+  ) => {
+    const { name, value } = e.target;
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    setValues((v) => ({ ...v, [e.target.name]: e.target.value }));
+    // Phone
+    if (name === "phone") {
+      // Allow only digits and max 10 digits
+      if (!/^[\+\s\d]{0,15}$/.test(value)) {
+        return;
+      }
+    }
+
+    // Full Name
+    if (name === "user_name") {
+      // Allow only digits and max 10 digits
+      if (!/^[A-Za-z\s]*$/.test(value)) {
+        return;
+      }
+    }
+
+    setValues((v) => ({
+      ...v,
+      [name]: value,
+    }));
   };
+
+  // Email validation function
+  const validateEmail = (email: string) => {
+    const emailRegex = /^[^\s@]+@[^\s@\d]+\.[^\s@]{2,}$/;
+
+    if (!emailRegex.test(email)) {
+      toast({
+        title: "Invalid Email",
+        variant: "destructive"
+      })
+      return false;
+    }
+    return true
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    // Email validation call
+    if (!validateEmail(values.email)) {
+      return;
+    }
+
     setLoading(true);
     setError(null);
-      const minDay = Number(values.custom_min_hours_per_day);
-  const maxDay = Number(values.custom_max_hours_per_day);
-  const minWeek = Number(values.custom_min_hours_per_week);
-  const maxWeek = Number(values.custom_max_hours_per_week);
-  const minMonth = Number(values.custom_min_hours_per_month);
-  const maxMonth = Number(values.custom_max_hours_per_month);
-   if (minDay && maxDay && minDay > maxDay) {
-    toast({
-      title: "Validation Error",
-      description: "Min hours per day cannot be greater than max hours per day.",
-      variant: "destructive",
-    });
-    setLoading(false);
-    return;
-  }
+    const minDay = Number(values.custom_min_hours_per_day);
+    const maxDay = Number(values.custom_max_hours_per_day);
+    const minWeek = Number(values.custom_min_hours_per_week);
+    const maxWeek = Number(values.custom_max_hours_per_week);
+    const minMonth = Number(values.custom_min_hours_per_month);
+    const maxMonth = Number(values.custom_max_hours_per_month);
+    if (minDay && maxDay && minDay > maxDay) {
+      toast({
+        title: "Validation Error",
+        description: "Min hours per day cannot be greater than max hours per day.",
+        variant: "destructive",
+      });
+      setLoading(false);
+      return;
+    }
 
-  if (minWeek && maxWeek && minWeek > maxWeek) {
-    toast({
-      title: "Validation Error",
-      description: "Min hours per week cannot be greater than max hours per week.",
-      variant: "destructive",
-    });
-    setLoading(false);
-    return;
-  }
+    if (minWeek && maxWeek && minWeek > maxWeek) {
+      toast({
+        title: "Validation Error",
+        description: "Min hours per week cannot be greater than max hours per week.",
+        variant: "destructive",
+      });
+      setLoading(false);
+      return;
+    }
 
-  if (minMonth && maxMonth && minMonth > maxMonth) {
-    toast({
-      title: "Validation Error",
-      description: "Min hours per month cannot be greater than max hours per month.",
-      variant: "destructive",
-    });
-    setLoading(false);
-    return;
-  }
-const passwordRegex =
-  /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*])[A-Za-z\d!@#$%^&*]{6,}$/;
+    if (minMonth && maxMonth && minMonth > maxMonth) {
+      toast({
+        title: "Validation Error",
+        description: "Min hours per month cannot be greater than max hours per month.",
+        variant: "destructive",
+      });
+      setLoading(false);
+      return;
+    }
+    const passwordRegex =
+      /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[!@#$%^&*])[A-Za-z\d!@#$%^&*]{6,}$/;
 
-if (!passwordRegex.test(values.password)) {
-  toast({
-    title: "Validation Error",
-    description:
-      "Password must be minimum 6 characters and include uppercase, lowercase, number, and special character.",
-    variant: "destructive",
-  });
+    if (!passwordRegex.test(values.password)) {
+      toast({
+        title: "Validation Error",
+        description:
+          "Password must be minimum 6 characters and include uppercase, lowercase, number, and special character.",
+        variant: "destructive",
+      });
 
-  setLoading(false);
-  return;
-}
-  try {
-      const { email, password, user_name, department, phone, manager,role, 
-              benchmarking_excluded, custom_min_hours_per_day, custom_max_hours_per_day,
-              custom_min_hours_per_week, custom_max_hours_per_week, 
-              custom_min_hours_per_month, custom_max_hours_per_month } = values;
-      
+      setLoading(false);
+      return;
+    }
+    try {
+      const { email, password, user_name, department, phone, manager, role,
+        benchmarking_excluded, custom_min_hours_per_day, custom_max_hours_per_day,
+        custom_min_hours_per_week, custom_max_hours_per_week,
+        custom_min_hours_per_month, custom_max_hours_per_month } = values;
+
       // Only assign "user" role by default, admins can update roles after
       const payload = {
         email,
@@ -186,233 +227,236 @@ if (!passwordRegex.test(values.password)) {
       });
       setLoading(false);
     }
-  };
 
-  return (
-    <Dialog open={isOpen} onOpenChange={setIsOpen}>
-      {/* Only show trigger if not externally controlled */}
-      {open === undefined && (
-        <DialogTrigger asChild>
-          <Button className="w-1/4 md:w-auto gap-2 h-screen" size="sm">
-            <span>+ Create User</span>
-          </Button>
-        </DialogTrigger>
-      )}
-      <DialogContent>
-        <form onSubmit={handleSubmit} className="space-y-1 ">
-          <DialogHeader>
-            <DialogTitle>Create New User</DialogTitle>
-            <DialogDescription>
-              Fill in the details to register a new user.
-            </DialogDescription>
-          </DialogHeader>
-          <div className="grid gap-1">
-            <Input
-              name="email"
-              type="email"
-              placeholder="Email"
-              max={30}
-              required
-              value={values.email}
-              onChange={handleChange}
-              disabled={loading}
-            />
-            <Input
-              name="password"
-              type="password"
-              placeholder="Password"
-              required
-              value={values.password}
-              onChange={handleChange}
-              disabled={loading}
-            />
-            <Input
-              name="user_name"
-              required
-              maxLength={50}
-              placeholder="Full Name"
-              value={values.user_name}
-              onChange={handleChange}
-              disabled={loading}
-            />
+  setLoading(true);
+  setError(null);
+};
+
+return (
+  <Dialog open={isOpen} onOpenChange={setIsOpen}>
+    {/* Only show trigger if not externally controlled */}
+    {open === undefined && (
+      <DialogTrigger asChild>
+        <Button className="w-1/4 md:w-auto gap-2 h-screen" size="sm">
+          <span>+ Create User</span>
+        </Button>
+      </DialogTrigger>
+    )}
+    <DialogContent>
+      <form onSubmit={handleSubmit} className="space-y-1 ">
+        <DialogHeader>
+          <DialogTitle>Create New User</DialogTitle>
+          <DialogDescription>
+            Fill in the details to register a new user.
+          </DialogDescription>
+        </DialogHeader>
+        <div className="grid gap-1">
+          <Input
+            name="email"
+            type="email"
+            placeholder="Email"
+            max={30}
+            required
+            value={values.email}
+            onChange={handleChange}
+            disabled={loading}
+          />
+          <Input
+            name="password"
+            type="password"
+            placeholder="Password"
+            required
+            value={values.password}
+            onChange={handleChange}
+            disabled={loading}
+          />
+          <Input
+            name="user_name"
+            required
+            maxLength={50}
+            placeholder="Full Name"
+            value={values.user_name}
+            onChange={handleChange}
+            disabled={loading}
+          />
           <select
-  name="role"
-  className="border rounded px-1  py-1 text-sm bg-background"
-  value={values.role}
-  onChange={handleChange}
-  disabled={loading || rolesLoading}
-  required
->
-  <option value="">
-    {rolesLoading ? "Loading roles..." : "Select role"}
-  </option>
-  {roles.map((role) => (
-    <option key={role.id} value={role.id}>
-      {role.name.charAt(0).toUpperCase() + role.name.slice(1)}
-    </option>
-  ))}
-</select>
+            name="role"
+            className="border rounded px-1  py-1 text-sm bg-background"
+            value={values.role}
+            onChange={handleChange}
+            disabled={loading || rolesLoading}
+            required
+          >
+            <option value="">
+              {rolesLoading ? "Loading roles..." : "Select role"}
+            </option>
+            {roles.map((role) => (
+              <option key={role.id} value={role.id}>
+                {role.name.charAt(0).toUpperCase() + role.name.slice(1)}
+              </option>
+            ))}
+          </select>
 
-            <select
-              name="department"
-              className="border rounded px-1 py-1 text-sm bg-background"
-              value={values.department}
-              onChange={handleChange}
-              disabled={loading || departmentsLoading}
-              required
-            >
-              <option value="">{departmentsLoading ? "Loading departments..." : "Select department"}</option>
-              {departments.map((dept) => (
-                <option key={dept.id} value={dept.name}>
-                  {dept.name}
-                </option>
-              ))}
-            </select>
-            <Input
-              name="phone"
-              placeholder="Phone"
-              value={values.phone}
-              max={10}
-              onChange={handleChange}
-              disabled={loading}
-            />
-            {/* MANAGER DROPDOWN */}
-            <select
-              name="manager"
-              className="border rounded px-1 py-1 text-sm bg-background"
-              value={values.manager}
-              onChange={handleChange}
-              disabled={loading || usersLoading}
-            >
-              <option value="">Select Manager</option>
-              {allUsers.filter(u=>u.role_name ==='manager' && u.is_active ).map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.user_name ? `${u.user_name} (${u.email})` : u.email}
-                </option>
-              ))}
-            </select>
-            
-            {/* BENCHMARKING OVERRIDES SECTION */}
-            {orgSettings?.benchmarking_enabled && orgSettings?.allow_user_level_override && (
-              <div className="space-y-2 border rounded-lg p-4 bg-muted/30">
-                <h4 className="text-sm font-semibold">Benchmarking Overrides</h4>
-                <div className="flex items-center space-x-1">
-                  <input
-                    type="checkbox"
-                    id="benchmarking_excluded"
-                    name="benchmarking_excluded"
-                    checked={values.benchmarking_excluded}
-                    onChange={(e) => setValues(v => ({ ...v, benchmarking_excluded: e.target.checked }))}
-                    disabled={loading}
-                    className="rounded"
-                  />
-                  <label htmlFor="benchmarking_excluded" className="text-sm">
-                    Exclude from benchmarking analysis
-                  </label>
-                </div>
-                
-                {!values.benchmarking_excluded && (
-                  <div className="grid grid-cols-2 gap-1">
-                    <div>
-                      <label className="text-xs text-muted-foreground">Min Hours/Day</label>
-                      <Input
-                        name="custom_min_hours_per_day"
-                        type="number"
-                        min="0"
-                        placeholder={`Default: ${orgSettings?.min_hours_per_day || 0}`}
-                        value={values.custom_min_hours_per_day}
-                        onChange={handleChange}
-                        disabled={loading}
-                        className="text-xs"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-muted-foreground">Max Hours/Day</label>
-                      <Input
-                        name="custom_max_hours_per_day"
-                        type="number"
-                        min="0"
-                        placeholder={`Default: ${orgSettings?.max_hours_per_day || 8}`}
-                        value={values.custom_max_hours_per_day}
-                        onChange={handleChange}
-                        disabled={loading}
-                        className="text-xs"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-muted-foreground">Min Hours/Week</label>
-                      <Input
-                        name="custom_min_hours_per_week"
-                        type="number"
-                        min="0"
-                        placeholder={`Default: ${orgSettings?.min_hours_per_week || 0}`}
-                        value={values.custom_min_hours_per_week}
-                        onChange={handleChange}
-                        disabled={loading}
-                        className="text-xs"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-muted-foreground">Max Hours/Week</label>
-                      <Input
-                        name="custom_max_hours_per_week"
-                        type="number"
-                        min="0"
-                        placeholder={`Default: ${orgSettings?.max_hours_per_week || 40}`}
-                        value={values.custom_max_hours_per_week}
-                        onChange={handleChange}
-                        disabled={loading}
-                        className="text-xs"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-muted-foreground">Min Hours/Month</label>
-                      <Input
-                        name="custom_min_hours_per_month"
-                        type="number"
-                        min="0"
-                        placeholder={`Default: ${orgSettings?.min_hours_per_month || 0}`}
-                        value={values.custom_min_hours_per_month}
-                        onChange={handleChange}
-                        disabled={loading}
-                        className="text-xs"
-                      />
-                    </div>
-                    <div>
-                      <label className="text-xs text-muted-foreground">Max Hours/Month</label>
-                      <Input
-                        name="custom_max_hours_per_month"
-                        type="number"
-                        min="0"
-                        placeholder={`Default: ${orgSettings?.max_hours_per_month || 160}`}
-                        value={values.custom_max_hours_per_month}
-                        onChange={handleChange}
-                        disabled={loading}
-                        className="text-xs"
-                      />
-                    </div>
-                  </div>
-                )}
+          <select
+            name="department"
+            className="border rounded px-1 py-1 text-sm bg-background"
+            value={values.department}
+            onChange={handleChange}
+            disabled={loading || departmentsLoading}
+            required
+          >
+            <option value="">{departmentsLoading ? "Loading departments..." : "Select department"}</option>
+            {departments.map((dept) => (
+              <option key={dept.id} value={dept.name}>
+                {dept.name}
+              </option>
+            ))}
+          </select>
+          <Input
+            name="phone"
+            type="tel"
+            placeholder="Phone"
+            value={values.phone}
+            onChange={handleChange}
+            disabled={loading}
+          />
+          {/* MANAGER DROPDOWN */}
+          <select
+            name="manager"
+            className="border rounded px-1 py-1 text-sm bg-background"
+            value={values.manager}
+            onChange={handleChange}
+            disabled={loading || usersLoading}
+          >
+            <option value="">Select Manager</option>
+            {allUsers.filter(u => u.role_name === 'manager' && u.is_active).map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.user_name ? `${u.user_name} (${u.email})` : u.email}
+              </option>
+            ))}
+          </select>
+
+          {/* BENCHMARKING OVERRIDES SECTION */}
+          {orgSettings?.benchmarking_enabled && orgSettings?.allow_user_level_override && (
+            <div className="space-y-2 border rounded-lg p-4 bg-muted/30">
+              <h4 className="text-sm font-semibold">Benchmarking Overrides</h4>
+              <div className="flex items-center space-x-1">
+                <input
+                  type="checkbox"
+                  id="benchmarking_excluded"
+                  name="benchmarking_excluded"
+                  checked={values.benchmarking_excluded}
+                  onChange={(e) => setValues(v => ({ ...v, benchmarking_excluded: e.target.checked }))}
+                  disabled={loading}
+                  className="rounded"
+                />
+                <label htmlFor="benchmarking_excluded" className="text-sm">
+                  Exclude from benchmarking analysis
+                </label>
               </div>
-            )}
-            
-            {error && (<div className="text-red-600 text-sm">{error}</div>)}
-          </div>
-    
-          <DialogFooter>
-            <Button type="submit" disabled={loading}>
-              {loading ? "Creating..." : "Create"}
+
+              {!values.benchmarking_excluded && (
+                <div className="grid grid-cols-2 gap-1">
+                  <div>
+                    <label className="text-xs text-muted-foreground">Min Hours/Day</label>
+                    <Input
+                      name="custom_min_hours_per_day"
+                      type="number"
+                      min="0"
+                      placeholder={`Default: ${orgSettings?.min_hours_per_day || 0}`}
+                      value={values.custom_min_hours_per_day}
+                      onChange={handleChange}
+                      disabled={loading}
+                      className="text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground">Max Hours/Day</label>
+                    <Input
+                      name="custom_max_hours_per_day"
+                      type="number"
+                      min="0"
+                      placeholder={`Default: ${orgSettings?.max_hours_per_day || 8}`}
+                      value={values.custom_max_hours_per_day}
+                      onChange={handleChange}
+                      disabled={loading}
+                      className="text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground">Min Hours/Week</label>
+                    <Input
+                      name="custom_min_hours_per_week"
+                      type="number"
+                      min="0"
+                      placeholder={`Default: ${orgSettings?.min_hours_per_week || 0}`}
+                      value={values.custom_min_hours_per_week}
+                      onChange={handleChange}
+                      disabled={loading}
+                      className="text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground">Max Hours/Week</label>
+                    <Input
+                      name="custom_max_hours_per_week"
+                      type="number"
+                      min="0"
+                      placeholder={`Default: ${orgSettings?.max_hours_per_week || 40}`}
+                      value={values.custom_max_hours_per_week}
+                      onChange={handleChange}
+                      disabled={loading}
+                      className="text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground">Min Hours/Month</label>
+                    <Input
+                      name="custom_min_hours_per_month"
+                      type="number"
+                      min="0"
+                      placeholder={`Default: ${orgSettings?.min_hours_per_month || 0}`}
+                      value={values.custom_min_hours_per_month}
+                      onChange={handleChange}
+                      disabled={loading}
+                      className="text-xs"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-muted-foreground">Max Hours/Month</label>
+                    <Input
+                      name="custom_max_hours_per_month"
+                      type="number"
+                      min="0"
+                      placeholder={`Default: ${orgSettings?.max_hours_per_month || 160}`}
+                      value={values.custom_max_hours_per_month}
+                      onChange={handleChange}
+                      disabled={loading}
+                      className="text-xs"
+                    />
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {error && (<div className="text-red-600 text-sm">{error}</div>)}
+        </div>
+
+        <DialogFooter>
+          <Button type="submit" disabled={loading}>
+            {loading ? "Creating..." : "Create"}
+          </Button>
+          <DialogClose asChild>
+            <Button type="button" variant="outline" disabled={loading}>
+              Cancel
             </Button>
-            <DialogClose asChild>
-              <Button type="button" variant="outline" disabled={loading}>
-                Cancel
-              </Button>
-            </DialogClose>
-          </DialogFooter>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
+          </DialogClose>
+        </DialogFooter>
+      </form>
+    </DialogContent>
+  </Dialog>
+);
 };
 
 export default CreateUserDialog;

@@ -800,20 +800,22 @@ app.get("/api/ai-providers/:providerKey/models", async (req, res) => {
   try {
     // Extract query parameters
     const projectId = req.query.projectId ? String(req.query.projectId) : null;
+    const milestoneId = req.query.milestoneId ? String(req.query.milestoneId) : null;
     const rootCause = req.query.rootCause ? String(req.query.rootCause) : null;
     const startDate = req.query.startDate ? String(req.query.startDate) : null;
     const endDate = req.query.endDate ? String(req.query.endDate) : null;
 
     // The shared WHERE clause for all queries
-    // $1 = projectId, $2 = rootCause, $3 = startDate, $4 = endDate
+    // $1 = projectId, $2 = rootCause, $3 = startDate, $4 = endDate, $5 = milestoneId
     const baseWhereClause = `
       WHERE ($1::uuid IS NULL OR d.project_id = $1)
         AND ($2::text IS NULL OR d.root_cause_analysis = $2)
         AND ($3::timestamp IS NULL OR d.created_at >= $3::timestamp)
         AND ($4::timestamp IS NULL OR d.created_at <= $4::timestamp)
+        AND ($5::uuid IS NULL OR d.milestone_id = $5)
     `;
 
-    const queryParams = [projectId, rootCause, startDate, endDate];
+    const queryParams = [projectId, rootCause, startDate, endDate, milestoneId];
 
     // --- Query A: High-Level Metrics & Aging ---
     const queryA = `
@@ -835,17 +837,17 @@ app.get("/api/ai-providers/:providerKey/models", async (req, res) => {
     `;
 
     // --- Query B: Root Cause Breakdown ---
-const queryB = `
-  SELECT
-    d.root_cause_analysis AS category,
-    COUNT(d.id) AS count
-  FROM defects d
-  ${baseWhereClause}
-    AND d.root_cause_analysis IS NOT NULL
-    AND TRIM(d.root_cause_analysis) <> ''
-  GROUP BY d.root_cause_analysis
-  ORDER BY count DESC
-`;
+    const queryB = `
+      SELECT
+        d.root_cause_analysis AS category,
+        COUNT(d.id) AS count
+      FROM defects d
+      ${baseWhereClause}
+        AND d.root_cause_analysis IS NOT NULL
+        AND TRIM(d.root_cause_analysis) <> ''
+      GROUP BY d.root_cause_analysis
+      ORDER BY count DESC
+    `;
 
     // --- Query C: Reporter Breakdown ---
     const queryC = `
@@ -4262,6 +4264,18 @@ app.get("/api/projects/:id", requireAnyAuthenticated, async (req, res) => {
       if (!access.canManageProject) {
         return res.status(403).json({ error: "Only direct project members or admins can delete this project" });
       }
+      
+            const projectId = req.params.id;
+      const project = await storage.getProject(projectId);
+       await storage.logActivity({
+        source_table: "projects",
+        event_type: "Project Deleted",
+        record_id: projectId,
+  
+        summary: {
+          project_name: project?.name },
+           performed_by: userId,
+      });
       await storage.deleteProject(req.params.id);
       res.status(204).send();
     } catch (error) {
@@ -5353,7 +5367,22 @@ app.post("/api/defects", requireAnyAuthenticated, async (req: any, res: any) => 
   // DELETE /api/defects/:id — admin / manager only
   app.delete("/api/defects/:id", requireRole(["admin", "manager", "team_manager"]), async (req: any, res: any) => {
     try {
-      await storage.deleteDefect(req.params.id);
+      const defectId = req.params.id;
+      const userId = req.headers['x-user-id'] as string | undefined;
+      const defect = await storage.getDefect(defectId);
+
+      await storage.logActivity({
+        source_table: "defects",
+        event_type: "DEFECT_DELETED",
+        record_id: defectId,
+        summary: {
+          title: defect?.title || defect?.name || "Untitled defect",
+          defect_title: defect?.title || defect?.name || "Untitled defect",
+        },
+        performed_by: userId || null,
+      });
+
+      await storage.deleteDefect(defectId);
       return res.json({ success: true });
     } catch (err: any) {
       return res.status(500).json({ error: "Failed to delete defect" });
@@ -5644,7 +5673,22 @@ app.post("/api/defects", requireAnyAuthenticated, async (req: any, res: any) => 
 
   app.delete("/api/clients/:id", requireManagerOrAdmin, async (req, res) => {
     try {
-      await storage.deleteClient(req.params.id);
+      const clientId = req.params.id;
+      const userId = req.headers['x-user-id'] as string | undefined;
+      const client = await storage.getClient(clientId);
+
+      await storage.logActivity({
+        source_table: "clients",
+        event_type: "CLIENT_DELETED",
+        record_id: clientId,
+        summary: {
+          client_name: client?.name || "Unnamed client",
+          name: client?.name || "Unnamed client",
+        },
+        performed_by: userId || null,
+      });
+
+      await storage.deleteClient(clientId);
       res.status(204).end();
     } catch (err: any) { res.status(500).json({ error: "Failed to delete client" }); }
   });

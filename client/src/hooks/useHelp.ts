@@ -139,6 +139,9 @@ export const useHelp = () => {
 
   // Get page category based on current route
   const getPageCategory = (pathname: string): string => {
+    if (pathname.includes('/defects')) return 'defect-management';
+    if (pathname.includes('/projects')) return 'project-management';
+    if (pathname.includes('/clients')) return 'client-management';
     if (pathname.includes('/users') || pathname.includes('/roles')) return 'user-management';
     if (pathname.includes('/teams')) return 'team-management';
     if (pathname.includes('/settings')) return 'settings';

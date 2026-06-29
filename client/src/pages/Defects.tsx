@@ -1,4 +1,3 @@
-
 import React, { useState, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api";
@@ -6,7 +5,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, Search, Bug } from "lucide-react";
+import { Plus, Search, Bug,Download } from "lucide-react";
 import { toast } from "@/hooks/use-toast";
 import useSupabaseSession from "@/hooks/useSupabaseSession";
 import { useCurrentUserRoleAndTeams } from "@/hooks/useCurrentUserRoleAndTeams";
@@ -15,6 +14,8 @@ import { format } from "date-fns";
 import CreateDefectSheet from "@/components/CreateDefectSheet";
 import DefectDetailsSheet from "@/components/DefectDetailsSheet";
 import { formatOrgDate } from "@/lib/dateUtils";
+import * as XLSX from "xlsx";
+
 
 const SEVERITY_COLORS: Record<string, string> = {
   critical: "bg-red-100 text-red-800 border-red-200",
@@ -40,6 +41,44 @@ function formatDefectNumber(n: number) {
 }
 
 export default function DefectsPage() {
+
+      // ── Excel export helper ────────────────────────────────────────────────────
+  function downloadExcel(
+    filename: string,
+    sheetName: string,
+    headers: string[],
+    rows: (string | number | null | undefined)[][],
+    metaRows?: string[][]
+  ) {
+    const wb = XLSX.utils.book_new();
+    const sheetData: (string | number | null | undefined)[][] = [];
+
+    // Optional metadata rows at top
+    if (metaRows) {
+      metaRows.forEach((r) => sheetData.push(r));
+      sheetData.push([]);
+    }
+
+    sheetData.push(headers);
+    rows.forEach((r) => sheetData.push(r));
+
+    const ws = XLSX.utils.aoa_to_sheet(sheetData);
+
+    // Auto-fit columns (rough approximation)
+    const colWidths = headers.map((h, ci) => {
+      const maxLen = Math.max(
+        h.length,
+        ...rows.map((r) => String(r[ci] ?? "").length)
+      );
+      return { wch: Math.min(Math.max(maxLen + 2, 10), 50) };
+    });
+    ws["!cols"] = colWidths;
+
+    // Style the header row (bold) via a simple comment — xlsx-light doesn't support full styles
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    XLSX.writeFile(wb, `${filename}_${formatOrgDate(new Date(), "yyyy-MM-dd")}.xlsx`);
+  }
+
   const { user } = useSupabaseSession();
   const { roles } = useCurrentUserRoleAndTeams();
   const { users } = useUsersAndTeams();
@@ -76,6 +115,7 @@ const getProjectName = (projectId: string | null) => {
       const q = search.toLowerCase();
       const matchesSearch =
         !q ||
+        d.id ||
         d.title.toLowerCase().includes(q) ||
         formatDefectNumber(d.defect_number).toLowerCase().includes(q) ||
         (d.description || "").toLowerCase().includes(q);
@@ -83,7 +123,7 @@ const getProjectName = (projectId: string | null) => {
       const matchesStatus   = filterStatus   === "all" || d.status   === filterStatus;
       const matchesType     = filterType     === "all" || d.type     === filterType;
       const matchesEnv      = filterEnv      === "all" || d.environment === filterEnv;
-      return matchesSearch && matchesSeverity && matchesStatus && matchesType && matchesEnv;
+      return matchesSearch && matchesSeverity && matchesStatus && matchesType && matchesEnv ;
     });
   }, [defects, search, filterSeverity, filterStatus, filterType, filterEnv]);
 
@@ -103,9 +143,36 @@ const getProjectName = (projectId: string | null) => {
             <h1 className="text-2xl font-semibold">Defects</h1>
             <Badge variant="outline" className="ml-1">{defects.length} total</Badge>
           </div>
-          <Button onClick={() => setCreateOpen(true)} className="flex items-center gap-2">
-            <Plus className="w-4 h-4" /> Report Defect
-          </Button>
+          <div className="flex item-center gap-2">
+            <Button onClick={() => setCreateOpen(true)} className="flex items-center gap-2">
+              <Plus className="w-4 h-4" /> Report Defect
+            </Button>
+            <Button
+                variant="outline"
+                size="sm"
+                className="gap-1.5 h-8 text-xs shrink-0"
+                onClick={() => {
+                  const meta = [["Defect Status Report"], [`Generated: ${formatOrgDate(new Date(), "PPP")}`]];
+                  const headers = ["ID", "Title", "Severity", "Status", "Type", "Env", "Project", "Assigned To", "Reported On"];
+                  const rows = filtered.map((d) => {
+                    return [
+                      formatDefectNumber(d.defect_number),
+                      d.title,
+                      d.severity,
+                      d.status,
+                      d.type,
+                      d.environment,
+                      getProjectName(d.project_id),
+                      getUserName(d.assigned_to),
+                      d.created_at ? formatOrgDate(new Date(d.created_at), "d MMM yyyy") : ""
+                    ];
+                  });
+                  downloadExcel("Defect_Status_Report", "Status Report", headers, rows, meta);
+                }}
+              >
+                <Download className="h-3.5 w-3.5" /> Export Excel
+              </Button>
+            </div>
         </div>
 
         {/* Filters */}

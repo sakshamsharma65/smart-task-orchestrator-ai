@@ -136,10 +136,26 @@ function renderSummary(log: any) {
         return <>Project "{s.name}" was created by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
     
     case "PROJECT_MEMBER_ADDED":
-      return <>User {s.added_user_name} was added to project "{s.project_name}" as {s.role_assigned} by {usersMap?.[log.performed_by] || "Unknown User"}.</>;}
+      return <>User {s.added_user_name} was added to project "{s.project_name}" as {s.role_assigned} by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
+    case "PROJECT_DELETED":
+    case "Project Deleted":
+      return <>Project "{s.project_name || s.name || "Unnamed project"}" was deleted by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
     
+  }}
+
+  if (log.source_table === "clients") {
+    switch (log.event_type) {
+      case "CLIENT_DELETED":
+        return <>Client "{s.client_name || s.name || "Unnamed client"}" was deleted by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
+    }
   }
 
+  if (log.source_table === "defects") {
+    switch (log.event_type) {
+      case "DEFECT_DELETED":
+        return <>Defect "{s.title || s.defect_title || s.name || "Untitled defect"}" was deleted by {usersMap?.[log.performed_by] || "Unknown User"}.</>;
+    }
+  }
 
   // ===== TASKS =====
   if (log.source_table === "tasks") {

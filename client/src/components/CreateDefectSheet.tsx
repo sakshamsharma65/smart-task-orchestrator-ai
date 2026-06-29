@@ -143,8 +143,12 @@ export default function CreateDefectSheet({ open, onOpenChange, currentUserId, d
       toast({ title: " Reporting User ID required", variant: "destructive" });
       return;
     }
-    if(!form.project_id){
-      toast({ title: "Project  required", variant: "destructive" });
+    if(!form.project_id && !form.milestone_id){
+      toast({ title: "Project or Milestone required", variant: "destructive" });
+      return;
+    }
+        if(form.project_id && !form.milestone_id){
+      toast({ title: "Project or Milestone required", variant: "destructive" });
       return;
     }
     const payload: any = {

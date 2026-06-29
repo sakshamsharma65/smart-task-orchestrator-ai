@@ -64,6 +64,38 @@ export const helpCategories: HelpCategory[] = [
     icon: 'AlertCircle',
     order: 8,
     roles: ['admin', 'manager', 'team_manager', 'user']
+  },
+  {
+    id: 'project-management',
+    name: 'Project Management',
+    description: 'Create projects and organize delivery work',
+    icon: 'FolderKanban',
+    order: 9,
+    roles: ['admin', 'manager', 'team_manager', 'user']
+  },
+  {
+    id: 'defect-management',
+    name: 'Defect Management',
+    description: 'Report, review, and resolve defects',
+    icon: 'Bug',
+    order: 10,
+    roles: ['admin', 'manager', 'team_manager', 'user']
+  },
+  {
+    id: 'client-management',
+    name: 'Client Management',
+    description: 'Maintain clients, contacts, and linked projects',
+    icon: 'Building2',
+    order: 11,
+    roles: ['admin', 'manager', 'team_manager']
+  },
+  {
+    id: 'client-portal-management',
+    name: 'Client Portal Management',
+    description: 'Control portal accounts and project access',
+    icon: 'ShieldCheck',
+    order: 12,
+    roles: ['admin', 'manager', 'team_manager']
   }
 ];
 
@@ -660,6 +692,268 @@ Complex analytical queries:
     lastUpdated: '2025-07-15',
     relatedTopics: ['benchmarking-setup', 'reporting', 'performance-analysis'],
     customComponent: 'BenchmarkingQueryGuide'
+  },
+
+  // Project Management
+  {
+    id: 'creating-projects',
+    title: 'Creating and Confirming Projects',
+    content: `
+# Creating and Confirming Projects
+
+## Create the project
+1. Open **Project Management → Projects**
+2. Select **New Project**
+3. Enter the name, description, timeline, effort, and budget
+4. Choose **Internal Project** or **Client Project**
+5. Select a project template or set the project type manually
+
+Client projects require an active or prospect client. Project types include Fixed Cost, Time & Material, Milestone-Based, and Retainer.
+
+## Confirm the project
+Review the project setup, then select **Confirm Project**. Confirmation changes the project to Active and locks its template.
+
+## Access notes
+- Admins create projects
+- Project managers and authorized members manage assigned projects
+- Other users only see projects available through their membership or reporting scope
+`,
+    category: 'project-management',
+    role: ['admin', 'manager', 'team_manager', 'user'],
+    scenario: ['project-setup-and-confirmation'],
+    context: ['projects', 'projects/new'],
+    tags: ['projects', 'create', 'template', 'confirmation', 'client-project'],
+    difficulty: 'beginner',
+    lastUpdated: '2026-06-29',
+    relatedTopics: ['managing-project-work', 'managing-clients', 'setting-up-client-portal-access']
+  },
+
+  {
+    id: 'managing-project-work',
+    title: 'Managing Work Inside a Project',
+    content: `
+# Managing Work Inside a Project
+
+Open a project to manage delivery from one place.
+
+## Project tabs
+- **Overview**: Dates, budget, effort, client, and progress
+- **Members**: Project managers, team members, client contacts, allocation, and history
+- **Milestones**: Delivery milestones and their stages
+- **Features**: Feature groups, features, and progress status
+- **Tasks**: Project tasks grouped by milestone
+- **Defects**: Issues reported against the project
+
+## Recommended flow
+1. Add the project manager and delivery members
+2. Create milestones and stages
+3. Organize features into groups
+4. Create tasks and connect them to milestones or features
+5. Track defects and project reports
+
+Management actions depend on project access. A user may be able to view a project without being allowed to change its structure.
+`,
+    category: 'project-management',
+    role: ['admin', 'manager', 'team_manager', 'user'],
+    scenario: ['project-setup-and-confirmation', 'daily-task-workflow'],
+    context: ['projects', 'project-detail'],
+    tags: ['projects', 'members', 'milestones', 'features', 'tasks', 'defects'],
+    difficulty: 'intermediate',
+    lastUpdated: '2026-06-29',
+    relatedTopics: ['creating-projects', 'reporting-defects', 'linking-clients-to-projects']
+  },
+
+  // Defect Management
+  {
+    id: 'reporting-defects',
+    title: 'Reporting and Finding Defects',
+    content: `
+# Reporting and Finding Defects
+
+## Report a defect
+1. Open **Defect Management → Defects**
+2. Select **Report Defect**
+3. Enter a clear title and reproduction details
+4. Set severity, priority, type, and environment
+5. Select the related project and milestone
+6. Add an assignee, team, due date, feature group, or feature when relevant
+
+The defect is saved as a Draft. Open it and select **Submit for Approval** when the details are ready.
+
+## Find defects
+- **Defects** provides search, filters, details, and Excel export
+- **Defect Board** groups defects by workflow status
+- **My Defects** shows defects you reported or that are assigned to you
+
+Include exact steps, expected behaviour, and actual behaviour so the issue can be reproduced quickly.
+`,
+    category: 'defect-management',
+    role: ['admin', 'manager', 'team_manager', 'user'],
+    scenario: ['defect-report-to-resolution'],
+    context: ['defects', 'defects/board', 'defects/my'],
+    tags: ['defects', 'report', 'severity', 'environment', 'draft', 'filters'],
+    difficulty: 'beginner',
+    lastUpdated: '2026-06-29',
+    relatedTopics: ['defect-review-and-resolution', 'managing-project-work', 'creating-tasks']
+  },
+
+  {
+    id: 'defect-review-and-resolution',
+    title: 'Reviewing and Resolving Defects',
+    content: `
+# Reviewing and Resolving Defects
+
+## Approval workflow
+1. The reporter submits a Draft or resubmits a Rejected defect
+2. A manager, team manager, or admin reviews it
+3. Assign a root-cause category before approval
+4. Approve the defect or reject it with a useful reason
+
+## Track the fix
+After approval, privileged users can:
+- Convert the defect into a new linked task
+- Link an existing open task
+- Assign ownership and a due date
+- Add resolution notes and comments
+
+## Status flow
+**Draft → Submitted → Approved → In Progress → Resolved → Verified → Closed**
+
+Rejected defects return to the reporter. Resolved or closed defects can be reopened when the issue occurs again.
+`,
+    category: 'defect-management',
+    role: ['admin', 'manager', 'team_manager', 'user'],
+    scenario: ['defect-report-to-resolution'],
+    context: ['defects', 'defect-details'],
+    tags: ['defects', 'approval', 'root-cause', 'linked-task', 'resolution', 'status'],
+    difficulty: 'intermediate',
+    lastUpdated: '2026-06-29',
+    relatedTopics: ['reporting-defects', 'creating-tasks', 'task-statuses']
+  },
+
+  // Client Management
+  {
+    id: 'managing-clients',
+    title: 'Managing Client Records',
+    content: `
+# Managing Client Records
+
+Client records hold organization details used by client projects and portal contacts.
+
+## Create or update a client
+1. Open **Project Management → Clients**
+2. Admins can select **New Client**
+3. Enter the organization name, type, industry, and status
+4. Add primary contact details and internal notes
+5. Open the client record for its overview, contacts, and project access
+
+Client statuses are Active, Prospect, and Inactive. Active and prospect clients can be selected when creating a client project.
+
+Deleting a client also removes its contacts and their project access, so confirm that the record is no longer required.
+`,
+    category: 'client-management',
+    role: ['admin', 'manager', 'team_manager'],
+    scenario: ['onboard-client-to-portal'],
+    context: ['clients'],
+    tags: ['clients', 'organization', 'primary-contact', 'status', 'notes'],
+    difficulty: 'beginner',
+    lastUpdated: '2026-06-29',
+    relatedTopics: ['linking-clients-to-projects', 'setting-up-client-portal-access', 'creating-projects']
+  },
+
+  {
+    id: 'linking-clients-to-projects',
+    title: 'Linking Clients, Projects, and Contacts',
+    content: `
+# Linking Clients, Projects, and Contacts
+
+These records serve different purposes:
+- A **client** is the organization
+- A **client project** links delivery work to that organization
+- A **portal contact** is a person who can sign in
+- **Project access** decides which projects that contact can open
+
+## Correct setup order
+1. Create the client
+2. Create a Client Project and select that client
+3. Add portal contacts inside the client record
+4. Grant each contact access to the required client projects
+
+Creating a client project does not automatically give every client contact portal access.
+`,
+    category: 'client-management',
+    role: ['admin', 'manager', 'team_manager'],
+    scenario: ['onboard-client-to-portal'],
+    context: ['clients', 'projects'],
+    tags: ['clients', 'client-project', 'contacts', 'project-access'],
+    difficulty: 'beginner',
+    lastUpdated: '2026-06-29',
+    relatedTopics: ['managing-clients', 'creating-projects', 'setting-up-client-portal-access']
+  },
+
+  // Client Portal Management
+  {
+    id: 'setting-up-client-portal-access',
+    title: 'Setting Up Client Portal Access',
+    content: `
+# Setting Up Client Portal Access
+
+## Add a portal contact
+1. Open a client and select **Contacts**
+2. Add the contact name, email, and optional job title
+3. Set an initial password of at least six characters
+4. Keep **Account Active** enabled
+
+## Grant project access
+1. Open the **Project Access** tab
+2. Select **Grant Access**
+3. Choose the contact and one of that client's projects
+4. Select an access level and review the permissions
+
+## Access levels
+- **Observer**: View project information, tasks, and defects
+- **Collaborator**: Observer access plus create and edit defects
+- **Approver**: Collaborator access plus defect approval, milestone approval, and timesheets
+
+Fine-grained switches can override the preset. Access is granted per contact and per project.
+`,
+    category: 'client-portal-management',
+    role: ['admin', 'manager', 'team_manager'],
+    scenario: ['onboard-client-to-portal'],
+    context: ['clients', 'project-access', 'portal'],
+    tags: ['portal', 'contacts', 'password', 'access-level', 'permissions'],
+    difficulty: 'intermediate',
+    lastUpdated: '2026-06-29',
+    relatedTopics: ['client-portal-experience', 'managing-clients', 'linking-clients-to-projects']
+  },
+
+  {
+    id: 'client-portal-experience',
+    title: 'What Clients Can Do in the Portal',
+    content: `
+# What Clients Can Do in the Portal
+
+Portal contacts sign in at **/portal/login** with the email and password configured on their contact record.
+
+## Portal dashboard
+Clients see only projects explicitly assigned to their contact. Each project card shows its status, access level, and available permissions.
+
+## Project view
+- Overview and milestones are available with project access
+- Tasks appear only when **View Tasks** is enabled
+- Defects appear only when **View Defects** is enabled
+- Creating, editing, or approving defects requires the matching permission
+
+Clients can inspect task and defect details, change their password, and sign out. If access is missing or the account is inactive, they should contact the project manager.
+`,
+    category: 'client-portal-management',
+    role: ['admin', 'manager', 'team_manager'],
+    scenario: ['onboard-client-to-portal'],
+    context: ['portal', 'clients', 'project-access'],
+    tags: ['portal', 'dashboard', 'projects', 'tasks', 'defects', 'permissions'],
+    difficulty: 'beginner',
+    lastUpdated: '2026-06-29',
+    relatedTopics: ['setting-up-client-portal-access', 'linking-clients-to-projects', 'reporting-defects']
   }
 ];
 
@@ -668,6 +962,7 @@ export const helpScenarios: HelpScenario[] = [
     id: 'generate-weekly-report',
     name: 'Generating Weekly Performance Report',
     description: 'Step-by-step process to create and distribute weekly team performance reports',
+    category: 'reporting',
     steps: [
       {
         id: 'navigate-reports',
@@ -723,6 +1018,7 @@ export const helpScenarios: HelpScenario[] = [
     id: 'benchmarking-analysis',
     name: 'Conducting Benchmarking Analysis',
     description: 'Complete process for analyzing team performance using benchmarking tools',
+    category: 'benchmarking',
     steps: [
       {
         id: 'access-benchmarking',
@@ -777,6 +1073,7 @@ export const helpScenarios: HelpScenario[] = [
     id: 'onboarding-new-user',
     name: 'Onboarding a New User',
     description: 'Complete process for adding and setting up a new team member',
+    category: 'user-management',
     steps: [
       {
         id: 'create-user-account',
@@ -843,6 +1140,7 @@ export const helpScenarios: HelpScenario[] = [
     id: 'daily-task-workflow',
     name: 'Daily Task Management Workflow',
     description: 'How to efficiently manage tasks throughout the day',
+    category: 'task-management',
     steps: [
       {
         id: 'morning-review',
@@ -892,6 +1190,199 @@ export const helpScenarios: HelpScenario[] = [
     roles: ['admin', 'manager', 'team_manager', 'user'],
     estimatedTime: 'Ongoing throughout day',
     difficulty: 'beginner'
+  },
+
+  {
+    id: 'project-setup-and-confirmation',
+    name: 'Set Up and Confirm a Project',
+    description: 'Create a project, organize its delivery structure, and confirm it',
+    category: 'project-management',
+    steps: [
+      {
+        id: 'create-project-record',
+        title: 'Create the Project',
+        description: 'Enter the project scope, type, timeline, and budget.',
+        action: 'Go to Project Management → Projects → New Project',
+        tips: [
+          'Select the client before saving a client project',
+          'Choose the template carefully because it locks after confirmation'
+        ]
+      },
+      {
+        id: 'add-project-members',
+        title: 'Add Members',
+        description: 'Add the project manager and the people responsible for delivery.',
+        action: 'Open the project → Members → Add Member',
+        tips: [
+          'Use allocation percentage to show planned availability',
+          'Client contacts can be added as project members'
+        ]
+      },
+      {
+        id: 'organize-project-delivery',
+        title: 'Organize Delivery',
+        description: 'Create milestones, stages, feature groups, and features.',
+        action: 'Complete the Milestones and Features tabs',
+        tips: [
+          'Group tasks under milestones for clearer progress tracking',
+          'Use feature groups for modules or major work areas'
+        ]
+      },
+      {
+        id: 'confirm-project',
+        title: 'Confirm the Project',
+        description: 'Review the setup and activate the project.',
+        action: 'Select Confirm Project',
+        warnings: [
+          'The project template cannot be changed after confirmation'
+        ]
+      }
+    ],
+    roles: ['admin'],
+    estimatedTime: '10-15 minutes',
+    difficulty: 'intermediate'
+  },
+
+  {
+    id: 'defect-report-to-resolution',
+    name: 'Move a Defect from Report to Resolution',
+    description: 'Report, review, fix, verify, and close a defect',
+    category: 'defect-management',
+    steps: [
+      {
+        id: 'record-defect',
+        title: 'Record the Defect',
+        description: 'Capture the issue, classification, reproduction details, and project linkage.',
+        action: 'Open Defects → Report Defect',
+        tips: [
+          'State the expected and actual behaviour clearly',
+          'Choose the environment where the issue occurred'
+        ]
+      },
+      {
+        id: 'submit-defect',
+        title: 'Submit for Review',
+        description: 'Open the saved draft and send it to a manager.',
+        action: 'Select Submit for Approval',
+        tips: [
+          'Resolve missing information before submitting',
+          'Rejected defects can be updated and resubmitted'
+        ]
+      },
+      {
+        id: 'review-defect',
+        title: 'Review and Approve',
+        description: 'A manager checks the report and assigns a root-cause category.',
+        action: 'Edit the root cause, then Approve or Reject',
+        warnings: [
+          'A root-cause category is required before approval'
+        ]
+      },
+      {
+        id: 'track-defect-fix',
+        title: 'Track the Fix',
+        description: 'Convert or link a task, then progress the defect through resolution.',
+        action: 'Move through In Progress → Resolved → Verified → Closed',
+        tips: [
+          'Add resolution notes before marking the defect resolved',
+          'Reopen the defect if verification fails'
+        ]
+      }
+    ],
+    roles: ['admin', 'manager', 'team_manager', 'user'],
+    estimatedTime: '5-10 minutes plus fix time',
+    difficulty: 'beginner'
+  },
+
+  {
+    id: 'create-client-and-link-project',
+    name: 'Create a Client and Link a Project',
+    description: 'Set up a client record and associate delivery work with it',
+    category: 'client-management',
+    steps: [
+      {
+        id: 'create-client-record',
+        title: 'Create the Client',
+        description: 'Add the organization and primary contact details.',
+        action: 'Go to Project Management → Clients → New Client',
+        tips: [
+          'Use Prospect when the relationship is not active yet',
+          'Keep internal notes concise and relevant'
+        ]
+      },
+      {
+        id: 'create-client-project',
+        title: 'Create a Client Project',
+        description: 'Create the delivery project and connect it to the client.',
+        action: 'Select New Project → Client Project → choose the client',
+        warnings: [
+          'Only active or prospect clients are available for selection'
+        ]
+      },
+      {
+        id: 'verify-client-link',
+        title: 'Verify the Link',
+        description: 'Check that the project appears on the client record.',
+        action: 'Open the client and review its project information',
+        nextSteps: [
+          'Add portal contacts if the client needs external access'
+        ]
+      }
+    ],
+    roles: ['admin', 'manager', 'team_manager'],
+    estimatedTime: '5-10 minutes',
+    difficulty: 'beginner'
+  },
+
+  {
+    id: 'onboard-client-to-portal',
+    name: 'Onboard a Contact to the Client Portal',
+    description: 'Create a portal account and grant project-specific permissions',
+    category: 'client-portal-management',
+    steps: [
+      {
+        id: 'add-portal-contact',
+        title: 'Add the Portal Contact',
+        description: 'Create the contact under the correct client.',
+        action: 'Open Client → Contacts → Add Contact',
+        tips: [
+          'Use a unique, valid email address',
+          'Set a temporary password of at least six characters'
+        ]
+      },
+      {
+        id: 'activate-portal-account',
+        title: 'Activate the Account',
+        description: 'Confirm that the contact can authenticate.',
+        action: 'Enable Account Active and save the contact',
+        warnings: [
+          'Inactive contacts cannot sign in'
+        ]
+      },
+      {
+        id: 'grant-contact-project-access',
+        title: 'Grant Project Access',
+        description: 'Choose exactly which client project the contact can open.',
+        action: 'Open Project Access → Grant Access',
+        tips: [
+          'Start with the closest access-level preset',
+          'Review fine-grained permissions before saving'
+        ]
+      },
+      {
+        id: 'verify-portal-view',
+        title: 'Verify the Portal View',
+        description: 'Confirm that the contact can see the intended project and features.',
+        action: 'Sign in at /portal/login and open the assigned project',
+        nextSteps: [
+          'Ask the contact to change the temporary password',
+          'Adjust or revoke access when responsibilities change'
+        ]
+      }
+    ],
+    roles: ['admin', 'manager', 'team_manager'],
+    estimatedTime: '5-10 minutes',
+    difficulty: 'intermediate'
   }
 ];
 
@@ -1004,5 +1495,82 @@ export const helpFAQs: FAQ[] = [
     popularity: 71,
     lastUpdated: '2025-07-15',
     relatedTopics: ['task-statuses', 'user-roles', 'permissions']
+  },
+
+  {
+    id: 'defect-saved-as-draft',
+    question: 'Why is a newly reported defect saved as Draft?',
+    answer: 'Draft status lets the reporter review the details before manager approval. Open the defect and select Submit for Approval when it is ready.',
+    category: 'defect-management',
+    roles: ['admin', 'manager', 'team_manager', 'user'],
+    popularity: 90,
+    lastUpdated: '2026-06-29',
+    relatedTopics: ['reporting-defects', 'defect-review-and-resolution']
+  },
+
+  {
+    id: 'defect-approval-permission',
+    question: 'Why can\'t I approve a submitted defect?',
+    answer: 'Approval is available to admins, managers, and team managers. The defect must be Submitted, and a root-cause category must be assigned before approval.',
+    category: 'defect-management',
+    roles: ['admin', 'manager', 'team_manager', 'user'],
+    popularity: 88,
+    lastUpdated: '2026-06-29',
+    relatedTopics: ['defect-review-and-resolution', 'reporting-defects']
+  },
+
+  {
+    id: 'project-visibility-and-management',
+    question: 'Why can I view a project but not manage it?',
+    answer: 'Viewing and management use different access rules. Admins and authorized project managers can change project structure; other members may only view the project or add permitted work.',
+    category: 'project-management',
+    roles: ['admin', 'manager', 'team_manager', 'user'],
+    popularity: 87,
+    lastUpdated: '2026-06-29',
+    relatedTopics: ['creating-projects', 'managing-project-work']
+  },
+
+  {
+    id: 'project-confirmation-effect',
+    question: 'What happens when I confirm a project?',
+    answer: 'The project becomes Active and its selected template is locked. Review the template and setup before confirming.',
+    category: 'project-management',
+    roles: ['admin', 'manager', 'team_manager', 'user'],
+    popularity: 83,
+    lastUpdated: '2026-06-29',
+    relatedTopics: ['creating-projects', 'managing-project-work']
+  },
+
+  {
+    id: 'client-versus-portal-contact',
+    question: 'What is the difference between a client and a portal contact?',
+    answer: 'A client is the organization. A portal contact is an individual under that client who can receive login credentials and project-specific access.',
+    category: 'client-management',
+    roles: ['admin', 'manager', 'team_manager'],
+    popularity: 89,
+    lastUpdated: '2026-06-29',
+    relatedTopics: ['managing-clients', 'linking-clients-to-projects']
+  },
+
+  {
+    id: 'portal-project-not-visible',
+    question: 'Why can\'t a portal contact see a client project?',
+    answer: 'The contact must be active, have a portal password, and receive explicit access to that project. Linking a project to the client does not grant access automatically.',
+    category: 'client-portal-management',
+    roles: ['admin', 'manager', 'team_manager'],
+    popularity: 94,
+    lastUpdated: '2026-06-29',
+    relatedTopics: ['setting-up-client-portal-access', 'linking-clients-to-projects']
+  },
+
+  {
+    id: 'portal-access-levels',
+    question: 'What do Observer, Collaborator, and Approver mean?',
+    answer: 'Observer is view-focused, Collaborator can also create and edit defects, and Approver adds approval permissions. Fine-grained switches can adjust any preset for a specific project.',
+    category: 'client-portal-management',
+    roles: ['admin', 'manager', 'team_manager'],
+    popularity: 91,
+    lastUpdated: '2026-06-29',
+    relatedTopics: ['setting-up-client-portal-access', 'client-portal-experience']
   }
 ];

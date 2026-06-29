@@ -47,11 +47,7 @@ const HelpCenter: React.FC<HelpCenterProps> = ({ initialTopic }) => {
 
   // Filter scenarios based on selected category
   const filteredScenarios = selectedCategory
-    ? availableScenarios.filter(scenario => 
-        availableCategories.find(cat => cat.id === selectedCategory)?.roles.some(role => 
-          scenario.roles.includes(role)
-        )
-      )
+    ? availableScenarios.filter(scenario => scenario.category === selectedCategory)
     : availableScenarios;
 
   // Filter FAQs based on selected category
